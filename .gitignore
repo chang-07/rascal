@@ -1,0 +1,14 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Built app bundle
+build/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.xcodeproj/
