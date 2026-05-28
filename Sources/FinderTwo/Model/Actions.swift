@@ -295,5 +295,24 @@ enum ActionRegistry {
             dict.removeValue(forKey: id)
         }
         UserDefaults.standard.set(dict, forKey: "FinderTwo.shortcuts")
+        NotificationCenter.default.post(name: ActionRegistry.shortcutsDidChange, object: nil)
     }
+
+    /// True when the action's effective shortcut differs from its built-in default.
+    static func isCustomized(_ id: String) -> Bool {
+        let dict = UserDefaults.standard.dictionary(forKey: "FinderTwo.shortcuts") as? [String: [String: Any]] ?? [:]
+        return dict[id] != nil
+    }
+
+    /// Returns the id of an action already bound to `shortcut`, other than
+    /// `excluding`. Used by the editor to flag conflicts before assigning.
+    static func conflictingActionId(for target: KeyShortcut, excluding id: String) -> String? {
+        for a in all where a.id != id {
+            if shortcut(for: a.id) == target { return a.id }
+        }
+        return nil
+    }
+
+    /// Fired whenever a custom shortcut is set or cleared, so the menu can rebuild.
+    static let shortcutsDidChange = Notification.Name("FinderTwo.shortcutsDidChange")
 }
