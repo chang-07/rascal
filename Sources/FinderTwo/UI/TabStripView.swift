@@ -6,7 +6,7 @@ protocol TabStripDelegate: AnyObject {
     func tabStripDidRequestNew()
 }
 
-final class TabStripView: NSView {
+final class TabStripView: NSView, ThemeObserving {
     weak var delegate: TabStripDelegate?
 
     private let stack = NSStackView()
@@ -17,8 +17,14 @@ final class TabStripView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    @objc func applyTheme() {
+        layer?.backgroundColor = ThemeManager.shared.current.toolbarBackground.cgColor
+        rebuild()   // re-tint active/hover with the live accent
+    }
 
     private func setup() {
         wantsLayer = true

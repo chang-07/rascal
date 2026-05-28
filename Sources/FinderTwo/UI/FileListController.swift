@@ -112,10 +112,18 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         subscribeToTheme(self)
     }
 
-    /// Apply density (row height) + font + accent live when appearance settings
-    /// or theme change, then re-render rows.
+    /// Apply density (row height) + font + accent + themed background live when
+    /// appearance settings or theme change, then re-render rows.
     @objc func applyTheme() {
+        let t = ThemeManager.shared.current
         tableView.rowHeight = ThemeManager.shared.effectiveRowHeight
+        // Non-"System" themes paint a solid themed background; System keeps the
+        // native look (and native alternating rows).
+        let custom = t.id != "system"
+        tableView.backgroundColor = custom ? t.background : .controlBackgroundColor
+        tableView.usesAlternatingRowBackgroundColors = !custom
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = custom ? t.background : .controlBackgroundColor
         tableView.reloadData()
     }
 
