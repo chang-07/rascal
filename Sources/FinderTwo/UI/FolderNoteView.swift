@@ -122,4 +122,19 @@ final class FolderNoteView: NSView, NSTextViewDelegate, ThemeObserving {
     /// Called by PaneController when the drawer is being hidden — make sure
     /// pending edits are persisted.
     func saveNow() { save() }
+
+    /// Persist pending edits when the view leaves its window (window close,
+    /// drawer removal) so the 1.5 s debounce can't drop the last keystrokes.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            saveTimer?.invalidate()
+            saveTimer = nil
+            save()
+        }
+    }
+
+    deinit {
+        saveTimer?.invalidate()
+    }
 }

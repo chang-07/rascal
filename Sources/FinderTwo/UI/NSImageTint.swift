@@ -4,7 +4,7 @@ extension NSImage {
     /// Returns a copy of the receiver tinted by `color`. Used for sidebar tag
     /// dots and SF Symbol coloring.
     func tinted(_ color: NSColor) -> NSImage {
-        let copy = self.copy() as! NSImage
+        guard let copy = self.copy() as? NSImage else { return self }
         copy.lockFocus()
         color.set()
         let imgRect = NSRect(origin: .zero, size: copy.size)
