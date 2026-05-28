@@ -12,6 +12,13 @@ final class DirectoryModel {
     private(set) var rawItems: [FileItem] = []
     private(set) var items: [FileItem] = []     // filtered + sorted
 
+    /// Git working-tree state for entries in this directory (filename → state),
+    /// plus the enclosing repo's branch/ahead-behind. Computed asynchronously
+    /// after each load; empty when the directory isn't inside a git repo.
+    private(set) var gitStates: [String: GitStatus.FileState] = [:]
+    private(set) var gitRepoInfo: GitStatus.RepoInfo?
+    private static let gitQueue = DispatchQueue(label: "FinderTwo.git", qos: .utility)
+
     var sort = SortDescriptor() { didSet { previousFilterAndItems = nil; recompute(forceSync: false) } }
     var showHidden = false { didSet { previousFilterAndItems = nil; recompute(forceSync: false) } }
     var filterText: String = "" {
@@ -109,6 +116,7 @@ final class DirectoryModel {
             self.recompute(forceSync: !applyOnMain)
             self.lastReloadFinishedAt = Date()
             self.pendingReload = false
+            self.computeGitStatus()
             let t3 = Date()
             if raw.count > 1000 {
                 NSLog("DM: reload \(self.url.lastPathComponent) n=\(raw.count) dir=\(Int(t1.timeIntervalSince(t0)*1000))ms load=\(Int(t2.timeIntervalSince(t1)*1000))ms sort=\(Int(t3.timeIntervalSince(t2)*1000))ms async=\(applyOnMain)")
@@ -119,6 +127,34 @@ final class DirectoryModel {
         } else {
             apply()
         }
+    }
+
+    /// Compute git state for the current directory off-main, then publish on
+    /// the main queue (dropping results if the directory changed meanwhile).
+    private func computeGitStatus() {
+        let dir = url
+        let gen = loadGeneration
+        DirectoryModel.gitQueue.async { [weak self] in
+            let root = GitStatus.repoRoot(for: dir)
+            let info = root.map { GitStatus.repoInfo(root: $0) }
+            let states = root.map { GitStatus.fileStates(in: dir, repoRoot: $0) } ?? [:]
+            DispatchQueue.main.async {
+                guard let self, gen == self.loadGeneration, dir == self.url else { return }
+                let changed = self.gitStates != states || self.gitRepoInfo != info
+                self.gitStates = states
+                self.gitRepoInfo = info
+                if changed { self.delegate?.directoryModelDidUpdate(self) }
+            }
+        }
+    }
+
+    /// Test hook: compute git state synchronously on the calling thread.
+    func testRefreshGitSync() {
+        guard let root = GitStatus.repoRoot(for: url) else {
+            gitStates = [:]; gitRepoInfo = nil; return
+        }
+        gitRepoInfo = GitStatus.repoInfo(root: root)
+        gitStates = GitStatus.fileStates(in: url, repoRoot: root)
     }
 
     private func recompute(forceSync: Bool = false) {

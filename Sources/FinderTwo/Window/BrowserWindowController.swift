@@ -76,7 +76,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             self.window?.title = name
             let abbreviated = (url.deletingLastPathComponent().path as NSString)
                 .abbreviatingWithTildeInPath
-            self.window?.subtitle = abbreviated
+            // Prefix the branch when inside a git repo (synchronous HEAD read).
+            if let root = GitBranchWorkspaces.repoRoot(for: url),
+               let branch = GitBranchWorkspaces.currentBranch(in: root) {
+                self.window?.subtitle = "⎇ \(branch)  ·  \(abbreviated)"
+            } else {
+                self.window?.subtitle = abbreviated
+            }
             self.sidebarVC.highlight(url: url)
             // Git-bound workspaces: register this WC against the new path's
             // repo so branch changes restore the right tabs.
@@ -287,6 +293,37 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     @objc func connectToServer(_ sender: Any?) {
         SFTPConnectSheetController.show(for: self)
+    }
+
+    // MARK: Project / editor
+
+    /// Navigate the active pane to the enclosing project root (.git, package.json, …).
+    @objc func jumpToProjectRoot(_ sender: Any?) {
+        guard let pane = activePane else { return }
+        guard let root = ProjectRoot.find(for: pane.currentURL) else {
+            NSSound.beep(); return
+        }
+        pane.navigate(to: root)
+    }
+
+    /// Open the project root (or the selected folder / current dir) in the
+    /// first installed editor. If a specific editor is encoded in the menu
+    /// item's representedObject, use that one.
+    @objc func openInEditor(_ sender: Any?) {
+        guard let pane = activePane else { return }
+        let base: URL = pane.selectedURLs().first(where: {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }) ?? pane.currentURL
+        let target = ProjectRoot.find(for: base) ?? base
+        let chosen: Editor?
+        if let item = sender as? NSMenuItem, let raw = item.representedObject as? String {
+            chosen = Editor(rawValue: raw)
+        } else {
+            chosen = Editor.installed.first
+        }
+        guard let editor = chosen, editor.open(target) else {
+            NSSound.beep(); return
+        }
     }
 
     @objc func uninstallApp(_ sender: Any?) {
