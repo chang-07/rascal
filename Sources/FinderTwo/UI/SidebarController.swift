@@ -204,8 +204,13 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         return 0
     }
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        if item == nil { return sections[index] }
-        return (item as! Section).items[index]
+        if item == nil {
+            return sections.indices.contains(index) ? sections[index] : Section(title: "", items: [])
+        }
+        guard let section = item as? Section, section.items.indices.contains(index) else {
+            return Section(title: "", items: [])
+        }
+        return section.items[index]
     }
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
         item is Section

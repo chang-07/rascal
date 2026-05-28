@@ -42,12 +42,13 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
         let dLbl = NSTextField(labelWithString: "To:")
         let pickS = NSButton(title: "Choose…", target: self, action: #selector(pickSource))
         let pickD = NSButton(title: "Choose…", target: self, action: #selector(pickDest))
-        for v in [sLbl, dLbl, sourceField, destField, pickS, pickD, mirrorPruneCheck] {
+        let allViews: [NSView] = [sLbl, dLbl, sourceField, destField, pickS, pickD, mirrorPruneCheck]
+        for v in allViews {
             v.translatesAutoresizingMaskIntoConstraints = false
-            if let l = v as? NSTextField, !(l is NSTextField || l === sourceField || l === destField) {
-                l.font = NSFont.systemFont(ofSize: 12)
-            }
             cv.addSubview(v)
+        }
+        for lbl in [sLbl, dLbl] {
+            lbl.font = NSFont.systemFont(ofSize: 12)
         }
         for tf in [sourceField, destField] {
             tf.font = NSFont.systemFont(ofSize: 12)

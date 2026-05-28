@@ -190,4 +190,9 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
         textView.insertionPointColor = t.accent
         prompt.textColor = t.accent
     }
+
+    deinit {
+        // Don't leave a child process running if the drawer/window is torn down.
+        if runningTask?.isRunning == true { runningTask?.terminate() }
+    }
 }

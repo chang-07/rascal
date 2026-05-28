@@ -41,7 +41,7 @@ enum Archive {
     /// Lists all entries in an archive. Cached per-URL for the lifetime of
     /// the process — re-list if the user explicitly reloads.
     static func list(_ url: URL) -> [Entry] {
-        if let cached = cache.object(forKey: url as NSURL) { return cached as! [Entry] }
+        if let cached = cache.object(forKey: url as NSURL) { return cached.entries }
         guard let kind = Kind.detect(url) else { return [] }
         let entries: [Entry]
         switch kind {
@@ -50,7 +50,7 @@ enum Archive {
         case .tar, .tarGz, .tarBz2:
             entries = listTar(url, flags: kind.tarFlags)
         }
-        cache.setObject(entries as NSArray, forKey: url as NSURL)
+        cache.setObject(EntryList(entries), forKey: url as NSURL)
         return entries
     }
 
@@ -139,7 +139,13 @@ enum Archive {
 
     // MARK: - Tools
 
-    private static let cache = NSCache<NSURL, NSArray>()
+    /// Reference-type wrapper so NSCache (which requires class values) stores
+    /// the struct array without lossy `as NSArray` bridging.
+    private final class EntryList {
+        let entries: [Entry]
+        init(_ entries: [Entry]) { self.entries = entries }
+    }
+    private static let cache = NSCache<NSURL, EntryList>()
 
     private static func listZip(_ url: URL) -> [Entry] {
         // `unzip -l` outputs columns: Length, Date, Time, Name. Trailing slash
