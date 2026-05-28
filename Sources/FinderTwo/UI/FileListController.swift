@@ -195,7 +195,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             let cell = (tableView.makeView(withIdentifier: cellId, owner: nil) as? NameCell) ?? NameCell()
             cell.identifier = cellId
             cell.renameDelegate = self
-            cell.configure(with: item)
+            cell.configure(with: item, gitState: model.gitStates[item.name])
             cell.imageView?.image = thumbnail(for: item, indexPath: row)
             return cell
         case "modified":
@@ -496,6 +496,25 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         m.addItem(NSMenuItem(title: "Open With…", action: #selector(menuOpenWith), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Reveal in Finder", action: #selector(menuReveal), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Open in Terminal", action: #selector(menuOpenTerm), keyEquivalent: ""))
+        // "Open in Editor" → submenu of installed editors (built lazily so newly
+        // installed editors appear without relaunch).
+        let editorItem = NSMenuItem(title: "Open in Editor", action: nil, keyEquivalent: "")
+        let editorMenu = NSMenu()
+        let installed = Editor.installed
+        if installed.isEmpty {
+            let none = NSMenuItem(title: "No editor found", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            editorMenu.addItem(none)
+        } else {
+            for ed in installed {
+                let it = NSMenuItem(title: ed.displayName, action: #selector(menuOpenInEditor(_:)), keyEquivalent: "")
+                it.representedObject = ed.rawValue
+                it.target = self
+                editorMenu.addItem(it)
+            }
+        }
+        editorItem.submenu = editorMenu
+        m.addItem(editorItem)
         m.addItem(NSMenuItem.separator())
         m.addItem(NSMenuItem(title: "Get Info", action: #selector(menuGetInfo), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Copy", action: #selector(menuCopy), keyEquivalent: ""))
@@ -537,6 +556,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     @objc private func menuOpenTerm() {
         guard let wc = view.window?.windowController as? BrowserWindowController else { return }
         wc.openInTerminal(nil)
+    }
+    @objc private func menuOpenInEditor(_ sender: NSMenuItem) {
+        guard let wc = view.window?.windowController as? BrowserWindowController else { return }
+        wc.openInEditor(sender)   // sender.representedObject carries the chosen editor
     }
     @objc private func menuGetInfo() { FileOps.getInfo(selectedItems().map { $0.url }) }
     @objc private func menuCopy() {
@@ -622,6 +645,7 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
     weak var renameDelegate: NameCellDelegate?
     private let icon = NSImageView()
     let name = NSTextField()
+    private let gitBadge = NSTextField(labelWithString: "")
     private(set) var currentItem: FileItem?
     private var isEditing = false
     private var originalNameBeforeEdit: String = ""
@@ -648,8 +672,16 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
         name.cell?.usesSingleLineMode = true
         name.cell?.wraps = false
         name.delegate = self
+
+        gitBadge.translatesAutoresizingMaskIntoConstraints = false
+        gitBadge.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        gitBadge.alignment = .center
+        gitBadge.setContentHuggingPriority(.required, for: .horizontal)
+        gitBadge.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         addSubview(icon)
         addSubview(name)
+        addSubview(gitBadge)
         self.imageView = icon
         self.textField = name
         NSLayoutConstraint.activate([
@@ -658,17 +690,36 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
             icon.widthAnchor.constraint(equalToConstant: 16),
             icon.heightAnchor.constraint(equalToConstant: 16),
             name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
-            name.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             name.centerYAnchor.constraint(equalTo: centerYAnchor),
+            gitBadge.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: 6),
+            gitBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            gitBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
-    func configure(with item: FileItem) {
+    func configure(with item: FileItem, gitState: GitStatus.FileState? = nil) {
         currentItem = item
         if !isEditing {
             name.stringValue = item.name
         }
         name.textColor = item.isHidden ? .tertiaryLabelColor : .labelColor
         name.font = ThemeManager.shared.font()   // live font size + monospaced themes
+        applyGitState(gitState)
+    }
+
+    private func applyGitState(_ state: GitStatus.FileState?) {
+        guard let state else { gitBadge.stringValue = ""; return }
+        gitBadge.stringValue = state.letter
+        gitBadge.textColor = NameCell.color(for: state)
+    }
+
+    static func color(for state: GitStatus.FileState) -> NSColor {
+        switch state {
+        case .modified, .modifiedFolder, .renamed: return .systemOrange
+        case .added, .untracked: return .systemGreen
+        case .deleted: return .systemRed
+        case .conflicted: return .systemRed
+        case .ignored: return .tertiaryLabelColor
+        }
     }
 
     func beginEditing() {
