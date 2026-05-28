@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// Sheet that shows the contents of a `.zip`/`.tar*` archive as an outline.
 /// Lets the user extract a single entry or the whole archive.
@@ -182,7 +183,8 @@ final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource,
                                             accessibilityDescription: nil)
         } else {
             let ext = (node.name as NSString).pathExtension
-            cell.imageView?.image = NSWorkspace.shared.icon(forFileType: ext)
+            let type = UTType(filenameExtension: ext) ?? .data
+            cell.imageView?.image = NSWorkspace.shared.icon(for: type)
         }
         cell.imageView?.contentTintColor = isDir ? .secondaryLabelColor : nil
         return cell

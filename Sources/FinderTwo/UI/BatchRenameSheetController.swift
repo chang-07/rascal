@@ -1,5 +1,5 @@
 import AppKit
-import AVFoundation
+import CoreServices
 
 /// Batch rename sheet. Takes the active pane's selected items and offers:
 ///   - regex find / replace (Swift NSRegularExpression)
@@ -39,8 +39,10 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
     static func testPreview(items: [FileItem],
                             find: String, repl: String, template: String,
                             useRegex: Bool, start: Int, pad: Int) -> [Row] {
-        let dummy = BatchRenameSheetController(target: BrowserWindowController(
-            rootURL: FileManager.default.homeDirectoryForCurrentUser), items: items)
+        // Hold a strong reference for the duration of the call so the weak
+        // `target` stays valid while rebuildPreview runs.
+        let owner = BrowserWindowController(rootURL: FileManager.default.homeDirectoryForCurrentUser)
+        let dummy = BatchRenameSheetController(target: owner, items: items)
         dummy.findField.stringValue = find
         dummy.replField.stringValue = repl
         dummy.templateField.stringValue = template
@@ -277,14 +279,14 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
         return nil
     }
 
+    /// Reads a media file's title synchronously via Spotlight metadata
+    /// (`kMDItemTitle`). This avoids AVFoundation's deprecated synchronous
+    /// `commonMetadata` while keeping the batch-rename preview synchronous.
     private func mediaTitle(at url: URL) -> String? {
-        let asset = AVURLAsset(url: url)
-        for key in [AVMetadataKey.commonKeyTitle.rawValue] {
-            for item in asset.commonMetadata {
-                if item.commonKey?.rawValue == key, let v = item.stringValue {
-                    return v
-                }
-            }
+        guard let item = MDItemCreateWithURL(kCFAllocatorDefault, url as CFURL) else { return nil }
+        if let title = MDItemCopyAttribute(item, kMDItemTitle) as? String,
+           !title.isEmpty {
+            return title
         }
         return nil
     }
