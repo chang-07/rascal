@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// Cache for the small 16×16 icons we draw on each row. Two tiers:
 ///
@@ -26,13 +27,15 @@ final class IconCache {
         if let cached = extCache.object(forKey: ext as NSString) {
             return cached
         }
-        // Per-extension generic icon: NSWorkspace.icon(forFileType:) sees only
-        // the extension, never opens the file.
+        // Per-extension generic icon derived from the UTType for the extension —
+        // never opens the file, and shared across all files of that extension.
         let img: NSImage
         if ext.isEmpty {
             img = NSWorkspace.shared.icon(forFile: item.url.path)
+        } else if let type = UTType(filenameExtension: ext) {
+            img = NSWorkspace.shared.icon(for: type)
         } else {
-            img = NSWorkspace.shared.icon(forFileType: ext)
+            img = NSWorkspace.shared.icon(for: .data)
         }
         img.size = NSSize(width: 16, height: 16)
         extCache.setObject(img, forKey: ext as NSString)
@@ -57,7 +60,7 @@ final class IconCache {
         return c
     }()
     private let folderIcon: NSImage = {
-        let img = NSWorkspace.shared.icon(forFileType: "public.folder")
+        let img = NSWorkspace.shared.icon(for: .folder)
         img.size = NSSize(width: 16, height: 16)
         return img
     }()
