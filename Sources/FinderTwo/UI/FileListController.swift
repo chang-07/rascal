@@ -492,8 +492,25 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         for it in selectedItems() { delegate?.fileListOpenItem(it); break }
     }
     @objc private func menuOpenWith() {
-        for u in selectedItems().map({ $0.url }) {
-            NSWorkspace.shared.openFile(u.path, withApplication: nil, andDeactivate: true)
+        let urls = selectedItems().map { $0.url }
+        guard !urls.isEmpty else { NSSound.beep(); return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.message = "Choose an application to open the selected item(s)"
+        let appWindow = view.window
+        let complete: (NSApplication.ModalResponse) -> Void = { resp in
+            guard resp == .OK, let appURL = panel.url else { return }
+            let cfg = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open(urls, withApplicationAt: appURL,
+                                    configuration: cfg, completionHandler: nil)
+        }
+        if let w = appWindow {
+            panel.beginSheetModal(for: w, completionHandler: complete)
+        } else {
+            complete(panel.runModal())
         }
     }
     @objc private func menuReveal() { FileOps.revealInFinder(selectedItems().map { $0.url }) }
