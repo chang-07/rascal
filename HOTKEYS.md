@@ -104,7 +104,7 @@ restores whatever you had open on the branch you switched to.
 
 | Shortcut | Action |
 |---|---|
-| `⌘,` | Settings (theme picker + Vim toggle) |
+| `⌘,` | Settings (General · Appearance · Keyboard · Hotbar · Advanced) |
 | `⌘N` | New window |
 | `⌘M` | Minimize |
 | `⌘H` | Hide FinderTwo |
@@ -154,9 +154,21 @@ Click any entry to navigate the active pane there.
 
 ---
 
+## Settings (`⌘,`)
+
+A System-Settings-style window with five sections:
+
+- **General** — where new windows open (last session / Home / Desktop / Documents / Downloads), restore-session-on-launch toggle, show-hidden-by-default, type-to-filter toggle, default view (List / Columns).
+- **Appearance** — theme, accent color (9 choices + System), density (Compact / Comfortable / Spacious → row height), font size (−1…+4 pt), with a **live preview** strip that reflects every change instantly.
+- **Keyboard** — every action with a click-to-record shortcut field. Recording captures the next combo (needs ⌘/⌃/⌥); `⌫` clears, `Esc` cancels. **Conflicts are detected** — reassigning a combo prompts to steal it from the other action. Per-row **Reset** and **Restore All Defaults**. Changes rebuild the menu **live**.
+- **Hotbar** — choose which actions appear in each pane's hotbar; reorder by drag or ↑/↓, add from a popup, remove, or reset.
+- **Advanced** — Vim toggle, reveal/reload the plugins folder, reset General & Appearance.
+
+All preferences are plain `UserDefaults` — no account, no cloud.
+
 ## Themes
 
-Pick in Settings (`⌘,`) or run "Theme: …" from the palette.
+Pick in Settings (`⌘,`) → Appearance, or run "Theme: …" from the palette.
 
 | Theme | Look |
 |---|---|
@@ -164,6 +176,8 @@ Pick in Settings (`⌘,`) or run "Theme: …" from the palette.
 | Midnight | Dark, blue-tinted |
 | Sepia | Warm, light, paper tone |
 | Hacker | Green-on-black, monospaced |
+
+Accent color, density, and font size layer on top of any theme.
 
 ---
 
