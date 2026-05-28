@@ -58,6 +58,14 @@ final class VimMode {
             reset()
             return true
         }
+        // Return / Enter — open the selection (enter a folder or open a file).
+        // In vim mode this takes priority over Finder's "Return = rename", which
+        // is what made it impossible to enter folders with the keyboard.
+        if chars == "\r" || chars == "\n" {
+            reset()
+            pane.openSelection()
+            return true
+        }
         // Pending two-char sequences
         if !pending.isEmpty {
             let combined = pending + chars
