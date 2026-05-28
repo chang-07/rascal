@@ -8,6 +8,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
         PluginHost.shared.loadAll()
         installMainMenu()
+        // Rebuild the menu live whenever a custom shortcut changes so edits in
+        // Settings take effect immediately.
+        NotificationCenter.default.addObserver(
+            forName: ActionRegistry.shortcutsDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.installMainMenu()
+        }
         if ProcessInfo.processInfo.environment["FT_RUN_TESTS"] == "1" {
             DispatchQueue.main.async {
                 TestRunner().runAll(appDelegate: self)
@@ -16,8 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let cliPath = AppDelegate.cliPath() {
             openNewBrowserWindow(at: URL(fileURLWithPath: cliPath))
-        } else if !restoreSession() {
-            openNewBrowserWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+        } else if !(Settings.restoreSession && restoreSession()) {
+            // Restore disabled (or nothing to restore): open at the configured
+            // default location, falling back to home.
+            let target = Settings.defaultLocation.url ?? FileManager.default.homeDirectoryForCurrentUser
+            let dir = FileManager.default.fileExists(atPath: target.path)
+                ? target : FileManager.default.homeDirectoryForCurrentUser
+            openNewBrowserWindow(at: dir)
         }
         let isHeadless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1"
         if !isHeadless {

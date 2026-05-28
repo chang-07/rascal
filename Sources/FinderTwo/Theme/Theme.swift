@@ -144,11 +144,29 @@ final class ThemeManager {
         }
     }
 
+    // MARK: Effective values (theme + user Appearance overrides)
+
+    /// Accent honoring the user's Settings override; falls back to the theme's.
+    var effectiveAccent: NSColor {
+        Settings.accent.color ?? current.accent
+    }
+
+    /// Row height from the density setting (overrides the theme's default).
+    var effectiveRowHeight: CGFloat {
+        Settings.density.rowHeight
+    }
+
+    /// Base font point size: theme base + user delta.
+    var effectiveFontSize: CGFloat {
+        max(9, current.baseFontPointSize + CGFloat(Settings.fontSizeDelta))
+    }
+
     func font(_ weight: NSFont.Weight = .regular) -> NSFont {
+        let size = effectiveFontSize
         if current.monospaced {
-            return NSFont.monospacedSystemFont(ofSize: current.baseFontPointSize, weight: weight)
+            return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
         }
-        return NSFont.systemFont(ofSize: current.baseFontPointSize, weight: weight)
+        return NSFont.systemFont(ofSize: size, weight: weight)
     }
 }
 

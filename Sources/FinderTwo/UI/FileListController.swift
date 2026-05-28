@@ -9,7 +9,7 @@ protocol FileListDelegate: AnyObject {
     func fileListBeginTypeAhead(initial: String)
 }
 
-final class FileListController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate, NameCellDelegate {
+final class FileListController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate, NameCellDelegate, ThemeObserving {
 
     weak var delegate: FileListDelegate?
 
@@ -65,7 +65,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         tableView.style = .inset
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.gridStyleMask = []
-        tableView.rowHeight = 24
+        tableView.rowHeight = ThemeManager.shared.effectiveRowHeight
         tableView.intercellSpacing = NSSize(width: 0, height: 2)
         tableView.allowsMultipleSelection = true
         tableView.allowsEmptySelection = true
@@ -109,6 +109,14 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             scrollView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
         ])
         self.view = host
+        subscribeToTheme(self)
+    }
+
+    /// Apply density (row height) + font + accent live when appearance settings
+    /// or theme change, then re-render rows.
+    @objc func applyTheme() {
+        tableView.rowHeight = ThemeManager.shared.effectiveRowHeight
+        tableView.reloadData()
     }
 
     private func addColumn(id: String, title: String, width: CGFloat, minWidth: CGFloat, sortKey: String, alignment: NSTextAlignment = .left) {
@@ -323,6 +331,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         cell.textField?.stringValue = text
         cell.textField?.textColor = color
         cell.textField?.alignment = alignment
+        // Honor the live font size (theme base + density delta) — secondary
+        // columns sit one point smaller than the name column.
+        cell.textField?.font = NSFont.systemFont(ofSize: max(9, ThemeManager.shared.effectiveFontSize - 1))
         return cell
     }
 
@@ -377,7 +388,8 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             return true
         }
         // Type-ahead → live filter: alphanumeric + a few punctuation, no Cmd/Opt/Ctrl.
-        if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+        if Settings.typeAheadEnabled,
+           event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
            chars.count == 1,
            let ch = chars.unicodeScalars.first,
            (CharacterSet.alphanumerics.contains(ch) || "._- ".unicodeScalars.contains(ch)) {
@@ -648,6 +660,7 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
             name.stringValue = item.name
         }
         name.textColor = item.isHidden ? .tertiaryLabelColor : .labelColor
+        name.font = ThemeManager.shared.font()   // live font size + monospaced themes
     }
 
     func beginEditing() {
