@@ -96,6 +96,16 @@ enum ActionRegistry {
               category: .navigation,
               icon: "house",
               defaultShortcut: KeyShortcut("h", [.command, .shift])) { $0.goHome(nil) },
+        .init(id: "project.jump-root",
+              title: "Jump to Project Root",
+              category: .navigation,
+              icon: "arrow.up.to.line.circle",
+              defaultShortcut: KeyShortcut("r", [.command, .control])) { $0.jumpToProjectRoot(nil) },
+        .init(id: "project.open-editor",
+              title: "Open in Editor",
+              category: .navigation,
+              icon: "chevron.left.forwardslash.chevron.right",
+              defaultShortcut: KeyShortcut("o", [.command, .shift])) { $0.openInEditor(nil) },
 
         // -------- File --------
         .init(id: "file.new-folder",

@@ -192,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("file.copy-path"))
         fileMenu.addItem(routed("file.open-in-terminal"))
+        fileMenu.addItem(routed("project.open-editor", title: "Open in Editor"))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("tool.browse-archive"))
         fileMenu.addItem(routed("tool.folder-sync"))
@@ -248,6 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         goMenu.addItem(NSMenuItem.separator())
         goMenu.addItem(routed("nav.goto", title: "Go to Folder…"))
         goMenu.addItem(routed("nav.home", title: "Home"))
+        goMenu.addItem(routed("project.jump-root", title: "Jump to Project Root"))
         goMenu.addItem(routed("net.connect-server", title: "Connect to Server…"))
         goMenu.addItem(NSMenuItem.separator())
         for i in 1...9 {
