@@ -1,0 +1,205 @@
+# FinderTwo — Hotkeys & Options Guide
+
+Everything FinderTwo can do, where to find it, and how to drive it from the
+keyboard. Every shortcut below is also discoverable in the menu bar and the
+**Command Palette** (`⌘⇧P`).
+
+---
+
+## Navigation
+
+| Shortcut | Action | Notes |
+|---|---|---|
+| `⌘↑` | Enclosing folder | Go to parent dir |
+| `⌘↓` | Open selection | Folder → enter; file → open; archive → browse sheet |
+| `⌘[` | Back | History back |
+| `⌘]` | Forward | History forward |
+| `⌘⇧G` | Go to Folder… | Type any path, `~` expands |
+| `⌘⇧H` | Home | Jump to your home folder |
+| `⌘K` | Connect to Server… | SFTP (uses your existing SSH keys/agent) |
+| double-click | Open | Same as `⌘↓` |
+| click breadcrumb | Jump to that path segment | In the path bar |
+
+## Tabs
+
+| Shortcut | Action |
+|---|---|
+| `⌘T` | New tab |
+| `⌘W` | Close tab (closes the window if it's the last tab) |
+| `⌘⇧W` | Close window |
+| `⌘⌥1`…`⌘⌥9` | Switch to tab N |
+
+The tab strip only appears when you have 2+ tabs. Hover a tab to see its full
+path; click the `×` to close it.
+
+## Panes
+
+| Shortcut | Action |
+|---|---|
+| `⌘\` | Toggle extra pane (single-pane by default; opens a second pane) |
+| click a pane | Make it the active pane (accent border shows which is active) |
+
+Drag files between panes to copy/move them.
+
+## Files & editing
+
+| Shortcut | Action | Notes |
+|---|---|---|
+| `Return` | Rename selected item | Finder-style; base name is preselected |
+| `Space` | Quick Look | Preview selected file(s) |
+| `⌘C` | Copy | File URLs to clipboard |
+| `⌘V` | Paste | Copy here |
+| `⌘⌥V` | Move Items Here | Paste with move semantics |
+| `⌘D` | Duplicate | Adds " copy", " copy 2", … |
+| `⌘⌫` | Move to Trash | Recoverable |
+| `⌘⇧N` | New Folder | |
+| `⌘I` | Get Info | Opens Finder's inspector for the selection |
+| `⌘⌥C` | Copy Path | Full POSIX path(s), one per line |
+| `⌘⌥T` | Open in Terminal | iTerm if running, else Terminal.app, at the folder |
+
+## Search & filter
+
+| Shortcut | Action | Notes |
+|---|---|---|
+| *(type letters)* | Live filter | Just start typing in the file list; `Esc` clears |
+| `⌘F` | Find Files… | Fuzzy filename search across the current folder tree |
+| `⌘⇧F` | Search File Contents… | Full-text grep (`rg` if installed, else `grep`) |
+| `⌘⇧P` | Command Palette | Fuzzy launcher over every action, favorite, tab, theme |
+
+In the palette / search sheets: `↑`/`↓` move, `Return` activates, `Esc` closes.
+
+## View
+
+| Shortcut | Action |
+|---|---|
+| `⌘2` | List view |
+| `⌘3` | Column (Miller) view |
+| `⌘⇧.` | Toggle hidden files |
+| *(palette)* | Cycle Theme |
+
+## Panels & tools
+
+| Shortcut | Action | Notes |
+|---|---|---|
+| `` ⌘` `` | Toggle terminal panel | Bottom drawer; runs commands in the pane's cwd |
+| `⌘⇧E` | Toggle notes drawer | Right-side `.ftnote.md` editor for the current folder |
+| `⌘⇧R` | Batch Rename… | Regex + tokens, live preview |
+| *(File menu)* | Browse Archive… | Or just open a `.zip`/`.tar*` |
+| *(File menu)* | Sync Folder… | 1-way visual diff + apply |
+| *(File menu)* | Analyze Disk Usage… | Treemap of the selected folder |
+| *(File menu)* | Uninstall App… | Select a `.app`, scans `~/Library` leftovers |
+
+## Workspaces
+
+| Shortcut | Action |
+|---|---|
+| `⌘⌃S` | Save Workspace… (names the current tabs + pane layout) |
+| `⌘⌃O` | Open Workspace… (restore a saved layout) |
+
+**Git-bound workspaces** are automatic: inside a git repo, switching branches
+(`git checkout …`) auto-saves your current tabs under `git:<repo>:<branch>` and
+restores whatever you had open on the branch you switched to.
+
+## App
+
+| Shortcut | Action |
+|---|---|
+| `⌘,` | Settings (theme picker + Vim toggle) |
+| `⌘N` | New window |
+| `⌘M` | Minimize |
+| `⌘H` | Hide FinderTwo |
+| `⌘Q` | Quit |
+
+---
+
+## Vim mode
+
+Enable in **Settings (`⌘,`)** → "Enable Vim navigation". When on, plain letter
+keys are intercepted **from anywhere in the window** (file list, sidebar, or no
+focus). Text fields, rename, search, terminal, and the path bar always receive
+keys normally — Vim never eats your typing there.
+
+| Keys | Action |
+|---|---|
+| `h` | Enclosing folder (go up) |
+| `j` / `k` | Move selection down / up (prefix a count, e.g. `5j`) |
+| `l` | Open selection |
+| `gg` | Jump to top |
+| `G` | Jump to bottom |
+| `gt` / `gT` | Next / previous tab |
+| `t` | New tab |
+| `r` | Rename selection |
+| `yy` | Yank (copy) selection |
+| `dd` | Move selection to Trash |
+| `p` | Paste |
+| `/` | Focus the live filter |
+| `:` | Open the command palette |
+| `v` | Visual mode (extend selection with `j`/`k`) |
+| `Esc` | Cancel pending sequence / leave visual mode |
+
+Pressing a Vim motion while the sidebar is focused pulls focus back to the file
+list so the selection is visible.
+
+---
+
+## Sidebar
+
+- **Favorites** — Home, Desktop, Documents, Downloads, Movies, Music, Pictures,
+  Applications (only those that exist).
+- **Locations** — mounted local volumes (`Macintosh HD`, external drives).
+- **Tags** — every macOS tag in use (via Spotlight). Click a tag to see every
+  file with it, anywhere on disk. The coloured dot matches the Finder tag color.
+
+Click any entry to navigate the active pane there.
+
+---
+
+## Themes
+
+Pick in Settings (`⌘,`) or run "Theme: …" from the palette.
+
+| Theme | Look |
+|---|---|
+| System | Follows macOS light/dark |
+| Midnight | Dark, blue-tinted |
+| Sepia | Warm, light, paper tone |
+| Hacker | Green-on-black, monospaced |
+
+---
+
+## SFTP (Connect to Server)
+
+`⌘K` → enter user / host / port / path → **Test** to verify, **Save Bookmark**
+to keep it, or **Connect** to browse. Authentication uses your existing SSH
+config and agent — FinderTwo never handles passwords itself. In the browser:
+double-click a folder to drill in, **Up** to go back, **Download…** to fetch a
+file into the active pane's folder.
+
+---
+
+## Plugins
+
+Drop a `<name>.ftplugin/` folder in
+`~/Library/Application Support/FinderTwo/Plugins/` containing `manifest.json`
+and `main.js`. Declared actions appear in the Command Palette. The JS bridge
+exposes: `ft.onAction(id, fn)`, `ft.notify(msg)`, `ft.readFile(path)`,
+`ft.writeFile(path, text)`, `ft.run([cmd, args…])`, `ft.currentURL()`,
+`ft.selectedURLs()`.
+
+---
+
+## Where settings live
+
+All preferences are plain `UserDefaults` (no account, no cloud):
+
+| Key | What |
+|---|---|
+| `FinderTwo.session.v1` | Open windows/tabs (restored on launch) |
+| `FinderTwo.workspaces.v1` | Named + git-bound workspaces |
+| `FinderTwo.theme` | Active theme |
+| `FinderTwo.vimEnabled` | Vim mode on/off |
+| `FinderTwo.hotbar.v1` | Hotbar button order |
+| `FinderTwo.shortcuts` | Custom keyboard shortcut overrides |
+| `FinderTwo.sftp.v1` | Saved SFTP bookmarks |
+
+To reset everything: `defaults delete dev.chang.FinderTwo`
