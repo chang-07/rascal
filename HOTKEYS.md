@@ -17,6 +17,8 @@ keyboard. Every shortcut below is also discoverable in the menu bar and the
 | `⌘⇧G` | Go to Folder… | Type any path, `~` expands |
 | `⌘⇧H` | Home | Jump to your home folder |
 | `⌘K` | Connect to Server… | SFTP (uses your existing SSH keys/agent) |
+| `⌘⌃R` | Jump to Project Root | walks up to `.git`/`package.json`/`Cargo.toml`/… |
+| `⌘⇧O` | Open in Editor | opens the project root in Cursor / VS Code / Zed / Sublime |
 | double-click | Open | Same as `⌘↓` |
 | click breadcrumb | Jump to that path segment | In the path bar |
 
@@ -180,6 +182,24 @@ Pick in Settings (`⌘,`) → Appearance, or run "Theme: …" from the palette.
 Accent color, density, and font size layer on top of any theme.
 
 ---
+
+## Developer features
+
+FinderTwo is git- and project-aware:
+
+- **Git status badges** — inside any git repo, each row shows a colored letter:
+  `M` (orange, modified/renamed), `A`/`U` (green, added/untracked),
+  `D`/`!` (red, deleted/conflicted). A folder containing changes shows `M`.
+  The window subtitle shows the current branch (`⎇ main`).
+- **Jump to Project Root** (`⌘⌃R`) — walks up from the current folder to the
+  nearest `.git`, `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`,
+  `Package.swift`, `pom.xml`, `build.gradle`, etc. and navigates there.
+- **Open in Editor** (`⌘⇧O`, or right-click → Open in Editor ▸) — opens the
+  detected project root in your editor. Detected automatically: Cursor,
+  VS Code, Zed, Sublime Text, Xcode (whichever are installed).
+
+Badges recompute automatically as files change (FSEvents) and never block the
+UI — `git status` runs on a background queue.
 
 ## SFTP (Connect to Server)
 

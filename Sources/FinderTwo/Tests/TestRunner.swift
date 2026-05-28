@@ -624,7 +624,63 @@ final class TestRunner {
             let branch = GitBranchWorkspaces.currentBranch(in: gitProj)
             assert("GitBranchWorkspaces reads current branch",
                    branch == "main", "got=\(branch ?? "nil")")
+
+            // --- T46b: GitStatus porcelain — untracked file + modified folder ---
+            try? "hi".write(to: gitProj.appendingPathComponent("new.txt"),
+                            atomically: true, encoding: .utf8)
+            let sub = gitProj.appendingPathComponent("src")
+            try? FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+            try? "x".write(to: sub.appendingPathComponent("deep.txt"),
+                           atomically: true, encoding: .utf8)
+            let states = GitStatus.fileStates(in: gitProj, repoRoot: gitProj)
+            assert("GitStatus marks untracked file",
+                   states["new.txt"] == .untracked, "got=\(String(describing: states["new.txt"]))")
+            assert("GitStatus aggregates subfolder changes to the folder",
+                   states["src"] == .modifiedFolder, "got=\(String(describing: states["src"]))")
+            let info = GitStatus.repoInfo(root: gitProj)
+            assert("GitStatus.repoInfo reads branch", info.branch == "main", "got=\(info.branch ?? "nil")")
+            // GitStatus.repoRoot finds the repo from a nested dir too.
+            assert("GitStatus.repoRoot resolves from nested dir",
+                   GitStatus.repoRoot(for: sub).map { samePath($0, gitProj) } ?? false,
+                   "got=\(GitStatus.repoRoot(for: sub)?.path ?? "nil")")
         }
+
+        // --- T46c: ProjectRoot detection (git marker + non-git marker) ---
+        assert("ProjectRoot finds .git root",
+               ProjectRoot.find(for: gitProj).map { samePath($0, gitProj) } ?? false,
+               "got=\(ProjectRoot.find(for: gitProj)?.path ?? "nil")")
+        let nodeProj = sandbox.appendingPathComponent("node_proj")
+        let nodeSub = nodeProj.appendingPathComponent("lib/util")
+        try? FileManager.default.createDirectory(at: nodeSub, withIntermediateDirectories: true)
+        try? "{}".write(to: nodeProj.appendingPathComponent("package.json"),
+                        atomically: true, encoding: .utf8)
+        assert("ProjectRoot walks up to package.json from nested dir",
+               ProjectRoot.find(for: nodeSub).map { samePath($0, nodeProj) } ?? false,
+               "got=\(ProjectRoot.find(for: nodeSub)?.path ?? "nil")")
+        _ = ProjectRoot.find(for: URL(fileURLWithPath: "/"))   // must not crash at fs root
+
+        // --- T46d: Editor detection enumerates without crashing ---
+        assert("Editor.allCases has the known editors", Editor.allCases.count == 5, "got=\(Editor.allCases.count)")
+        _ = Editor.installed   // must not crash
+        assert("Editor.installed returns a (possibly empty) list", true, "")
+
+        // --- T46e: DirectoryModel publishes git states for a repo dir ---
+        pane.navigate(to: gitProj)
+        wait(0.05)
+        pane.testModel.testRefreshGitSync()   // deterministic (no async race)
+        assert("pane model populates git badge for untracked file",
+               pane.testModel.gitStates["new.txt"] == .untracked,
+               "states=\(pane.testModel.gitStates)")
+        assert("pane model exposes repo branch",
+               pane.testModel.gitRepoInfo?.branch == "main",
+               "got=\(String(describing: pane.testModel.gitRepoInfo?.branch))")
+        pane.navigate(to: sandbox); wait(0.05)
+
+        // --- T46f: project navigation actions registered ---
+        assert("action: project.jump-root",
+               ActionRegistry.action(id: "project.jump-root") != nil, "missing")
+        assert("action: project.open-editor",
+               ActionRegistry.action(id: "project.open-editor") != nil, "missing")
 
         // --- T47: ActionRegistry plugin extension API exists ---
         ActionRegistry.registerPluginAction(id: "test.plugin.action", title: "Plugin Test", perform: { _ in })
