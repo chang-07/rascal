@@ -814,6 +814,24 @@ final class TestRunner {
                    !FileManager.default.fileExists(atPath: trashCandidate.path),
                    "still present")
         }
+
+        // --- T56b: vim Return ENTERS a folder (not rename) ---
+        pane.navigate(to: sandbox)
+        pane.testReloadSync()
+        if let subdir = pane.testCurrentItems.first(where: { $0.isDirectory && $0.name == "subdir" }) {
+            pane.testSelectItem(subdir)
+            let ret = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                       timestamp: 0, windowNumber: 0, context: nil,
+                                       characters: "\r", charactersIgnoringModifiers: "\r",
+                                       isARepeat: false, keyCode: 36)!
+            let handled = VimMode.shared.handle(event: ret, in: pane, fileList: pane.testFileList)
+            wait(0.05)
+            assert("vim Return is consumed", handled, "not handled")
+            assert("vim Return entered the folder",
+                   samePath(pane.currentURL, sandbox.appendingPathComponent("subdir")),
+                   "url=\(pane.currentURL.path)")
+            pane.goUp(); wait(0.05)
+        }
         VimMode.shared.setEnabled(false)
 
         // --- T57: ColumnView controller initializes against active pane ---
@@ -842,6 +860,19 @@ final class TestRunner {
         assert("cycle visited every theme",
                visited.count == Theme.all.count,
                "got=\(visited)")
+
+        // --- T59a: a custom theme repaints the file list background ---
+        ThemeManager.shared.setTheme(id: "midnight")
+        wait(0.05)
+        assert("file list paints custom theme background",
+               pane.testFileList.tableView.backgroundColor == Theme.midnight.background,
+               "got=\(pane.testFileList.tableView.backgroundColor)")
+        ThemeManager.shared.setTheme(id: "system")
+        wait(0.05)
+        assert("file list reverts to native background on System theme",
+               pane.testFileList.tableView.backgroundColor == .controlBackgroundColor,
+               "got=\(pane.testFileList.tableView.backgroundColor)")
+        ThemeManager.shared.setTheme(id: startThemeId)
 
         // --- T14: sidebar entries are populated ---
         let entries = (wc.window?.contentViewController as? NSSplitViewController)?
