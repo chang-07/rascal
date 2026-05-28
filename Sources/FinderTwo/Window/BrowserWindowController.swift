@@ -29,10 +29,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
 
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarVC)
-        sidebarItem.minimumThickness = 180
-        sidebarItem.preferredThicknessFraction = 0.18
+        sidebarItem.minimumThickness = 130
+        sidebarItem.maximumThickness = 240
+        sidebarItem.preferredThicknessFraction = 0.15   // ~165pt on the default window, capped at 240
         sidebarItem.canCollapse = true
-        sidebarItem.holdingPriority = .defaultLow
+        // High holding priority pins the sidebar to its set width so the main
+        // pane absorbs window resizing instead of the sidebar ballooning.
+        sidebarItem.holdingPriority = NSLayoutConstraint.Priority(260)
         splitVC.addSplitViewItem(sidebarItem)
 
         let mainItem = NSSplitViewItem(viewController: panesContainer)
