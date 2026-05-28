@@ -52,6 +52,15 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         toolbar.focusSearchField()
     }
 
+    /// Briefly show a message in the status bar, then restore the normal
+    /// item/selection summary. Used for transient feedback (e.g. plugin notify).
+    func flashStatus(_ message: String) {
+        statusBar.setSegments([.init(message, isMuted: false)])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            self?.updateStatus()
+        }
+    }
+
     /// Toggle the bottom terminal drawer.
     func toggleTerminalDrawer() {
         terminalVisible.toggle()

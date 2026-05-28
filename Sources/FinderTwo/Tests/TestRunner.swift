@@ -854,6 +854,34 @@ final class TestRunner {
         assert("sidebar contains Macintosh HD",
                entries.contains("Macintosh HD"), "entries=\(entries)")
 
+        // --- T59b: plugin round-trip — load a real .ftplugin and fire its
+        // action, verifying the JS handler actually runs (regression guard for
+        // the empty-snapshot handler bug).
+        let pluginDir = sandbox.appendingPathComponent("echo.ftplugin")
+        try? FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
+        let firedMarker = sandbox.appendingPathComponent("plugin_fired.txt").path
+        let manifest = """
+        {"id":"test.echo","name":"Echo","version":"1.0",
+         "actions":[{"id":"test.echo.run","title":"Echo Run"}]}
+        """
+        let js = """
+        ft.onAction('test.echo.run', function(urls) {
+            ft.writeFile('\(firedMarker)', 'fired:' + urls.length);
+        });
+        """
+        try? manifest.write(to: pluginDir.appendingPathComponent("manifest.json"),
+                            atomically: true, encoding: .utf8)
+        try? js.write(to: pluginDir.appendingPathComponent("main.js"),
+                     atomically: true, encoding: .utf8)
+        PluginHost.shared.testLoad(at: pluginDir)
+        assert("plugin action registered in ActionRegistry",
+               ActionRegistry.action(id: "test.echo.run") != nil, "missing")
+        PluginHost.shared.fireAction(id: "test.echo.run", wc: wc)
+        wait(0.1)
+        assert("plugin JS handler actually ran (wrote marker file)",
+               FileManager.default.fileExists(atPath: firedMarker),
+               "handler never fired — empty-snapshot bug regressed")
+
         // --- T60: construct every sheet/window controller (catches layout +
         // constraint crashes that off-screen menu tests miss). We force
         // `loadView`/`window` so the entire view hierarchy is built.

@@ -45,10 +45,19 @@ final class PluginHost {
         let title: String
     }
 
+    /// Reference-type holder for a plugin's action handlers. `ft.onAction`
+    /// writes into this live during script evaluation; `fireAction` reads
+    /// from it later. Using a class (not a JS snapshot) means handlers
+    /// registered after bridge setup are actually found.
+    final class HandlerBox {
+        var map: [String: JSValue] = [:]
+    }
+
     struct LoadedPlugin {
         let manifest: PluginManifest
         let context: JSContext
         let directory: URL
+        let handlers: HandlerBox
     }
 
     private(set) var plugins: [LoadedPlugin] = []
@@ -71,6 +80,9 @@ final class PluginHost {
         }
     }
 
+    /// Test hook: load a single plugin bundle from an arbitrary directory.
+    func testLoad(at dir: URL) { loadPlugin(at: dir) }
+
     private func loadPlugin(at dir: URL) {
         let manifestURL = dir.appendingPathComponent("manifest.json")
         let mainURL = dir.appendingPathComponent("main.js")
@@ -79,13 +91,15 @@ final class PluginHost {
               let scriptData = try? Data(contentsOf: mainURL),
               let script = String(data: scriptData, encoding: .utf8) else { return }
         guard let ctx = JSContext() else { return }
-        installBridge(ctx, plugin: manifest)
+        let handlers = HandlerBox()
+        installBridge(ctx, plugin: manifest, handlers: handlers)
         ctx.evaluateScript(script)
         if ctx.exception != nil {
             NSLog("FT plugin '\(manifest.id)' error: \(String(describing: ctx.exception))")
             return
         }
-        plugins.append(LoadedPlugin(manifest: manifest, context: ctx, directory: dir))
+        plugins.append(LoadedPlugin(manifest: manifest, context: ctx,
+                                    directory: dir, handlers: handlers))
         // Register declared actions
         for a in manifest.actions ?? [] {
             ActionRegistry.registerPluginAction(id: a.id, title: a.title) { [weak self] wc in
@@ -95,26 +109,27 @@ final class PluginHost {
     }
 
     /// Build the `ft` bridge object exposed to JS.
-    private func installBridge(_ ctx: JSContext, plugin: PluginManifest) {
-        // Storage for action handlers — closure-keyed by action id.
-        var handlers: [String: JSValue] = [:]
+    private func installBridge(_ ctx: JSContext, plugin: PluginManifest, handlers: HandlerBox) {
         let ft = JSValue(newObjectIn: ctx)
         ctx.globalObject.setValue(ft, forProperty: "ft")
 
-        // ft.onAction("id", function(urls) { ... })
-        let onAction: @convention(block) (String, JSValue) -> Void = { id, fn in
-            handlers[id] = fn
+        // ft.onAction("id", function(urls) { ... }) — writes into the live
+        // HandlerBox so handlers registered during evaluateScript are kept.
+        let onAction: @convention(block) (String, JSValue) -> Void = { [weak handlers] id, fn in
+            handlers?.map[id] = fn
         }
         ft?.setValue(onAction, forProperty: "onAction")
-        ctx.evaluateScript("") // ensure ft exists
 
-        // ft.notify("text") — shows a transient banner via system notification.
+        // ft.notify("text") — shows a transient message in the active window's
+        // status bar (no notification-center permission needed; reliable on
+        // modern macOS where NSUserNotification silently no-ops).
         let notify: @convention(block) (String) -> Void = { msg in
             DispatchQueue.main.async {
-                let n = NSUserNotification()
-                n.title = plugin.name
-                n.informativeText = msg
-                NSUserNotificationCenter.default.deliver(n)
+                if let pane = (NSApp.delegate as? AppDelegate)?.currentBrowserWC()?.testActivePane {
+                    pane.flashStatus("\(plugin.name): \(msg)")
+                } else {
+                    NSLog("FT plugin '%@': %@", plugin.name, msg)
+                }
             }
         }
         ft?.setValue(notify, forProperty: "notify")
@@ -160,16 +175,14 @@ final class PluginHost {
         }
         ft?.setValue(selectedURLs, forProperty: "selectedURLs")
 
-        // Store handlers reference back on the context for `fireAction`.
         ctx.virtualMachine.addManagedReference(ft, withOwner: ctx.globalObject)
-        ctx.setObject(handlers, forKeyedSubscript: "__ftHandlers" as NSString)
     }
 
-    /// Invoke a registered plugin action.
+    /// Invoke a registered plugin action by id, calling the JS handler from the
+    /// owning plugin's live HandlerBox.
     func fireAction(id: String, wc: BrowserWindowController) {
         for p in plugins {
-            guard let handlers = p.context.objectForKeyedSubscript("__ftHandlers") else { continue }
-            guard let handler = handlers.objectForKeyedSubscript(id), !handler.isUndefined else { continue }
+            guard let handler = p.handlers.map[id], !handler.isUndefined else { continue }
             let urls = wc.testActivePane?.selectedURLs().map { $0.path } ?? []
             handler.call(withArguments: [urls])
             return
