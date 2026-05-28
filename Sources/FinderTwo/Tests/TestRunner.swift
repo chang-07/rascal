@@ -854,6 +854,60 @@ final class TestRunner {
         assert("sidebar contains Macintosh HD",
                entries.contains("Macintosh HD"), "entries=\(entries)")
 
+        // --- T58b: Settings round-trips + appearance overrides ---
+        let origDensity = Settings.density
+        Settings.density = .spacious
+        assert("density persists", Settings.density == .spacious, "got=\(Settings.density)")
+        assert("ThemeManager honors density row height",
+               ThemeManager.shared.effectiveRowHeight == Settings.Density.spacious.rowHeight,
+               "got=\(ThemeManager.shared.effectiveRowHeight)")
+        Settings.density = origDensity
+
+        let origDelta = Settings.fontSizeDelta
+        Settings.fontSizeDelta = 2
+        assert("font delta applies to effective size",
+               ThemeManager.shared.effectiveFontSize == ThemeManager.shared.current.baseFontPointSize + 2,
+               "got=\(ThemeManager.shared.effectiveFontSize)")
+        Settings.fontSizeDelta = 99   // clamp
+        assert("font delta clamps to +4", Settings.fontSizeDelta == 4, "got=\(Settings.fontSizeDelta)")
+        Settings.fontSizeDelta = origDelta
+
+        let origAccent = Settings.accent
+        Settings.accent = .red
+        assert("accent override applies",
+               ThemeManager.shared.effectiveAccent == NSColor.systemRed, "wrong accent")
+        Settings.accent = .system
+        assert("accent .system falls back to theme",
+               ThemeManager.shared.effectiveAccent == ThemeManager.shared.current.accent, "wrong fallback")
+        Settings.accent = origAccent
+
+        // --- T58c: shortcut customization + conflict detection ---
+        ActionRegistry.setShortcut(nil, forId: "tab.new")
+        ActionRegistry.setShortcut(nil, forId: "tab.close")
+        let scProbe = KeyShortcut("j", [.command, .control])
+        ActionRegistry.setShortcut(scProbe, forId: "tab.new")  // scProbe
+        assert("custom shortcut recorded + isCustomized",
+               ActionRegistry.isCustomized("tab.new") &&
+               ActionRegistry.shortcut(for: "tab.new") == scProbe, "not stored")
+        let conflict = ActionRegistry.conflictingActionId(for: scProbe, excluding: "tab.close")
+        assert("conflict detected against tab.new",
+               conflict == "tab.new", "got=\(conflict ?? "nil")")
+        let noConflict = ActionRegistry.conflictingActionId(for: KeyShortcut("z", [.command, .control, .option]),
+                                                            excluding: "tab.new")
+        assert("no false-positive conflict", noConflict == nil, "got=\(noConflict ?? "nil")")
+        ActionRegistry.setShortcut(nil, forId: "tab.new")
+        assert("reset clears customization", !ActionRegistry.isCustomized("tab.new"), "still custom")
+
+        // --- T58d: shortcutsDidChange notification fires ---
+        var notified = false
+        let scToken = NotificationCenter.default.addObserver(
+            forName: ActionRegistry.shortcutsDidChange, object: nil, queue: nil) { _ in notified = true }
+        ActionRegistry.setShortcut(KeyShortcut("y", [.command, .option]), forId: "tab.new")
+        wait(0.02)
+        assert("shortcutsDidChange posted", notified, "no notification")
+        NotificationCenter.default.removeObserver(scToken)
+        ActionRegistry.setShortcut(nil, forId: "tab.new")
+
         // --- T59b: plugin round-trip — load a real .ftplugin and fire its
         // action, verifying the JS handler actually runs (regression guard for
         // the empty-snapshot handler bug).
@@ -894,10 +948,20 @@ final class TestRunner {
     /// here (bad constraint, force-unwrap, etc.) takes down the test process
     /// with a non-zero exit — exactly what we want to catch before shipping.
     private func constructControllerSmokeTests(wc: BrowserWindowController, sandbox: URL) {
-        // Settings
+        // Settings — construct + force-layout every section pane so a bad
+        // constraint in any of them fails the test, not the user.
         let settings = SettingsController()
         _ = settings.window
         assert("SettingsController builds", settings.window != nil, "nil window")
+        for section in SettingsController.Section.allCases {
+            let pane = section.makeController()
+            let host = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 560, height: 460),
+                                styleMask: [.titled], backing: .buffered, defer: false)
+            host.contentViewController = pane
+            host.contentView?.layoutSubtreeIfNeeded()
+            assert("settings pane builds: \(section.label)", pane.view.subviews.count >= 0, "nil")
+            host.close()
+        }
 
         // Command palette
         let palette = CommandPaletteController(target: wc)
