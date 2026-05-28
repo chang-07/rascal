@@ -1,6 +1,6 @@
 import AppKit
 
-final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate {
+final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, ThemeObserving {
 
     var onSelect: ((URL) -> Void)?
 
@@ -28,25 +28,39 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         sections.flatMap { $0.items.map { $0.title } }
     }
 
+    /// Themed tint that covers the vibrancy for non-System themes so the
+    /// sidebar background matches the rest of the window.
+    private let tintView = NSView()
+
     override func loadView() {
-        // Use a sidebar-style NSVisualEffectView so the sidebar gets the
-        // standard macOS sidebar translucency in System / Sepia themes.
-        let v = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 200, height: 400))
+        // Sidebar-style NSVisualEffectView gives the native translucency for the
+        // System theme; a themed tint overlay covers it for custom themes.
+        let v = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 168, height: 400))
         v.material = .sidebar
         v.blendingMode = .behindWindow
         v.state = .followsWindowActiveState
+
+        tintView.wantsLayer = true
+        tintView.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(tintView)
+
         scrollView.documentView = outline
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(scrollView)
         NSLayoutConstraint.activate([
+            tintView.topAnchor.constraint(equalTo: v.topAnchor),
+            tintView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+            tintView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+            tintView.bottomAnchor.constraint(equalTo: v.bottomAnchor),
             scrollView.topAnchor.constraint(equalTo: v.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: v.bottomAnchor),
         ])
         self.view = v
+        subscribeToTheme(self)
 
         let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         col.title = ""
@@ -73,6 +87,18 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         buildSections()
         outline.reloadData()
         for s in sections { outline.expandItem(s) }
+    }
+
+    @objc func applyTheme() {
+        let t = ThemeManager.shared.current
+        // System theme: show the native vibrancy (clear tint). Custom themes:
+        // cover it with the theme's sidebar background for a consistent look.
+        if t.id == "system" {
+            tintView.layer?.backgroundColor = NSColor.clear.cgColor
+        } else {
+            tintView.layer?.backgroundColor = t.sidebarBackground.cgColor
+        }
+        outline.reloadData()
     }
 
     func highlight(url: URL) {

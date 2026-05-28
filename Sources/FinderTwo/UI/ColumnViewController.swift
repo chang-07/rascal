@@ -4,7 +4,7 @@ import AppKit
 /// (each column is the contents of one path component); we drive its delegate
 /// from the active tab's DirectoryModel for the root and use direct filesystem
 /// calls for deeper columns.
-final class ColumnViewController: NSViewController, NSBrowserDelegate {
+final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObserving {
 
     weak var pane: PaneController?
     private let browser = NSBrowser()
@@ -41,7 +41,18 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate {
         ])
         self.view = host
 
+        applyTheme()
+        subscribeToTheme(self)
         reload()
+    }
+
+    @objc func applyTheme() {
+        let t = ThemeManager.shared.current
+        if t.id == "system" {
+            browser.backgroundColor = .controlBackgroundColor
+        } else {
+            browser.backgroundColor = t.background
+        }
     }
 
     func reload() {
