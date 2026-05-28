@@ -250,13 +250,12 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func openSelection() {
         let sel = fileList.selectedItems()
         if sel.isEmpty { NSSound.beep(); return }
-        for item in sel {
-            if item.isDirectory {
-                navigate(to: item.url)
-                return
-            } else {
-                NSWorkspace.shared.open(item.url)
-            }
+        // Route through the same handler as double-click so folders enter,
+        // archives open the browser, and files open in their default app.
+        if let folder = sel.first(where: { $0.isDirectory }) {
+            fileListOpenItem(folder)
+        } else {
+            for item in sel { fileListOpenItem(item) }
         }
     }
 
