@@ -152,7 +152,7 @@ private final class TabButton: NSView {
     @objc private func handleClose() { onClose?(index) }
 
     private func applyAppearance() {
-        let accent = NSColor.controlAccentColor
+        let accent = ThemeManager.shared.effectiveAccent
         if isActive {
             layer?.backgroundColor = accent.withAlphaComponent(0.20).cgColor
             label.textColor = .labelColor

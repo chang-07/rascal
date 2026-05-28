@@ -41,6 +41,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     init(url: URL) {
         let initialTab = TabState(url: url)
+        // Honor the user's "show hidden by default" preference for new panes.
+        initialTab.model.showHidden = Settings.showHiddenByDefault
         self.tabs = [initialTab]
         self.fileList = FileListController(model: initialTab.model)
         super.init(nibName: nil, bundle: nil)
@@ -195,6 +197,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         self.view = root
         updateAfterNavigate(announce: true)
         updateTabStripVisibility()
+        // Honor the default-view preference now that the view hierarchy exists.
+        if Settings.defaultView == .columns { setViewMode(.columns) }
         DispatchQueue.main.async { [weak self] in
             self?.hotbar.target = self?.view.window?.windowController as? BrowserWindowController
         }
@@ -202,7 +206,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     func setActive(_ active: Bool) {
         isActive = active
-        view.layer?.borderColor = (active ? NSColor.controlAccentColor.withAlphaComponent(0.45) : NSColor.clear).cgColor
+        view.layer?.borderColor = (active ? ThemeManager.shared.effectiveAccent.withAlphaComponent(0.45) : NSColor.clear).cgColor
         view.wantsLayer = true
         view.layer?.borderWidth = active ? 1 : 0
         if active { view.window?.makeFirstResponder(fileList.tableView) }
