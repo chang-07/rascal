@@ -138,6 +138,13 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.showPathBar"); notify() }
     }
 
+    /// Compute and show recursive folder sizes in the Size column (Finder's
+    /// "Calculate all sizes"). Off by default — it's I/O-heavy.
+    static var calculateFolderSizes: Bool {
+        get { d.object(forKey: "FinderTwo.calculateFolderSizes") as? Bool ?? false }
+        set { d.set(newValue, forKey: "FinderTwo.calculateFolderSizes"); notify() }
+    }
+
     // MARK: Window chrome
 
     /// Show the customizable hotbar — the quick-action button row below the

@@ -310,6 +310,11 @@ enum ActionRegistry {
               category: .view,
               icon: "character.cursor.ibeam",
               defaultShortcut: nil) { _ in Settings.typeToSelect.toggle() },
+        .init(id: "view.calculate-sizes",
+              title: "Calculate All Sizes",
+              category: .view,
+              icon: "sum",
+              defaultShortcut: nil) { _ in Settings.calculateFolderSizes.toggle() },
 
         // -------- Search --------
         .init(id: "search.palette",

@@ -94,6 +94,17 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         addColumn(id: "kind", title: "Kind", width: 130, minWidth: 70, sortKey: SortKey.kind.rawValue)
         tableView.sortDescriptors = [NSSortDescriptor(key: SortKey.name.rawValue, ascending: true)]
 
+        // Column chooser: right-click the header to show/hide columns (Name stays).
+        let headerMenu = NSMenu()
+        for col in tableView.tableColumns where col.identifier.rawValue != "name" {
+            let it = NSMenuItem(title: col.title, action: #selector(toggleColumn(_:)), keyEquivalent: "")
+            it.representedObject = col.identifier.rawValue
+            it.target = self
+            it.state = col.isHidden ? .off : .on
+            headerMenu.addItem(it)
+        }
+        tableView.headerView?.menu = headerMenu
+
         scrollView.documentView = tableView
         scrollView.focusRingType = .none   // no blue focus outline around the list
         tableView.focusRingType = .none
@@ -204,6 +215,52 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         return t.id == "system" ? .secondaryLabelColor : t.labelSecondary
     }
 
+    // Folder-size cache for "Calculate all sizes". Computed off-main per visible
+    // folder and the row repainted when the result lands (like git badges).
+    private static let folderSizeQueue = DispatchQueue(label: "FinderTwo.folderSize", qos: .utility)
+    private var folderSizeCache: [URL: Int64] = [:]
+    private var folderSizeInFlight: Set<URL> = []
+
+    private func folderSizeText(for url: URL) -> String {
+        if let bytes = folderSizeCache[url] { return SizeFormatter.string(bytes) }
+        if !folderSizeInFlight.contains(url) {
+            folderSizeInFlight.insert(url)
+            FileListController.folderSizeQueue.async { [weak self] in
+                let bytes = FileListController.recursiveSize(url)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.folderSizeCache[url] = bytes
+                    self.folderSizeInFlight.remove(url)
+                    if let idx = self.urlToRowIndex[url], idx < self.tableView.numberOfRows {
+                        self.tableView.reloadData(forRowIndexes: IndexSet(integer: idx),
+                                                  columnIndexes: IndexSet(integersIn: 0..<self.tableView.numberOfColumns))
+                    }
+                }
+            }
+        }
+        return "…"   // computing
+    }
+
+    static func recursiveSize(_ url: URL) -> Int64 {
+        var total: Int64 = 0
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
+        if let en = FileManager.default.enumerator(at: url, includingPropertiesForKeys: keys,
+                                                   options: [.skipsPackageDescendants]) {
+            while let f = en.nextObject() as? URL {
+                let v = try? f.resourceValues(forKeys: Set(keys))
+                total += Int64(v?.totalFileAllocatedSize ?? v?.fileAllocatedSize ?? 0)
+            }
+        }
+        return total
+    }
+
+    @objc private func toggleColumn(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let col = tableView.tableColumns.first(where: { $0.identifier.rawValue == id }) else { return }
+        col.isHidden.toggle()
+        sender.state = col.isHidden ? .off : .on
+    }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let col = tableColumn, model.items.indices.contains(row) else { return nil }
         let item = model.items[row]
@@ -221,7 +278,13 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         case "modified":
             return makeTextCell(text: DateFormatterCache.string(item.modified), color: secondaryTextColor)
         case "size":
-            return makeTextCell(text: SizeFormatter.string(item.size), color: secondaryTextColor, alignment: .right)
+            let sizeText: String
+            if item.isDirectory {
+                sizeText = Settings.calculateFolderSizes ? folderSizeText(for: item.url) : "—"
+            } else {
+                sizeText = SizeFormatter.string(item.size)
+            }
+            return makeTextCell(text: sizeText, color: secondaryTextColor, alignment: .right)
         case "kind":
             return makeTextCell(text: item.kindDescription, color: secondaryTextColor)
         default:

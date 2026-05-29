@@ -258,6 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(routed("view.toggle-sidebar"))
         viewMenu.addItem(routed("view.toggle-statusbar"))
         viewMenu.addItem(routed("view.toggle-pathbar"))
+        viewMenu.addItem(routed("view.calculate-sizes"))
+        viewMenu.addItem(routed("view.type-to-select"))
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(routed("panel.terminal"))
         viewMenu.addItem(routed("panel.notes"))
