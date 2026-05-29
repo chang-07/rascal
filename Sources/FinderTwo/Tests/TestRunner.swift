@@ -108,6 +108,7 @@ final class TestRunner {
         // --- T8b: tab cycling (wraps), last-tab jump, and reorder ---
         while pane.testTabCount < 3 { pane.newTab(at: sandbox) }
         let tabN = pane.testTabCount
+        assert("tab strip is visible with multiple tabs", pane.testTabStripVisible, "hidden")
         pane.selectTab(at: 0)
         pane.nextTab()
         assert("nextTab advances", pane.testActiveTabIndex == 1, "active=\(pane.testActiveTabIndex)")
@@ -137,6 +138,11 @@ final class TestRunner {
         assert("close tab decrements",
                pane.testTabCount == initialTabs,
                "tabs=\(pane.testTabCount)")
+        // With a single tab the strip must be fully hidden (so its "+" button
+        // can't bleed into the gap above the breadcrumb).
+        if pane.testTabCount == 1 {
+            assert("tab strip hides with a single tab", !pane.testTabStripVisible, "still visible")
+        }
 
         // --- T10: extra pane toggle ---
         let panesBefore = wc.testPaneCount
