@@ -88,7 +88,7 @@ enum Archive {
         let proc = Process()
         let outPipe = Pipe()
         proc.standardOutput = outPipe
-        proc.standardError = Pipe()
+        proc.standardError = FileHandle.nullDevice
         switch kind {
         case .zip:
             proc.launchPath = "/usr/bin/unzip"
@@ -111,13 +111,26 @@ enum Archive {
         return outFile
     }
 
-    /// Extract the entire archive to a directory.
+    /// True if every entry stays within the destination when extracted — no
+    /// absolute paths and no `..` traversal (guards against zip-slip, where a
+    /// malicious archive writes outside the target dir).
+    static func entriesAreSafe(_ archive: URL) -> Bool {
+        for e in list(archive) {
+            if e.path.hasPrefix("/") { return false }
+            if e.path.split(separator: "/").contains("..") { return false }
+        }
+        return true
+    }
+
+    /// Extract the entire archive to a directory. Refuses archives whose
+    /// entries would escape `destination` (zip-slip).
     @discardableResult
     static func extractAll(_ archive: URL, to destination: URL) -> Bool {
         guard let kind = Kind.detect(archive) else { return false }
+        guard entriesAreSafe(archive) else { return false }
         let proc = Process()
-        proc.standardOutput = Pipe()
-        proc.standardError = Pipe()
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
         switch kind {
         case .zip:
             proc.launchPath = "/usr/bin/unzip"
@@ -203,7 +216,7 @@ enum Archive {
         p.arguments = args
         let out = Pipe()
         p.standardOutput = out
-        p.standardError = Pipe()
+        p.standardError = FileHandle.nullDevice
         do { try p.run() } catch { return nil }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()

@@ -172,9 +172,40 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
         let src = URL(fileURLWithPath: sourceField.stringValue)
         let dst = URL(fileURLWithPath: destField.stringValue)
         let prune = mirrorPruneCheck.state == .on
-        let ops = FolderSync.mirrorSourceToDestination(entries, source: src, destination: dst, prune: prune)
-        summary.stringValue = "Applied \(ops) operation\(ops == 1 ? "" : "s")."
-        target?.testActivePane?.reload()
+        let copyCount = entries.filter { $0.status == .onlySource }.count
+        let overwriteCount = entries.filter { $0.status == .differs }.count
+        let deleteCount = prune ? entries.filter { $0.status == .onlyDestination }.count : 0
+        guard copyCount + overwriteCount + deleteCount > 0 else {
+            summary.stringValue = "Nothing to apply."
+            return
+        }
+        // This mutates the destination — confirm before touching the user's
+        // files, spelling out exactly what will be copied / overwritten / deleted.
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Apply sync to “\(dst.lastPathComponent)”?"
+        var info = "\(copyCount) new file\(copyCount == 1 ? "" : "s") copied, \(overwriteCount) overwritten"
+        if deleteCount > 0 {
+            info += ", \(deleteCount) deleted from the destination (moved to Trash)"
+        }
+        info += "."
+        alert.informativeText = info
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Cancel")
+        let proceed: () -> Void = { [weak self] in
+            guard let self else { return }
+            let ops = FolderSync.mirrorSourceToDestination(self.entries, source: src,
+                                                           destination: dst, prune: prune)
+            self.summary.stringValue = "Applied \(ops) operation\(ops == 1 ? "" : "s")."
+            self.target?.testActivePane?.reload()
+        }
+        if let w = window {
+            alert.beginSheetModal(for: w) { resp in
+                if resp == .alertFirstButtonReturn { proceed() }
+            }
+        } else if alert.runModal() == .alertFirstButtonReturn {
+            proceed()
+        }
     }
 
     @objc private func closeSheet() {

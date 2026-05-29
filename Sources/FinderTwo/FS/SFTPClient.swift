@@ -95,7 +95,7 @@ enum SFTPClient {
         let outPipe = Pipe()
         p.standardInput = inPipe
         p.standardOutput = outPipe
-        p.standardError = Pipe()
+        p.standardError = FileHandle.nullDevice  // unused; nullDevice avoids a full-pipe deadlock
         do { try p.run() } catch { return nil }
         if let data = stdin.data(using: .utf8) {
             inPipe.fileHandleForWriting.write(data)
@@ -125,6 +125,9 @@ enum SFTPClient {
         }
         return out
     }
+
+    /// Test hook — exercises the `ls -la` parser without a live connection.
+    static func testParseLs(_ raw: String) -> [Entry] { parseLs(raw) }
 }
 
 /// Persistent store of saved SFTP connections, surfaced in the sidebar.

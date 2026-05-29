@@ -154,7 +154,7 @@ final class PluginHost {
             p.arguments = Array(args.dropFirst())
             let pipe = Pipe()
             p.standardOutput = pipe
-            p.standardError = Pipe()
+            p.standardError = FileHandle.nullDevice  // unused; nullDevice avoids a full-pipe deadlock
             do { try p.run() } catch { return nil }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             p.waitUntilExit()
