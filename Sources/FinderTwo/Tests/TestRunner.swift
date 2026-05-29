@@ -1955,6 +1955,32 @@ final class TestRunner {
         gallery.reload((try? FileManager.default.contentsOfDirectory(at: sandbox, includingPropertiesForKeys: nil))?.compactMap { FileItem.load($0) } ?? [])
         assert("GalleryViewController builds + reloads", gallery.view.subviews.isEmpty == false, "empty")
 
+        // --- Permissions: once-only onboarding + Full Disk Access detection ---
+        let permOnboard = PermissionsOnboardingController()
+        _ = permOnboard.window
+        assert("PermissionsOnboardingController builds", permOnboard.window?.contentView != nil, "nil")
+        assert("permissions onboarding shows 3 unlock bullets",
+               permOnboard.testBulletCount == 3, "got \(permOnboard.testBulletCount)")
+        assert("permissions onboarding has a title", !permOnboard.testTitle.isEmpty, "empty")
+        // The ad-hoc warning is shown iff this build is actually ad-hoc signed.
+        assert("ad-hoc warning matches the build's real signature",
+               permOnboard.testShowsAdHocWarning == PermissionsManager.isAdHocSigned,
+               "warning=\(permOnboard.testShowsAdHocWarning) adhoc=\(PermissionsManager.isAdHocSigned)")
+        // FDA probe is side-effect-free and stable across calls (never prompts).
+        let fda1 = PermissionsManager.hasFullDiskAccess
+        let fda2 = PermissionsManager.hasFullDiskAccess
+        assert("Full Disk Access detection is stable", fda1 == fda2, "flapped \(fda1) vs \(fda2)")
+        // Once-only gating: save the real flag, exercise both states, then restore.
+        let savedOnboarded = PermissionsManager.hasOnboarded
+        PermissionsManager.hasOnboarded = false
+        assert("a fresh install would present onboarding (unless FDA already on)",
+               PermissionsManager.shouldPresentOnboarding == !PermissionsManager.hasFullDiskAccess,
+               "should=\(PermissionsManager.shouldPresentOnboarding) fda=\(PermissionsManager.hasFullDiskAccess)")
+        PermissionsManager.hasOnboarded = true
+        assert("after onboarding once, it never auto-presents again",
+               PermissionsManager.shouldPresentOnboarding == false, "still wants to present")
+        PermissionsManager.hasOnboarded = savedOnboarded
+
         // Smart-folder creation sheet builds (no present() → stays off-screen).
         var savedSF: SmartFolder?
         let sfSheet = SmartFolderSheetController(existing: nil, defaultRoot: sandbox,

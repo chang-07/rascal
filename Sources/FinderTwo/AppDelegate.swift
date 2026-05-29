@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private weak var undoMenuItem: NSMenuItem?
     private weak var redoMenuItem: NSMenuItem?
     private weak var themeMenu: NSMenu?
+    /// Held strongly so the one-time permissions window isn't deallocated while shown.
+    private var permissionsOnboarding: PermissionsOnboardingController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
@@ -63,6 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let isHeadless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1"
         if !isHeadless {
             NSApp.activate(ignoringOtherApps: true)
+            // One-time: ask for Full Disk Access so we never per-folder-prompt
+            // again. Self-suppresses after the first run (and if FDA is already
+            // granted). Deferred so the main window paints first.
+            DispatchQueue.main.async { [weak self] in
+                self?.permissionsOnboarding = PermissionsManager.presentOnboardingIfNeeded()
+            }
         }
         LaunchMetrics.shared.firstWindowOnScreen = ProcessInfo.processInfo.systemUptime
         if ProcessInfo.processInfo.environment["FT_PRINT_LAUNCH_TIMING"] == "1" {
@@ -191,6 +199,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appMenu.addItem(item(title: "Settings…",
                              action: #selector(showSettings(_:)),
                              key: ",", mods: [.command]))
+        let fda = appMenu.addItem(withTitle: "Full Disk Access…",
+                                  action: #selector(grantFullDiskAccess(_:)),
+                                  keyEquivalent: "")
+        fda.target = self
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(systemItem(title: "Hide FinderTwo",
                                    action: #selector(NSApplication.hide(_:)),
@@ -469,6 +481,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         SettingsController.show()
+    }
+
+    /// Manual re-entry for the permissions flow (the one-time onboarding only
+    /// auto-shows once). Re-presents the explainer window every time it's chosen.
+    @objc func grantFullDiskAccess(_ sender: Any?) {
+        let c = PermissionsOnboardingController()
+        permissionsOnboarding = c
+        c.showWindow(nil)
+        c.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func goStandardFolder(_ sender: NSMenuItem) {
