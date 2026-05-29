@@ -94,6 +94,8 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         tableView.sortDescriptors = [NSSortDescriptor(key: SortKey.name.rawValue, ascending: true)]
 
         scrollView.documentView = tableView
+        scrollView.focusRingType = .none   // no blue focus outline around the list
+        tableView.focusRingType = .none
 
         let host = ListHostView()
         host.onKeyDown = { [weak self] event in
