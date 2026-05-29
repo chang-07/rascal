@@ -123,6 +123,8 @@ final class TransferQueue {
 
     private func run(_ op: TransferOp) {
         op.state = .running; notify(force: true)
+        // Successfully-completed, non-merge steps, for undo registration.
+        var done: [(src: URL, dst: URL)] = []
         for step in op.plan {
             if op.cancelFlag.value { break }
             waitWhilePaused(op)
@@ -142,11 +144,39 @@ final class TransferQueue {
                 ok = copyFile(step.src, to: step.dst, op: op)
                 if ok && op.move { try? fm.removeItem(at: step.src) }
             }
+            if ok && !step.merge { done.append((step.src, step.dst)) }
             if !ok && !op.cancelFlag.value { op.failures += 1 }
             notify(force: true)
         }
         op.state = op.cancelFlag.value ? .cancelled : (op.failures > 0 ? .failed : .done)
+        registerUndo(op, done: done)
         notify(force: true)
+    }
+
+    /// Register an undo for the completed steps: a move reverses src↔dst; a
+    /// copy is undone by trashing the destinations (merges are not recorded).
+    private func registerUndo(_ op: TransferOp, done: [(src: URL, dst: URL)]) {
+        guard !done.isEmpty else { return }
+        let fm = self.fm
+        let move = op.move
+        let name = (move ? "Move " : "Copy ") + (done.count == 1 ? "Item" : "\(done.count) Items")
+        // FileActionLog is thread-safe, so record straight from the worker.
+        FileActionLog.shared.record(name,
+            undo: {
+                if move {
+                    done.forEach { try? fm.moveItem(at: $0.dst, to: $0.src) }
+                } else {
+                    done.forEach { try? fm.trashItem(at: $0.dst, resultingItemURL: nil) }
+                }
+                return true
+            },
+            redo: {
+                done.forEach {
+                    if move { try? fm.moveItem(at: $0.src, to: $0.dst) }
+                    else { try? fm.copyItem(at: $0.src, to: $0.dst) }
+                }
+                return true
+            })
     }
 
     private func waitWhilePaused(_ op: TransferOp) {

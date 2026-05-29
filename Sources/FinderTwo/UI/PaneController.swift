@@ -661,6 +661,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
                 if !FileManager.default.fileExists(atPath: candidate.path) {
                     do {
                         try FileManager.default.copyItem(at: u, to: candidate)
+                        FileActionLog.shared.recordCreate(candidate, name: "Duplicate")
                     } catch {
                         NSSound.beep()
                     }
