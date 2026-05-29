@@ -1638,6 +1638,20 @@ final class TestRunner {
                    "got \(back.id)/\(back.accent)")
         } else { assert("theme export succeeds", false, "nil") }
 
+        // --- T59c: custom themes paint the sidebar with the EXACT theme color ---
+        let sbT = SidebarController(); _ = sbT.view
+        if let nord = ThemeManager.shared.available.first(where: { $0.id == "nord" }) {
+            ThemeManager.shared.setTheme(id: "nord"); wait(0.05)
+            assert("sidebar paints the theme's exact sidebar color (not system vibrancy)",
+                   sbT.testSidebarTint?.hexString == nord.sidebarBackground.hexString,
+                   "got \(sbT.testSidebarTint?.hexString ?? "nil") vs \(nord.sidebarBackground.hexString)")
+        }
+        ThemeManager.shared.setTheme(id: "system"); wait(0.05)
+        assert("sidebar clears the tint on System theme (native vibrancy shows)",
+               (sbT.testSidebarTint?.alphaComponent ?? 1) == 0,
+               "got \(sbT.testSidebarTint?.hexString ?? "nil")")
+        ThemeManager.shared.setTheme(id: startThemeId)
+
         // --- T14: sidebar entries are populated ---
         let entries = (wc.window?.contentViewController as? NSSplitViewController)?
             .splitViewItems
