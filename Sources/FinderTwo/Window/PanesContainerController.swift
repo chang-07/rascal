@@ -8,6 +8,13 @@ final class PanesContainerController: NSSplitViewController {
 
     private var panes: [PaneController] = []
     private(set) var activeIndex: Int = 0
+
+    /// Synchronized browsing: navigating one pane mirrors the relative path
+    /// change onto the others. Off by default; toggled from the View menu.
+    private(set) var syncBrowsing = false
+    private var paneLastURL: [ObjectIdentifier: URL] = [:]
+    private var isMirroring = false
+    var testSyncBrowsing: Bool { syncBrowsing }
     var activePane: PaneController? {
         panes.indices.contains(activeIndex) ? panes[activeIndex] : nil
     }
@@ -61,7 +68,13 @@ final class PanesContainerController: NSSplitViewController {
         }
         pane.onURLChange = { [weak self, weak pane] url in
             guard let self, let pane else { return }
+            let key = ObjectIdentifier(pane)
+            let old = self.paneLastURL[key] ?? url
+            self.paneLastURL[key] = url
             if let idx = self.panes.firstIndex(where: { $0 === pane }), idx == self.activeIndex {
+                if self.syncBrowsing, !self.isMirroring, self.panes.count > 1 {
+                    self.mirrorNavigation(from: old, to: url, sourcePane: pane)
+                }
                 self.onActivePathChange?(url)
             }
             pane.view.window?.invalidateRestorableState()
@@ -71,6 +84,7 @@ final class PanesContainerController: NSSplitViewController {
         item.holdingPriority = .defaultLow
         addSplitViewItem(item)
         panes.append(pane)
+        paneLastURL[ObjectIdentifier(pane)] = url
         if activate {
             activeIndex = panes.count - 1
             updateAfterActiveChange()
@@ -86,6 +100,36 @@ final class PanesContainerController: NSSplitViewController {
         let sel = active.selectedURLs()
         guard !sel.isEmpty else { return }
         FileOps.transfer(sel, into: other.currentURL, move: move, from: view.window)
+    }
+
+    /// Toggle synchronized browsing; re-baseline each pane's last URL so the
+    /// first navigation after enabling mirrors from the current positions.
+    func toggleSyncBrowsing() {
+        syncBrowsing.toggle()
+        for p in panes { paneLastURL[ObjectIdentifier(p)] = p.currentURL }
+    }
+
+    /// Apply the relative path change (`old`→`new`) on `sourcePane` to the other
+    /// panes: pop the components that were removed, push the ones that were
+    /// added, and navigate there if it exists. Exposed for tests.
+    func mirrorNavigation(from old: URL, to new: URL, sourcePane: PaneController) {
+        let oldC = old.pathComponents, newC = new.pathComponents
+        var i = 0
+        while i < min(oldC.count, newC.count) && oldC[i] == newC[i] { i += 1 }
+        let up = oldC.count - i
+        let down = Array(newC[i...])
+        isMirroring = true
+        defer { isMirroring = false }
+        for p in panes where p !== sourcePane {
+            var target = p.currentURL
+            for _ in 0..<up { target.deleteLastPathComponent() }
+            for c in down { target.appendPathComponent(c) }
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: target.path, isDirectory: &isDir), isDir.boolValue {
+                p.navigate(to: target)
+                paneLastURL[ObjectIdentifier(p)] = target
+            }
+        }
     }
 
     /// Move keyboard focus to the next/previous pane (wraps). No-op with one pane.
