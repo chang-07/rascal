@@ -92,6 +92,7 @@ declare -a EXPECT=(
     "View|as Icons"
     "View|as List"
     "View|as Columns"
+    "View|as Gallery"
     "View|Show Hidden Files"
     "View|Open Extra Pane"
     "Go|Back"
@@ -183,6 +184,7 @@ check_shortcut "Window" "Last Tab" "9" "0"
 check_shortcut "View" "as Icons" "1" "2"
 check_shortcut "View" "as List" "2" "2"
 check_shortcut "View" "as Columns" "3" "2"
+check_shortcut "View" "as Gallery" "4" "2"
 
 # -- Phase 4: AX exposes menu titles correctly ------------------------------
 

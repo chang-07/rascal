@@ -1293,6 +1293,8 @@ final class TestRunner {
         assert("setViewMode(.columns) honored", pane.viewMode == .columns, "got=\(pane.viewMode)")
         pane.setViewMode(.icon)
         assert("setViewMode(.icon) honored", pane.viewMode == .icon, "got=\(pane.viewMode)")
+        pane.setViewMode(.gallery)
+        assert("setViewMode(.gallery) honored", pane.viewMode == .gallery, "got=\(pane.viewMode)")
         pane.setViewMode(.list)
         assert("setViewMode(.list) honored", pane.viewMode == .list, "got=\(pane.viewMode)")
         pane.arrangeBy(.kind)
@@ -1736,6 +1738,12 @@ final class TestRunner {
         let diffWin = FileDiffWindowController(a: sandbox.appendingPathComponent("x"),
                                                b: sandbox.appendingPathComponent("y"))
         assert("FileDiffWindowController builds", diffWin.window?.contentView != nil, "nil")
+
+        // Gallery view controller builds + reloads with items (no window).
+        let gallery = GalleryViewController()
+        _ = gallery.view
+        gallery.reload((try? FileManager.default.contentsOfDirectory(at: sandbox, includingPropertiesForKeys: nil))?.compactMap { FileItem.load($0) } ?? [])
+        assert("GalleryViewController builds + reloads", gallery.view.subviews.isEmpty == false, "empty")
 
         // Smart-folder creation sheet builds (no present() → stays off-screen).
         var savedSF: SmartFolder?
