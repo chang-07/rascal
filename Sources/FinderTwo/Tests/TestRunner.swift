@@ -847,6 +847,22 @@ final class TestRunner {
         assert("drop stack filters deleted files", DropStack.all().isEmpty, "stale entry survives")
         DropStack.clear()
 
+        // --- T42f5: select-by-mask (glob) ---
+        assert("glob *.png matches a.png", FileListController.matchesGlob("a.png", "*.png"), "no match")
+        assert("glob *.png rejects a.txt", !FileListController.matchesGlob("a.txt", "*.png"), "false match")
+        assert("glob is case-insensitive", FileListController.matchesGlob("A.PNG", "*.png"), "case-sensitive")
+        assert("glob ? matches one char", FileListController.matchesGlob("report-1.txt", "report-?.txt"), "no match")
+        assert("glob ? rejects two chars", !FileListController.matchesGlob("report-12.txt", "report-?.txt"), "false match")
+        let maskDir = sandbox.appendingPathComponent("mask")
+        try? FileManager.default.createDirectory(at: maskDir, withIntermediateDirectories: true)
+        for n in ["one.png", "two.png", "three.txt"] {
+            try? "x".write(to: maskDir.appendingPathComponent(n), atomically: true, encoding: .utf8)
+        }
+        pane.navigate(to: maskDir); pane.testReloadSync()
+        assert("select-by-mask selects 2 of 3 (*.png)", pane.testSelectMatching("*.png") == 2,
+               "got \(pane.testSelectMatching("*.png"))")
+        pane.navigate(to: sandbox); pane.testReloadSync()
+
         // --- T42g: view/layout setting defaults ---
         for k in ["FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar"] {
             UserDefaults.standard.removeObject(forKey: k)

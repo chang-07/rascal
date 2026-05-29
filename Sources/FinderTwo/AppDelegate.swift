@@ -238,6 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editMenu.addItem(systemItem(title: "Select All",
                                     action: #selector(NSResponder.selectAll(_:)),
                                     key: "a"))
+        editMenu.addItem(routed("edit.select-by-pattern"))
         attach(editMenu, to: mainMenu)
 
         // ---- View ----
