@@ -32,13 +32,15 @@ if [[ ! -x "$BIN" ]]; then
     exit 1
 fi
 
-# Kill ANY running FinderTwo (build or installed) so `tell process "FinderTwo"`
-# can't resolve to a stale instance and shadow the freshly-built bundle.
-pkill -f "FinderTwo.app/Contents/MacOS/FinderTwo" 2>/dev/null || true
+# Kill only OUR build binary (never the user's installed /Applications copy),
+# launch a fresh headless (.accessory → off-screen, no Dock, no focus steal)
+# instance, and target it BY PID so a running installed copy can't shadow it.
+pkill -f "$BIN" 2>/dev/null || true
 sleep 0.6
 FT_HEADLESS_TESTING=1 "$BIN" > "$LOG" 2>&1 &
 APP_PID=$!
 trap 'kill $APP_PID 2>/dev/null' EXIT
+PROC="first process whose unix id is $APP_PID"
 sleep 1.5
 
 osa() { osascript -e "$1" 2>&1; }
@@ -47,7 +49,7 @@ osa() { osascript -e "$1" 2>&1; }
 
 echo "=== Phase 1: top-level menus ==="
 for m in FinderTwo File Edit View Go Window; do
-    out=$(osa "tell application \"System Events\" to tell process \"FinderTwo\" to exists menu bar item \"$m\" of menu bar 1")
+    out=$(osa "tell application \"System Events\" to tell ($PROC) to exists menu bar item \"$m\" of menu bar 1")
     [[ "$out" == "true" ]] && pass "menu '$m' present" || fail "menu '$m' missing"
 done
 
@@ -107,7 +109,7 @@ declare -a EXPECT=(
 )
 for spec in "${EXPECT[@]}"; do
     IFS="|" read -r menu item <<< "$spec"
-    out=$(osa "tell application \"System Events\" to tell process \"FinderTwo\" to exists menu item \"$item\" of menu \"$menu\" of menu bar item \"$menu\" of menu bar 1")
+    out=$(osa "tell application \"System Events\" to tell ($PROC) to exists menu item \"$item\" of menu \"$menu\" of menu bar item \"$menu\" of menu bar 1")
     [[ "$out" == "true" ]] && pass "$menu → $item" || fail "$menu → $item MISSING"
 done
 
@@ -118,9 +120,9 @@ echo "=== Phase 3: shortcuts ==="
 # we set it on the menu item. Compare case-insensitively.
 check_shortcut() {
     local menu="$1" item="$2" expected_key="$3" expected_mods="$4"
-    local key=$(osa "tell application \"System Events\" to tell process \"FinderTwo\" to ¬
+    local key=$(osa "tell application \"System Events\" to tell ($PROC) to ¬
         get value of attribute \"AXMenuItemCmdChar\" of menu item \"$item\" of menu \"$menu\" of menu bar item \"$menu\" of menu bar 1")
-    local mods=$(osa "tell application \"System Events\" to tell process \"FinderTwo\" to ¬
+    local mods=$(osa "tell application \"System Events\" to tell ($PROC) to ¬
         get value of attribute \"AXMenuItemCmdModifiers\" of menu item \"$item\" of menu \"$menu\" of menu bar item \"$menu\" of menu bar 1")
     # Normalize to uppercase for comparison
     local norm_got=$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')
@@ -172,16 +174,16 @@ check_shortcut "View" "as Columns" "2" "2"
 # -- Phase 4: AX exposes menu titles correctly ------------------------------
 
 echo "=== Phase 4: menu titles ==="
-all_titles=$(osa '
-tell application "System Events"
-  tell process "FinderTwo"
+all_titles=$(osa "
+tell application \"System Events\"
+  tell ($PROC)
     set titles to {}
     repeat with bar_item in menu bar items of menu bar 1
       copy (name of bar_item) to end of titles
     end repeat
     return titles as string
   end tell
-end tell')
+end tell")
 echo "$all_titles" | grep -q "FinderTwo" && pass "menu bar exposes FinderTwo" || fail "FinderTwo missing"
 echo "$all_titles" | grep -q "File" && pass "menu bar exposes File" || fail "File missing"
 echo "$all_titles" | grep -q "Window" && pass "menu bar exposes Window" || fail "Window missing"
