@@ -95,6 +95,7 @@ declare -a EXPECT=(
     "Go|Back"
     "Go|Forward"
     "Go|Enclosing Folder"
+    "Go|Mount Network Volume…"
     "Go|Open"
     "Go|Go to Folder…"
     "Go|Home"

@@ -889,6 +889,15 @@ final class TestRunner {
         assert("drop stack filters deleted files", DropStack.all().isEmpty, "stale entry survives")
         DropStack.clear()
 
+        // --- T42f4b: network mount URL validation ---
+        assert("netmount accepts smb://", NetMount.isSupportedURL("smb://server/share"), "rejected")
+        assert("netmount accepts ftp://", NetMount.isSupportedURL("ftp://host.example.com"), "rejected")
+        assert("netmount accepts https WebDAV", NetMount.isSupportedURL("https://dav.example.com/path"), "rejected")
+        assert("netmount accepts afp://", NetMount.isSupportedURL("afp://mac.local"), "rejected")
+        assert("netmount rejects a local path", !NetMount.isSupportedURL("/Users/chang"), "accepted")
+        assert("netmount rejects sftp (own browser)", !NetMount.isSupportedURL("sftp://host"), "accepted")
+        assert("netmount rejects scheme without host", !NetMount.isSupportedURL("smb://"), "accepted")
+
         // --- T42f5: select-by-mask (glob) ---
         assert("glob *.png matches a.png", FileListController.matchesGlob("a.png", "*.png"), "no match")
         assert("glob *.png rejects a.txt", !FileListController.matchesGlob("a.txt", "*.png"), "false match")
@@ -1611,6 +1620,10 @@ final class TestRunner {
         let shelf = DropStackController.shared
         assert("DropStackController builds", shelf.window?.contentView != nil, "nil")
         shelf.reload()
+
+        // Network-mount connect sheet builds (no show() → off-screen).
+        let netSheet = ServerConnectSheetController(target: wc)
+        assert("ServerConnectSheetController builds", netSheet.window?.contentView != nil, "nil")
 
         // Smart-folder creation sheet builds (no present() → stays off-screen).
         var savedSF: SmartFolder?

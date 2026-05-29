@@ -388,6 +388,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func connectToServer(_ sender: Any?) {
         SFTPConnectSheetController.show(for: self)
     }
+    @objc func mountNetworkVolume(_ sender: Any?) {
+        ServerConnectSheetController.show(for: self)
+    }
 
     // MARK: Project / editor
 

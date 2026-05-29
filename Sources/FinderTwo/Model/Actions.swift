@@ -409,6 +409,11 @@ enum ActionRegistry {
               category: .navigation,
               icon: "server.rack",
               defaultShortcut: KeyShortcut("k", [.command])) { $0.connectToServer(nil) },
+        .init(id: "net.mount-volume",
+              title: "Mount Network Volume…",
+              category: .navigation,
+              icon: "externaldrive.connected.to.line.below",
+              defaultShortcut: KeyShortcut("k", [.command, .shift])) { $0.mountNetworkVolume(nil) },
 
         // -------- Workspace --------
         .init(id: "workspace.save",
