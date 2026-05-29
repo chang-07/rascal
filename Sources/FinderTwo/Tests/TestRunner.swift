@@ -962,6 +962,11 @@ final class TestRunner {
         assert("arrangeBy(.kind) sets the sort key", pane.testModel.sort.key == .kind,
                "got=\(pane.testModel.sort.key)")
         pane.arrangeBy(.name)
+        // Preview drawer toggles (builds the QLPreviewView without crashing).
+        pane.togglePreviewDrawer()
+        assert("preview drawer opens", pane.testPreviewVisible, "not visible")
+        pane.togglePreviewDrawer()
+        assert("preview drawer closes", !pane.testPreviewVisible, "still visible")
 
         // --- T48: toggleHidden affects what filterless reload returns ---
         let dottedFile = sandbox.appendingPathComponent(".hidden_audit_marker")

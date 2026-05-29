@@ -23,6 +23,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     private let notesView = FolderNoteView()
     private var notesWidthConstraint: NSLayoutConstraint!
     private var notesVisible = false
+    private let previewView = PreviewDrawerView()
+    private var previewWidthConstraint: NSLayoutConstraint!
+    private var previewVisible = false
     private let terminalView = TerminalDrawerView()
     private var terminalHeightConstraint: NSLayoutConstraint!
     private var terminalVisible = false
@@ -105,6 +108,20 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         }
     }
 
+    func togglePreviewDrawer() {
+        previewVisible.toggle()
+        previewView.isHidden = !previewVisible
+        previewWidthConstraint.constant = previewVisible ? 260 : 0
+        if previewVisible { updatePreviewContent() }
+    }
+
+    /// Update the preview drawer to the current selection (or the folder when
+    /// nothing is selected). No-op while the drawer is closed.
+    private func updatePreviewContent() {
+        guard previewVisible else { return }
+        previewView.url = selectedURLs().first ?? activeTab.currentURL
+    }
+
     private func currentFreeBytesString() -> String {
         let now = ProcessInfo.processInfo.systemUptime
         if now - cachedFreeBytesAt < PaneController.freeBytesTTL, !cachedFreeBytesString.isEmpty {
@@ -139,6 +156,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         root.addSubview(hotbar)
         root.addSubview(fileList.view)
         root.addSubview(emptyState)
+        root.addSubview(previewView)
         root.addSubview(notesView)
         root.addSubview(terminalView)
         root.addSubview(statusBar)
@@ -147,6 +165,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         emptyState.isHidden = true
         notesView.isHidden = true
         notesWidthConstraint = notesView.widthAnchor.constraint(equalToConstant: 0)
+        previewView.translatesAutoresizingMaskIntoConstraints = false
+        previewView.isHidden = true
+        previewWidthConstraint = previewView.widthAnchor.constraint(equalToConstant: 0)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminalView.isHidden = true
         terminalHeightConstraint = terminalView.heightAnchor.constraint(equalToConstant: 0)
@@ -180,8 +201,14 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
             fileList.view.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
             fileList.view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            fileList.view.trailingAnchor.constraint(equalTo: notesView.leadingAnchor),
+            fileList.view.trailingAnchor.constraint(equalTo: previewView.leadingAnchor),
             fileList.view.bottomAnchor.constraint(equalTo: terminalView.topAnchor),
+
+            // Preview drawer sits between the content and the notes drawer.
+            previewView.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
+            previewView.trailingAnchor.constraint(equalTo: notesView.leadingAnchor),
+            previewView.bottomAnchor.constraint(equalTo: terminalView.topAnchor),
+            previewWidthConstraint,
 
             notesView.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
             notesView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -492,7 +519,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         NSLayoutConstraint.activate([
             v.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
             v.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            v.trailingAnchor.constraint(equalTo: notesView.leadingAnchor),
+            v.trailingAnchor.constraint(equalTo: previewView.leadingAnchor),
             v.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
         ])
     }
@@ -655,6 +682,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     }
 
     private func updateStatus() {
+        updatePreviewContent()
         let total = activeTab.model.items.count
         let selected = fileList.selectedItems()
         let freeStr = currentFreeBytesString()
@@ -752,6 +780,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     var testToolbarVisible: Bool { !toolbar.isHidden }
     var testHotbarVisible: Bool { !hotbar.isHidden }
     var testTabStripVisible: Bool { !tabStrip.isHidden }
+    var testPreviewVisible: Bool { previewVisible }
     var testHotbarHeight: CGFloat { hotbarHeightConstraint.constant }
     var testToolbarTopInset: CGFloat { topInsetConstraint.constant }
     func testToolbarHasFocusAPI() -> Bool {
