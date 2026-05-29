@@ -1000,6 +1000,35 @@ final class TestRunner {
         // appCandidates must not crash for a real file (count is env-dependent).
         _ = FileListController.appCandidates(for: hashFile)
 
+        // --- T42f3d: Quick Actions (sips rotate/convert, PDFKit) ---
+        let qaDir = sandbox.appendingPathComponent("qa")
+        try? FileManager.default.createDirectory(at: qaDir, withIntermediateDirectories: true)
+        let qaImg = qaDir.appendingPathComponent("img.png")
+        if let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 6, pixelsHigh: 4,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+           let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: qaImg)
+        }
+        func imgDims(_ u: URL) -> (Int, Int)? {
+            guard let r = NSImageRep(contentsOf: u) else { return nil }
+            return (r.pixelsWide, r.pixelsHigh)
+        }
+        assert("QuickActions recognises an image", QuickActions.isImage(qaImg), "no")
+        assert("source image is 6x4", imgDims(qaImg).map { $0 == (6, 4) } ?? false, "got \(String(describing: imgDims(qaImg)))")
+        QuickActions.rotate([qaImg], clockwise: true)
+        assert("rotate swaps dimensions to 4x6", imgDims(qaImg).map { $0 == (4, 6) } ?? false,
+               "got \(String(describing: imgDims(qaImg)))")
+        let qaConv = QuickActions.convert([qaImg], to: "jpeg")
+        assert("convert writes a .jpg sibling",
+               qaConv.first?.pathExtension == "jpg" && FileManager.default.fileExists(atPath: qaConv.first?.path ?? ""),
+               "got \(qaConv)")
+        if let qaPDF = QuickActions.createPDF(from: [qaImg]) {
+            let head = (try? FileHandle(forReadingFrom: qaPDF))?.readData(ofLength: 4)
+            assert("createPDF writes a real PDF", head == Data("%PDF".utf8), "bad header")
+        } else { assert("createPDF returns a URL", false, "nil") }
+        _ = QuickActions.installedShortcuts()   // env-dependent; must not crash
+
         // --- T42f3b: duplicate finder (size + content hash) ---
         let dupRoot = sandbox.appendingPathComponent("dups")
         try? FileManager.default.createDirectory(at: dupRoot.appendingPathComponent("sub"), withIntermediateDirectories: true)
