@@ -513,6 +513,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         let m = NSMenu()
         m.addItem(NSMenuItem(title: "Open", action: #selector(menuOpen), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Open With…", action: #selector(menuOpenWith), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Quick Look", action: #selector(menuQuickLook), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Reveal in Finder", action: #selector(menuReveal), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Open in Terminal", action: #selector(menuOpenTerm), keyEquivalent: ""))
         // "Open in Editor" → submenu of installed editors (built lazily so newly
@@ -540,10 +541,56 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         m.addItem(NSMenuItem(title: "Copy Path", action: #selector(menuCopyPath), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Duplicate", action: #selector(menuDuplicate), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Rename", action: #selector(menuRename), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Make Alias", action: #selector(menuMakeAlias), keyEquivalent: ""))
+        m.addItem(NSMenuItem.separator())
+        let compressTitle = selectedItems().count == 1 ? "Compress “\(selectedItems()[0].name)”" : "Compress \(selectedItems().count) Items"
+        m.addItem(NSMenuItem(title: compressTitle, action: #selector(menuCompress), keyEquivalent: ""))
+        if selectedItems().contains(where: { Archive.isArchive($0.url) }) {
+            m.addItem(NSMenuItem(title: "Extract", action: #selector(menuExtract), keyEquivalent: ""))
+        }
+        m.addItem(tagsSubmenuItem())
         m.addItem(NSMenuItem.separator())
         m.addItem(NSMenuItem(title: "Move to Trash", action: #selector(menuTrash), keyEquivalent: ""))
         for it in m.items { it.target = self }
         return m
+    }
+
+    /// Tags ▸ submenu: the 7 Finder colors (toggle on the whole selection) + Clear.
+    private func tagsSubmenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Tags", action: nil, keyEquivalent: "")
+        let menu = NSMenu()
+        let sel = selectedItems().map { $0.url }
+        // A color is "on" only when every selected item carries it.
+        var common: Set<Tags.Color> = []
+        if let first = sel.first {
+            common = Set(Tags.read(first).map { $0.color })
+            for u in sel.dropFirst() {
+                common.formIntersection(Set(Tags.read(u).map { $0.color }))
+            }
+        }
+        for color in [Tags.Color.red, .orange, .yellow, .green, .blue, .purple, .gray] {
+            let it = NSMenuItem(title: color.label, action: #selector(menuToggleTag(_:)), keyEquivalent: "")
+            it.representedObject = color.rawValue
+            it.target = self
+            it.state = common.contains(color) ? .on : .off
+            it.image = NameCell.tagDotImage(color.nsColor)
+            menu.addItem(it)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let clear = NSMenuItem(title: "Clear Tags", action: #selector(menuClearTags), keyEquivalent: "")
+        clear.target = self
+        menu.addItem(clear)
+        item.submenu = menu
+        return item
+    }
+
+    /// Re-render visible rows (cheap, preserves selection/scroll) — used after a
+    /// tag change so the color dots update.
+    func reloadVisibleRows() {
+        let n = tableView.numberOfRows
+        guard n > 0, tableView.numberOfColumns > 0 else { return }
+        tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<n),
+                             columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
     }
 
     @objc private func menuOpen() {
@@ -598,6 +645,55 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     }
     @objc private func menuRename() { beginRenameSelection() }
     @objc private func menuTrash() { FileOps.moveToTrash(selectedItems().map { $0.url }) }
+    @objc private func menuQuickLook() { toggleQuickLook() }
+    @objc private func menuMakeAlias() {
+        let urls = selectedItems().map { $0.url }
+        guard !urls.isEmpty else { return }
+        FileOps.makeAliases(for: urls)
+        model.reload()
+    }
+    @objc private func menuCompress() {
+        let urls = selectedItems().map { $0.url }
+        guard !urls.isEmpty else { NSSound.beep(); return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let ok = Archive.compress(urls) != nil
+            DispatchQueue.main.async { if !ok { NSSound.beep() }; self?.model.reload() }
+        }
+    }
+    @objc private func menuExtract() {
+        let archives = selectedItems().map { $0.url }.filter { Archive.isArchive($0) }
+        guard !archives.isEmpty else { NSSound.beep(); return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let allOK = archives.allSatisfy { Archive.extractInPlace($0) != nil }
+            DispatchQueue.main.async { if !allOK { NSSound.beep() }; self?.model.reload() }
+        }
+    }
+    @objc private func menuToggleTag(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? Int,
+              let color = Tags.Color(rawValue: raw) else { return }
+        let urls = selectedItems().map { $0.url }
+        guard !urls.isEmpty else { return }
+        // Toggle across the whole selection: if every item already has the color,
+        // remove it from all; otherwise add it to all.
+        let allHave = urls.allSatisfy { Tags.read($0).contains { $0.color == color } }
+        for url in urls {
+            if allHave {
+                Tags.write(Tags.read(url).filter { $0.color != color }, to: url)
+            } else {
+                Tags.addTag(Tags.Tag(name: color.label, color: color), to: url)
+            }
+        }
+        reloadVisibleRows()
+    }
+    @objc private func menuClearTags() {
+        for url in selectedItems().map({ $0.url }) { Tags.write([], to: url) }
+        reloadVisibleRows()
+    }
+
+    /// Entry points usable from menus & the command palette.
+    func compressSelection() { menuCompress() }
+    func extractSelection() { menuExtract() }
+    func makeAliasSelection() { menuMakeAlias() }
 }
 
 /// NSTableView subclass that routes alphanumeric keys to type-ahead filtering and
@@ -671,6 +767,7 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
     private let icon = NSImageView()
     let name = NSTextField()
     private let gitBadge = NSTextField(labelWithString: "")
+    private let tagDots = NSTextField(labelWithString: "")
     private(set) var currentItem: FileItem?
     private var isEditing = false
     private var originalNameBeforeEdit: String = ""
@@ -704,8 +801,15 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
         gitBadge.setContentHuggingPriority(.required, for: .horizontal)
         gitBadge.setContentCompressionResistancePriority(.required, for: .horizontal)
 
+        tagDots.translatesAutoresizingMaskIntoConstraints = false
+        tagDots.setContentHuggingPriority(.required, for: .horizontal)
+        tagDots.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // Let the name truncate instead of shoving the dots/badge off the edge.
+        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         addSubview(icon)
         addSubview(name)
+        addSubview(tagDots)
         addSubview(gitBadge)
         self.imageView = icon
         self.textField = name
@@ -716,7 +820,9 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
             icon.heightAnchor.constraint(equalToConstant: 16),
             name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
             name.centerYAnchor.constraint(equalTo: centerYAnchor),
-            gitBadge.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: 6),
+            tagDots.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: 6),
+            tagDots.centerYAnchor.constraint(equalTo: centerYAnchor),
+            gitBadge.leadingAnchor.constraint(equalTo: tagDots.trailingAnchor, constant: 4),
             gitBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             gitBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
@@ -736,6 +842,29 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
         }
         name.font = ThemeManager.shared.font()   // live font size + monospaced themes
         applyGitState(gitState)
+        applyTagDots(for: item.url)
+    }
+
+    /// Show up to 3 colored dots for the file's color tags (Finder-style).
+    private func applyTagDots(for url: URL) {
+        let colors = Tags.read(url).map { $0.color }.filter { $0 != .none }
+        guard !colors.isEmpty else { tagDots.attributedStringValue = NSAttributedString(string: ""); return }
+        let s = NSMutableAttributedString()
+        for c in colors.prefix(3) {
+            s.append(NSAttributedString(string: "●",
+                attributes: [.foregroundColor: c.nsColor, .font: NSFont.systemFont(ofSize: 9)]))
+        }
+        tagDots.attributedStringValue = s
+    }
+
+    /// Small filled circle for the Tags ▸ menu items.
+    static func tagDotImage(_ color: NSColor) -> NSImage {
+        let img = NSImage(size: NSSize(width: 12, height: 12))
+        img.lockFocus()
+        color.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 2, y: 2, width: 8, height: 8)).fill()
+        img.unlockFocus()
+        return img
     }
 
     private func applyGitState(_ state: GitStatus.FileState?) {

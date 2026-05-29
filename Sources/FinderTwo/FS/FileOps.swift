@@ -77,4 +77,22 @@ enum FileOps {
     static func revealInFinder(_ urls: [URL]) {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
+
+    /// Create a symlink ("alias") next to each item, named "<name> alias".
+    @discardableResult
+    static func makeAliases(for urls: [URL]) -> [URL] {
+        let fm = FileManager.default
+        var created: [URL] = []
+        for u in urls {
+            let dir = u.deletingLastPathComponent()
+            var dest = dir.appendingPathComponent("\(u.lastPathComponent) alias")
+            var i = 2
+            while fm.fileExists(atPath: dest.path) {
+                dest = dir.appendingPathComponent("\(u.lastPathComponent) alias \(i)"); i += 1
+            }
+            do { try fm.createSymbolicLink(at: dest, withDestinationURL: u); created.append(dest) }
+            catch { NSSound.beep() }
+        }
+        return created
+    }
 }

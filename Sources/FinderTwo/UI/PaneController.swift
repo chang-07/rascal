@@ -400,6 +400,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         view.window?.makeFirstResponder(fileList.tableView)
     }
 
+    func compressSelection() { fileList.compressSelection() }
+    func extractSelection() { fileList.extractSelection() }
+    func makeAliasSelection() { fileList.makeAliasSelection() }
+
     private func switchToActiveTabModel() {
         fileList.setModel(activeTab.model)
     }

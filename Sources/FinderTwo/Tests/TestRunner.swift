@@ -631,6 +631,39 @@ final class TestRunner {
                    Archive.entriesAreSafe(zipPath), "benign archive flagged unsafe")
         }
 
+        // --- T42d: compress selection → .zip, then extract-in-place ---
+        let cmpDir = sandbox.appendingPathComponent("compress_src")
+        try? FileManager.default.createDirectory(at: cmpDir, withIntermediateDirectories: true)
+        try? "hello".write(to: cmpDir.appendingPathComponent("c1.txt"), atomically: true, encoding: .utf8)
+        try? "world".write(to: cmpDir.appendingPathComponent("c2.txt"), atomically: true, encoding: .utf8)
+        let cmpItems = [cmpDir.appendingPathComponent("c1.txt"), cmpDir.appendingPathComponent("c2.txt")]
+        if let madeZip = Archive.compress(cmpItems) {
+            assert("Archive.compress creates a .zip",
+                   FileManager.default.fileExists(atPath: madeZip.path), "no zip at \(madeZip.path)")
+            let zipNames = Set(Archive.list(madeZip).map { ($0.path as NSString).lastPathComponent })
+            assert("compressed zip contains both files",
+                   zipNames.contains("c1.txt") && zipNames.contains("c2.txt"), "got=\(zipNames)")
+            if let outDir = Archive.extractInPlace(madeZip) {
+                let extracted = Set((try? FileManager.default.contentsOfDirectory(atPath: outDir.path)) ?? [])
+                assert("extractInPlace recreates the files into a new folder",
+                       extracted.contains("c1.txt") && extracted.contains("c2.txt"), "got=\(extracted)")
+            } else {
+                assert("extractInPlace returns a folder", false, "got nil")
+            }
+        } else {
+            assert("Archive.compress returns a URL", false, "got nil")
+        }
+
+        // --- T42e: tag write/read with color round-trips ---
+        let colorTagFile = sandbox.appendingPathComponent("tagme.txt")
+        try? "x".write(to: colorTagFile, atomically: true, encoding: .utf8)
+        Tags.write([Tags.Tag(name: "Red", color: Tags.Color.red)], to: colorTagFile)
+        let readBack = Tags.read(colorTagFile)
+        assert("tag with color round-trips",
+               readBack.contains { $0.color == Tags.Color.red }, "got=\(readBack.map { "\($0.name):\($0.color)" })")
+        Tags.write([], to: colorTagFile)
+        assert("clearing tags leaves none", Tags.read(colorTagFile).isEmpty, "tags remain")
+
         // --- T43: AppUninstaller bundle-id read ---
         // We can't test scanLeftovers in a hermetic way (it reads real
         // ~/Library); verify the bundle-id reader works against a known app.
