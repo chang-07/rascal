@@ -90,8 +90,9 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         outline.backgroundColor = .clear
         outline.allowsMultipleSelection = false
         outline.allowsEmptySelection = true
-        outline.intercellSpacing = NSSize(width: 0, height: 2)
-        outline.rowHeight = 22
+        outline.focusRingType = .none   // no blue focus outline around the sidebar
+        outline.intercellSpacing = NSSize(width: 0, height: 3)
+        outline.rowHeight = 28
 
         buildSections()
         outline.reloadData()

@@ -241,11 +241,15 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         topInsetConstraint.constant = Settings.showTitleBar ? 0 : PaneController.hiddenTitleBarInset
     }
 
-    func setActive(_ active: Bool) {
+    func setActive(_ active: Bool, showBorder: Bool = false) {
         isActive = active
-        view.layer?.borderColor = (active ? ThemeManager.shared.effectiveAccent.withAlphaComponent(0.45) : NSColor.clear).cgColor
+        // The accent border only marks WHICH pane is active — it's meaningless
+        // (and reads as a stray blue outline) with a single pane, so only draw
+        // it when the window is actually split.
+        let border = active && showBorder
         view.wantsLayer = true
-        view.layer?.borderWidth = active ? 1 : 0
+        view.layer?.borderColor = (border ? ThemeManager.shared.effectiveAccent.withAlphaComponent(0.45) : NSColor.clear).cgColor
+        view.layer?.borderWidth = border ? 1 : 0
         // Focus the file list on activation — but don't yank focus away from the
         // sidebar (so keyboard users can drive the source list), and don't focus
         // the hidden list while in columns mode.
