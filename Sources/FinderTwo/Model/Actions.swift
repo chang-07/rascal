@@ -266,6 +266,11 @@ enum ActionRegistry {
               category: .tabs,
               icon: "arrow.right.to.line",
               defaultShortcut: KeyShortcut("]", [.command, .control])) { $0.moveTabRight(nil) },
+        .init(id: "tab.move-to-new-window",
+              title: "Move Tab to New Window",
+              category: .tabs,
+              icon: "macwindow.badge.plus",
+              defaultShortcut: nil) { $0.moveTabToNewWindow(nil) },
 
         // -------- Panes --------
         .init(id: "pane.toggle-extra",

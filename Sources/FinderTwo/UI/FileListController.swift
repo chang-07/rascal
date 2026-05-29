@@ -611,6 +611,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
            (try? selectedItems()[0].url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
             m.addItem(NSMenuItem(title: "Add to Sidebar", action: #selector(menuAddToSidebar), keyEquivalent: ""))
         }
+        if selectedItems().count == 1,
+           FileOps.imageExtensions.contains(selectedItems()[0].url.pathExtension.lowercased()) {
+            m.addItem(NSMenuItem(title: "Set Desktop Picture", action: #selector(menuSetDesktop), keyEquivalent: ""))
+        }
         m.addItem(NSMenuItem.separator())
         m.addItem(NSMenuItem(title: "Move to Trash", action: #selector(menuTrash), keyEquivalent: ""))
         for it in m.items { it.target = self }
@@ -662,8 +666,11 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     }
     @objc private func menuBgNewFolder() { _ = FileOps.newFolder(in: model.url); model.reload() }
     @objc private func menuBgNewFile() { _ = FileOps.newFile(in: model.url); model.reload() }
-    @objc private func menuBgGetInfo() { FileOps.getInfo([model.url]) }
+    @objc private func menuBgGetInfo() { GetInfoSheetController.show(for: model.url, parent: view.window) }
     @objc private func menuBgAddToSidebar() { SidebarBookmarks.add(model.url) }
+    @objc private func menuSetDesktop() {
+        if let u = selectedItems().first?.url { FileOps.setDesktopPicture(u) }
+    }
     @objc private func menuAddToSidebar() {
         for u in selectedItems().map({ $0.url }) where (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
             SidebarBookmarks.add(u)
@@ -713,7 +720,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         guard let wc = view.window?.windowController as? BrowserWindowController else { return }
         wc.openInEditor(sender)   // sender.representedObject carries the chosen editor
     }
-    @objc private func menuGetInfo() { FileOps.getInfo(selectedItems().map { $0.url }) }
+    @objc private func menuGetInfo() {
+        if let u = selectedItems().first?.url { GetInfoSheetController.show(for: u, parent: view.window) }
+    }
     @objc private func menuCopy() {
         let pb = NSPasteboard.general
         pb.clearContents()
