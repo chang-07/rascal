@@ -180,6 +180,38 @@ final class TestRunner {
                    FileManager.default.fileExists(atPath: u.path), "")
         }
 
+        // --- T11b: new file, unique naming, transfer (no-conflict), group-into-folder ---
+        let foDir = sandbox.appendingPathComponent("fileops")
+        try? FileManager.default.createDirectory(at: foDir, withIntermediateDirectories: true)
+        if let nf = FileOps.newFile(in: foDir, baseName: "untitled") {
+            assert("newFile creates an empty file",
+                   FileManager.default.fileExists(atPath: nf.path), "no file")
+            let dodge = FileOps.uniqueDestination(foDir.appendingPathComponent("untitled"))
+            assert("uniqueDestination dodges an existing name",
+                   dodge.lastPathComponent == "untitled 2", "got=\(dodge.lastPathComponent)")
+        } else { assert("newFile returns a URL", false, "nil") }
+        // transfer with distinct names triggers no prompt and copies.
+        let xSrc = foDir.appendingPathComponent("src.txt")
+        try? "hi".write(to: xSrc, atomically: true, encoding: .utf8)
+        let xDst = sandbox.appendingPathComponent("xfer_dest")
+        try? FileManager.default.createDirectory(at: xDst, withIntermediateDirectories: true)
+        FileOps.transfer([xSrc], into: xDst, move: false)
+        assert("transfer copies into destination",
+               FileManager.default.fileExists(atPath: xDst.appendingPathComponent("src.txt").path), "not copied")
+        assert("transfer (copy) leaves the source in place",
+               FileManager.default.fileExists(atPath: xSrc.path), "source vanished")
+        // New Folder with Selection moves the items into a fresh folder.
+        let g1 = foDir.appendingPathComponent("g1.txt"); let g2 = foDir.appendingPathComponent("g2.txt")
+        try? "a".write(to: g1, atomically: true, encoding: .utf8)
+        try? "b".write(to: g2, atomically: true, encoding: .utf8)
+        if let folder = FileOps.newFolderWithItems([g1, g2], in: foDir) {
+            let inside = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+            assert("newFolderWithItems groups the selection",
+                   inside.contains("g1.txt") && inside.contains("g2.txt"), "got=\(inside)")
+            assert("newFolderWithItems moved (not copied) the items",
+                   !FileManager.default.fileExists(atPath: g1.path), "original still present")
+        } else { assert("newFolderWithItems returns a folder", false, "nil") }
+
         // --- T12: rename via FileListController.commitInlineRename ---
         // Sync reload so the file list picks up the new folder before we assert.
         pane.testReloadSync()

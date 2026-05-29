@@ -187,6 +187,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fileMenu.addItem(routed("tab.new"))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("file.new-folder"))
+        fileMenu.addItem(routed("file.new-folder-selection"))
+        fileMenu.addItem(routed("file.new-file"))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("tab.close"))
         fileMenu.addItem(systemItem(title: "Close Window",
@@ -217,6 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fileMenu.addItem(routed("tool.uninstall-app"))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("file.trash"))
+        fileMenu.addItem(routed("file.delete-immediately"))
+        fileMenu.addItem(routed("file.empty-trash"))
         attach(fileMenu, to: mainMenu)
 
         // ---- Edit ----
