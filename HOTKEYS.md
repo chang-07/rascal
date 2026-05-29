@@ -62,6 +62,7 @@ Drag files between panes to copy/move them.
 | `⌘V` | Paste | Copy here |
 | `⌘⌥V` | Move Items Here | Paste with move semantics |
 | `⌘D` | Duplicate | Adds " copy", " copy 2", … |
+| `⌘Z` / `⇧⌘Z` | Undo / Redo | Reverses rename, move, trash, new, duplicate, copy |
 | `⌘⌫` | Move to Trash | Recoverable |
 | `⌘⌥⌫` | Delete Immediately… | Bypasses the Trash (confirmation required) |
 | `⌘⇧⌫` | Empty Trash… | |
@@ -78,8 +79,9 @@ Drag files between panes to copy/move them.
 Also from the File / context menus: **Compress** (Zip, or **Compress…** for
 Tar.gz / password-protected Zip), **Extract**, **Make Alias**, **New File**,
 **Open With ▸** (any app + "Always Open With" to set the default),
-**Copy Checksum ▸** (MD5 / SHA-256), **Compare Two Files…**, and
-**Find Duplicate Files…**. Conflicts on a folder offer **Merge** (recursive
+**Copy Checksum ▸** (MD5 / SHA-256), **Compare Two Files…**,
+**Find Duplicate Files…**, **Show Package Contents** (browse inside an .app),
+and **Quick Actions ▸** (Rotate / Convert image · Create PDF · Run Shortcut). Conflicts on a folder offer **Merge** (recursive
 union). Transfers run in a cancellable, pausable queue — **View ▸ Transfer
 Activity**. Drag a file onto a folder and pause to **spring-load** it open
 (Settings ▸ General ▸ Dragging).
@@ -215,16 +217,25 @@ All preferences are plain `UserDefaults` — no account, no cloud.
 
 ## Themes
 
-Pick in Settings (`⌘,`) → Appearance, or run "Theme: …" from the palette.
+Pick from **View ▸ Theme** (every theme, checkmarked), Settings (`⌘,`) →
+Appearance, or "Theme: …" in the palette.
 
 | Theme | Look |
 |---|---|
 | System | Follows macOS light/dark |
-| Midnight | Dark, blue-tinted |
-| Sepia | Warm, light, paper tone |
+| Midnight · Nord · Dracula · Solarized Dark | Dark palettes |
+| Sepia · Solarized Light · Ocean | Light palettes |
+| High Contrast | Black + yellow, maximum legibility |
 | Hacker | Green-on-black, monospaced |
 
-Accent color, density, and font size layer on top of any theme.
+**Custom themes are just JSON.** A theme is a small file of hex colors;
+View ▸ Theme ▸ **Reveal Themes Folder** opens
+`~/Library/Application Support/FinderTwo/Themes/` where you can drop
+`my-theme.json` files (one `ThemeSpec` each — only `id`, `name`, and the
+color fields are required). **Export Current Theme…** writes the active
+theme there as a starting point, and **Reload Themes** re-scans the folder.
+A user theme whose `id` matches a built-in overrides it. Accent color,
+density, and font size layer on top of any theme.
 
 ---
 

@@ -4,7 +4,7 @@ import QuickLookUI
 /// Gallery view: a large Quick Look preview of the focused item above a
 /// horizontal filmstrip of thumbnails. Click a thumb to preview it,
 /// double-click (or Return) to open.
-final class GalleryViewController: NSViewController {
+final class GalleryViewController: NSViewController, ThemeObserving {
     var onOpen: ((FileItem) -> Void)?
     var onSelectionChange: (([FileItem]) -> Void)?
 
@@ -17,6 +17,7 @@ final class GalleryViewController: NSViewController {
 
     override func loadView() {
         let root = NSView()
+        root.wantsLayer = true
         let previewHost = ql ?? QLPreviewView()
         previewHost.translatesAutoresizingMaskIntoConstraints = false
         previewHost.autostarts = true
@@ -55,6 +56,14 @@ final class GalleryViewController: NSViewController {
             strip.heightAnchor.constraint(equalTo: stripScroll.heightAnchor),
         ])
         view = root
+        subscribeToTheme(self)
+    }
+
+    @objc func applyTheme() {
+        let t = ThemeManager.shared.current
+        let bg: NSColor = t.id == "system" ? .controlBackgroundColor : t.background
+        view.layer?.backgroundColor = bg.cgColor
+        nameLabel.textColor = t.id == "system" ? .labelColor : t.labelPrimary
     }
 
     func reload(_ items: [FileItem]) {
