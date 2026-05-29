@@ -913,6 +913,17 @@ final class TestRunner {
         let dupNames = Set((dupGroups.first?.urls ?? []).map { $0.lastPathComponent })
         assert("duplicate group is a.txt + b.txt", dupNames == ["a.txt", "b.txt"], "got \(dupNames)")
 
+        // --- T42f3c: file diff ---
+        let diffA = sandbox.appendingPathComponent("diffA.txt")
+        let diffB = sandbox.appendingPathComponent("diffB.txt")
+        try? "line1\nline2\nline3\n".write(to: diffA, atomically: true, encoding: .utf8)
+        try? "line1\nCHANGED\nline3\n".write(to: diffB, atomically: true, encoding: .utf8)
+        let diffOut = FileDiff.unified(diffA, diffB)
+        assert("file diff is non-nil for text files", diffOut != nil, "nil")
+        assert("file diff shows the removed line", diffOut?.contains("-line2") == true, "got \(diffOut ?? "nil")")
+        assert("file diff shows the added line", diffOut?.contains("+CHANGED") == true, "missing +CHANGED")
+        assert("identical files diff to empty", FileDiff.unified(diffA, diffA) == "", "got \(FileDiff.unified(diffA, diffA) ?? "nil")")
+
         // --- T42f4: Drop Stack (shelf) model ---
         DropStack.clear()
         let ds1 = sandbox.appendingPathComponent("ds1.txt"); try? "a".write(to: ds1, atomically: true, encoding: .utf8)
@@ -1667,6 +1678,11 @@ final class TestRunner {
         // Duplicate-finder window builds (no show()/scan → off-screen).
         let dupWin = DuplicateFinderWindowController(root: sandbox)
         assert("DuplicateFinderWindowController builds", dupWin.window?.contentView != nil, "nil")
+
+        // File-diff window builds (no show()/run → off-screen).
+        let diffWin = FileDiffWindowController(a: sandbox.appendingPathComponent("x"),
+                                               b: sandbox.appendingPathComponent("y"))
+        assert("FileDiffWindowController builds", diffWin.window?.contentView != nil, "nil")
 
         // Smart-folder creation sheet builds (no present() → stays off-screen).
         var savedSF: SmartFolder?

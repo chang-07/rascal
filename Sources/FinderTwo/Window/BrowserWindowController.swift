@@ -382,6 +382,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         DiskAnalyzerWindowController.show(for: self, rootURL: target)
     }
 
+    @objc func compareFiles(_ sender: Any?) {
+        guard let pane = activePane else { return }
+        let files = pane.selectedURLs().filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
+        }
+        guard files.count == 2 else { NSSound.beep(); return }
+        FileDiffWindowController.show(a: files[0], b: files[1], parent: window)
+    }
+
     @objc func findDuplicates(_ sender: Any?) {
         guard let pane = activePane else { return }
         let target: URL = pane.selectedURLs().first(where: {
