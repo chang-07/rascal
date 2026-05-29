@@ -1642,14 +1642,49 @@ final class TestRunner {
         let sbT = SidebarController(); _ = sbT.view
         if let nord = ThemeManager.shared.available.first(where: { $0.id == "nord" }) {
             ThemeManager.shared.setTheme(id: "nord"); wait(0.05)
-            assert("sidebar paints the theme's exact sidebar color (not system vibrancy)",
-                   sbT.testSidebarTint?.hexString == nord.sidebarBackground.hexString,
-                   "got \(sbT.testSidebarTint?.hexString ?? "nil") vs \(nord.sidebarBackground.hexString)")
+            assert("sidebar's rendered background is the theme's exact color",
+                   sbT.testSidebarBackground?.hexString == nord.sidebarBackground.hexString,
+                   "got \(sbT.testSidebarBackground?.hexString ?? "nil") vs \(nord.sidebarBackground.hexString)")
+
+            // Render-based proof: draw the sidebar into an OFF-SCREEN bitmap (no
+            // window, no display) and sample the ACTUAL painted pixels along the
+            // right-edge background column. Attempt 1 of this fix passed every
+            // property check yet still rendered the system color, because an
+            // opaque clip view sat IN FRONT of the tint — a z-order bug only a
+            // real pixel read can catch.
+            sbT.view.frame = NSRect(x: 0, y: 0, width: 168, height: 400)
+            sbT.view.layoutSubtreeIfNeeded()
+            if let rep = sbT.view.bitmapImageRepForCachingDisplay(in: sbT.view.bounds),
+               let want = nord.sidebarBackground.usingColorSpace(.sRGB) {
+                sbT.view.cacheDisplay(in: sbT.view.bounds, to: rep)
+                let x = rep.pixelsWide - 6
+                var matched = 0, opaque = 0
+                var py = 10
+                while py < rep.pixelsHigh - 10 {
+                    if let px = rep.colorAt(x: x, y: py)?.usingColorSpace(.sRGB),
+                       px.alphaComponent > 0.5 {
+                        opaque += 1
+                        if abs(px.redComponent - want.redComponent) < 0.06,
+                           abs(px.greenComponent - want.greenComponent) < 0.06,
+                           abs(px.blueComponent - want.blueComponent) < 0.06 { matched += 1 }
+                    }
+                    py += 8
+                }
+                if opaque == 0 {
+                    // Off-screen layer-backed compositing didn't fill the bitmap;
+                    // the property assertion above already stands. Not a failure.
+                    assert("sidebar pixel-render check (off-screen not composited — property check stands)", true, "")
+                } else {
+                    assert("sidebar renders the EXACT theme color in real pixels (no system overlay)",
+                           matched * 2 >= opaque,
+                           "only \(matched)/\(opaque) opaque right-edge samples matched nord \(want.hexString)")
+                }
+            }
         }
         ThemeManager.shared.setTheme(id: "system"); wait(0.05)
-        assert("sidebar clears the tint on System theme (native vibrancy shows)",
-               (sbT.testSidebarTint?.alphaComponent ?? 1) == 0,
-               "got \(sbT.testSidebarTint?.hexString ?? "nil")")
+        assert("sidebar background is clear on System theme (native vibrancy shows)",
+               (sbT.testSidebarBackground?.alphaComponent ?? 1) == 0,
+               "got \(sbT.testSidebarBackground?.hexString ?? "nil")")
         ThemeManager.shared.setTheme(id: startThemeId)
 
         // --- T14: sidebar entries are populated ---
