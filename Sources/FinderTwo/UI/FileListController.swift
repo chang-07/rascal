@@ -378,7 +378,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             target = model.url
         }
         let isCopy = modifierIsOption(info)
-        FileOps.transfer(urls, into: target, move: !isCopy)
+        FileOps.transfer(urls, into: target, move: !isCopy, from: view.window)
         return true
     }
 
@@ -787,8 +787,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
 
     /// Entry points usable from menus & the command palette.
     @objc private func menuPaste() {
-        FileOps.paste(NSPasteboard.general, into: model.url, move: false)
-        model.reload()
+        FileOps.paste(NSPasteboard.general, into: model.url, move: false, from: view.window)
     }
     @objc private func menuNewFolderWithSelection() {
         let sel = selectedItems().map { $0.url }
