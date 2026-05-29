@@ -851,6 +851,28 @@ final class TestRunner {
         let bcSubs = PathBarView.subdirectories(of: bcRoot).map { $0.lastPathComponent }
         assert("breadcrumb lists only visible subfolders, sorted", bcSubs == ["alpha", "zeta"], "got \(bcSubs)")
 
+        // --- T42d7: rename presets + {dim} token ---
+        RenamePresets.remove(name: "TestPreset")
+        RenamePresets.upsert(RenamePreset(name: "TestPreset", find: "a", repl: "b",
+            template: "{name}-{N}", useRegex: false, start: 5, pad: 2))
+        assert("rename preset persists", RenamePresets.find(name: "TestPreset")?.template == "{name}-{N}", "missing")
+        RenamePresets.upsert(RenamePreset(name: "TestPreset", find: "x", repl: "y",
+            template: "{name}", useRegex: true, start: 1, pad: 0))
+        assert("rename preset upsert overwrites by name",
+               RenamePresets.all().filter { $0.name == "TestPreset" }.count == 1 &&
+               RenamePresets.find(name: "TestPreset")?.find == "x", "dup or stale")
+        RenamePresets.remove(name: "TestPreset")
+        assert("rename preset removed", RenamePresets.find(name: "TestPreset") == nil, "still there")
+        // {dim} expands to empty for a non-image file (no crash either).
+        let dimFile = sandbox.appendingPathComponent("notimage.txt")
+        try? "x".write(to: dimFile, atomically: true, encoding: .utf8)
+        if let it = FileItem.load(dimFile) {
+            let preview = BatchRenameSheetController.testPreview(items: [it], find: "", repl: "",
+                template: "{dim}{name}", useRegex: false, start: 1, pad: 0)
+            assert("{dim} empty for non-image", preview.first?.newName == "notimage.txt",
+                   "got \(preview.first?.newName ?? "nil")")
+        } else { assert("loaded notimage.txt", false, "nil") }
+
         // --- T42e: tag write/read with color round-trips ---
         let colorTagFile = sandbox.appendingPathComponent("tagme.txt")
         try? "x".write(to: colorTagFile, atomically: true, encoding: .utf8)

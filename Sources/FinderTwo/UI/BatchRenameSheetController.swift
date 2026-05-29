@@ -25,6 +25,8 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
     private let scroll = NSScrollView()
     private let applyButton = NSButton(title: "Rename", target: nil, action: nil)
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
+    private let presetPopup = NSPopUpButton()
+    private let savePresetButton = NSButton(title: "Save Preset…", target: nil, action: nil)
 
     struct Row {
         let url: URL
@@ -151,7 +153,23 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
         cancelButton.action = #selector(cancelSheet)
         cv.addSubview(cancelButton)
 
+        presetPopup.translatesAutoresizingMaskIntoConstraints = false
+        presetPopup.target = self
+        presetPopup.action = #selector(presetSelected)
+        cv.addSubview(presetPopup)
+        savePresetButton.translatesAutoresizingMaskIntoConstraints = false
+        savePresetButton.bezelStyle = .rounded
+        savePresetButton.target = self
+        savePresetButton.action = #selector(savePreset)
+        cv.addSubview(savePresetButton)
+        refreshPresetPopup()
+
         NSLayoutConstraint.activate([
+            presetPopup.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 14),
+            presetPopup.centerYAnchor.constraint(equalTo: applyButton.centerYAnchor),
+            presetPopup.widthAnchor.constraint(equalToConstant: 170),
+            savePresetButton.leadingAnchor.constraint(equalTo: presetPopup.trailingAnchor, constant: 8),
+            savePresetButton.centerYAnchor.constraint(equalTo: applyButton.centerYAnchor),
             findLbl.topAnchor.constraint(equalTo: cv.topAnchor, constant: 14),
             findLbl.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 14),
             findLbl.widthAnchor.constraint(equalToConstant: 70),
@@ -200,6 +218,47 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
     }
 
     func controlTextDidChange(_ obj: Notification) { rebuildPreview() }
+
+    private func refreshPresetPopup() {
+        presetPopup.removeAllItems()
+        presetPopup.addItem(withTitle: "Presets…")
+        for p in RenamePresets.all() { presetPopup.addItem(withTitle: p.name) }
+        presetPopup.selectItem(at: 0)
+    }
+    @objc private func presetSelected() {
+        let idx = presetPopup.indexOfSelectedItem
+        let presets = RenamePresets.all()
+        guard idx > 0, idx <= presets.count else { return }
+        let p = presets[idx - 1]
+        findField.stringValue = p.find
+        replField.stringValue = p.repl
+        templateField.stringValue = p.template
+        regexCheck.state = p.useRegex ? .on : .off
+        startField.stringValue = String(p.start)
+        padField.stringValue = String(p.pad)
+        rebuildPreview()
+    }
+    @objc private func savePreset() {
+        let alert = NSAlert()
+        alert.messageText = "Save Rename Preset"
+        alert.informativeText = "Name this find/replace + template + numbering setup."
+        let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        alert.accessoryView = tf
+        alert.addButton(withTitle: "Save"); alert.addButton(withTitle: "Cancel")
+        let go: (NSApplication.ModalResponse) -> Void = { [weak self] resp in
+            guard let self, resp == .alertFirstButtonReturn else { return }
+            let name = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return }
+            RenamePresets.upsert(RenamePreset(
+                name: name, find: self.findField.stringValue, repl: self.replField.stringValue,
+                template: self.templateField.stringValue, useRegex: self.regexCheck.state == .on,
+                start: Int(self.startField.stringValue) ?? 1, pad: Int(self.padField.stringValue) ?? 0))
+            self.refreshPresetPopup()
+            self.presetPopup.selectItem(withTitle: name)
+        }
+        if let w = window { alert.beginSheetModal(for: w, completionHandler: go) }
+        else { go(alert.runModal()) }
+    }
 
     @objc private func rebuildPreview() {
         let find = findField.stringValue
@@ -265,7 +324,19 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
             let title = mediaTitle(at: item.url) ?? base
             s = s.replacingOccurrences(of: "{title}", with: title)
         }
+        if s.contains("{dim}") {
+            s = s.replacingOccurrences(of: "{dim}", with: imageDimensions(at: item.url) ?? "")
+        }
         return s
+    }
+
+    /// "WIDTHxHEIGHT" for an image file, or nil if it isn't one.
+    private func imageDimensions(at url: URL) -> String? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any],
+              let w = props[kCGImagePropertyPixelWidth as String] as? Int,
+              let h = props[kCGImagePropertyPixelHeight as String] as? Int else { return nil }
+        return "\(w)x\(h)"
     }
 
     private func exifDateString(at url: URL) -> String? {
