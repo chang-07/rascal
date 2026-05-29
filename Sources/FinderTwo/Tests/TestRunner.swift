@@ -1592,10 +1592,11 @@ final class TestRunner {
                "got=\(visited)")
 
         // --- T59a: a custom theme repaints the file list background ---
+        let midnightBG = ThemeManager.shared.available.first { $0.id == "midnight" }!.background
         ThemeManager.shared.setTheme(id: "midnight")
         wait(0.05)
         assert("file list paints custom theme background",
-               pane.testFileList.tableView.backgroundColor == Theme.midnight.background,
+               pane.testFileList.tableView.backgroundColor == midnightBG,
                "got=\(pane.testFileList.tableView.backgroundColor)")
         ThemeManager.shared.setTheme(id: "system")
         wait(0.05)
@@ -1603,6 +1604,39 @@ final class TestRunner {
                pane.testFileList.tableView.backgroundColor == .controlBackgroundColor,
                "got=\(pane.testFileList.tableView.backgroundColor)")
         ThemeManager.shared.setTheme(id: startThemeId)
+
+        // --- T59b: portable, data-driven theme system ---
+        assert("hex round-trips", NSColor(hex: "#2E3440")?.hexString == "#2E3440",
+               "got \(NSColor(hex: "#2E3440")?.hexString ?? "nil")")
+        assert("hex with alpha round-trips", NSColor(hex: "#2F5BD459")?.hexString == "#2F5BD459",
+               "got \(NSColor(hex: "#2F5BD459")?.hexString ?? "nil")")
+        assert("malformed hex is rejected", NSColor(hex: "nope") == nil, "accepted")
+        let themeIDs = Set(ThemeManager.shared.available.map { $0.id })
+        assert("new built-in themes are present",
+               themeIDs.isSuperset(of: ["nord", "dracula", "solarized-light", "solarized-dark", "high-contrast", "ocean"]),
+               "got \(themeIDs)")
+        assert("theme library has 10+ themes", ThemeManager.shared.available.count >= 10,
+               "got \(ThemeManager.shared.available.count)")
+        // JSON spec → Theme (forgiving: omit the cosmetic extras).
+        let specJSON = """
+        {"id":"t-test","name":"Test","appearance":"dark","background":"#101012","sidebarBackground":"#0A0A0C","toolbarBackground":"#151518","pathBarBackground":"#151518","rowAlternate":"#1A1A1E","labelPrimary":"#FFFFFF","labelSecondary":"#BBBBBB","labelTertiary":"#888888","accent":"#FF8800","selectionBackground":"#FF880055"}
+        """
+        let decoded = ThemeStore.decodeSpec(Data(specJSON.utf8))
+        assert("theme spec decodes from JSON", decoded?.id == "t-test", "nil")
+        assert("omitted cosmetic fields default", decoded?.baseFontPointSize == 13 && decoded?.monospaced == false, "wrong defaults")
+        if let decoded { assert("spec → Theme maps accent hex", Theme(spec: decoded).accent.hexString == "#FF8800", "wrong accent") }
+        // Load user themes from a folder + export round-trip.
+        let themesTmp = sandbox.appendingPathComponent("themes")
+        try? FileManager.default.createDirectory(at: themesTmp, withIntermediateDirectories: true)
+        try? Data(specJSON.utf8).write(to: themesTmp.appendingPathComponent("t-test.json"))
+        let loaded = ThemeStore.userThemes(in: themesTmp)
+        assert("user theme loads from folder", loaded.contains { $0.id == "t-test" }, "not loaded")
+        if let nord = ThemeManager.shared.available.first(where: { $0.id == "nord" }),
+           let exported = ThemeStore.export(nord, to: themesTmp),
+           let data = try? Data(contentsOf: exported), let back = ThemeStore.decodeSpec(data) {
+            assert("export → decode round-trips", back.id == "nord" && back.accent == "#88C0D0",
+                   "got \(back.id)/\(back.accent)")
+        } else { assert("theme export succeeds", false, "nil") }
 
         // --- T14: sidebar entries are populated ---
         let entries = (wc.window?.contentViewController as? NSSplitViewController)?
