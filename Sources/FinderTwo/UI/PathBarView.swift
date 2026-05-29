@@ -93,10 +93,18 @@ final class PathBarView: NSView, ThemeObserving {
             stack.addArrangedSubview(btn)
 
             if idx < segments.count - 1 {
-                let chev = NSImageView(image: NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil) ?? NSImage())
+                // Clickable chevron → menu of this segment's subfolders (jump to
+                // a sibling of the next crumb without descending the list).
+                let chev = NSButton(title: "", target: self, action: #selector(chevronClicked(_:)))
+                chev.isBordered = false
+                chev.setButtonType(.momentaryChange)
+                chev.imagePosition = .imageOnly
                 chev.contentTintColor = chevronColor
+                chev.tag = idx
+                let img = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Subfolders")?
+                    .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .medium))
+                chev.image = img
                 chev.translatesAutoresizingMaskIntoConstraints = false
-                chev.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .medium)
                 stack.addArrangedSubview(chev)
             }
         }
@@ -109,6 +117,40 @@ final class PathBarView: NSView, ThemeObserving {
         let idx = sender.tag
         guard segments.indices.contains(idx) else { return }
         onSelectSegment?(segments[idx])
+    }
+
+    @objc private func chevronClicked(_ sender: NSButton) {
+        let idx = sender.tag
+        guard segments.indices.contains(idx) else { return }
+        let folder = segments[idx]
+        let dirs = PathBarView.subdirectories(of: folder)
+        let menu = NSMenu()
+        if dirs.isEmpty {
+            let it = NSMenuItem(title: "No Subfolders", action: nil, keyEquivalent: "")
+            it.isEnabled = false; menu.addItem(it)
+        }
+        let currentChild = segments.indices.contains(idx + 1) ? segments[idx + 1].standardizedFileURL : nil
+        for d in dirs.prefix(250) {
+            let it = NSMenuItem(title: d.lastPathComponent, action: #selector(jumpToSubfolder(_:)), keyEquivalent: "")
+            it.representedObject = d; it.target = self
+            let icon = NSWorkspace.shared.icon(forFile: d.path); icon.size = NSSize(width: 14, height: 14)
+            it.image = icon
+            if d.standardizedFileURL == currentChild { it.state = .on }
+            menu.addItem(it)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 2), in: sender)
+    }
+    @objc private func jumpToSubfolder(_ sender: NSMenuItem) {
+        if let u = sender.representedObject as? URL { onSelectSegment?(u) }
+    }
+
+    /// Immediate subdirectories of `url`, hidden ones skipped, name-sorted.
+    /// Pure helper — used by tests.
+    static func subdirectories(of url: URL) -> [URL] {
+        let kids = (try? FileManager.default.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
+        return kids.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
     private var segmentColor: NSColor {
