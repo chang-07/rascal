@@ -1620,6 +1620,18 @@ final class TestRunner {
                "got \(themeIDs)")
         assert("theme library has 10+ themes", ThemeManager.shared.available.count >= 10,
                "got \(ThemeManager.shared.available.count)")
+        // Rascal's signature light + dark themes (matched to the landing page).
+        assert("Rascal Light & Dark themes ship",
+               themeIDs.isSuperset(of: ["rascal-light", "rascal-dark"]), "got \(themeIDs)")
+        if let rl = ThemeManager.shared.available.first(where: { $0.id == "rascal-light" }),
+           let rd = ThemeManager.shared.available.first(where: { $0.id == "rascal-dark" }) {
+            assert("Rascal Light is light + warm-orange accent",
+                   rl.appearance == .light && rl.accent.hexString == "#FF6600", "got \(rl.accent.hexString)")
+            assert("Rascal Dark is dark + warm-orange accent",
+                   rd.appearance == .dark && rd.accent.hexString == "#FF8A33", "got \(rd.accent.hexString)")
+        } else {
+            assert("Rascal themes resolve", false, "missing")
+        }
         // JSON spec → Theme (forgiving: omit the cosmetic extras).
         let specJSON = """
         {"id":"t-test","name":"Test","appearance":"dark","background":"#101012","sidebarBackground":"#0A0A0C","toolbarBackground":"#151518","pathBarBackground":"#151518","rowAlternate":"#1A1A1E","labelPrimary":"#FFFFFF","labelSecondary":"#BBBBBB","labelTertiary":"#888888","accent":"#FF8800","selectionBackground":"#FF880055"}
