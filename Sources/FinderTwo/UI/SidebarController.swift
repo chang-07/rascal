@@ -79,7 +79,13 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         outline.addTableColumn(col)
         outline.outlineTableColumn = col
         outline.headerView = nil
-        outline.style = .sourceList
+        // `.inset` (not `.sourceList`): the source-list style draws its OWN
+        // system vibrancy that ignores our theme tint, so every custom theme
+        // looked identically "system". `.inset` is non-vibrant, so the tint
+        // (clear for System → the visual-effect view shows; opaque theme color
+        // otherwise) governs the sidebar background. Runtime style changes
+        // don't reliably stick, so this is set once and never toggled.
+        outline.style = .inset
         // selectionHighlightStyle = .sourceList is deprecated since macOS 12 because
         // setting the table style to .sourceList already provides the correct highlight.
         outline.indentationPerLevel = 16
@@ -160,14 +166,18 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
 
     @objc func applyTheme() {
         let t = ThemeManager.shared.current
-        // System theme: show the native vibrancy (clear tint). Custom themes:
-        // cover it with the theme's sidebar background for a consistent look.
-        if t.id == "system" {
-            tintView.layer?.backgroundColor = NSColor.clear.cgColor
-        } else {
-            tintView.layer?.backgroundColor = t.sidebarBackground.cgColor
-        }
+        // System: clear tint so the visual-effect view's translucency shows.
+        // Custom: paint the EXACT sidebar color over the vibrancy (the `.inset`
+        // outline is non-vibrant, so this fully governs the background).
+        tintView.layer?.backgroundColor =
+            t.id == "system" ? NSColor.clear.cgColor : t.sidebarBackground.cgColor
         outline.reloadData()
+    }
+
+    /// Test hook: the sidebar's painted background (clear/zero-alpha = native).
+    var testSidebarTint: NSColor? {
+        guard let cg = tintView.layer?.backgroundColor else { return nil }
+        return NSColor(cgColor: cg)
     }
 
     func highlight(url: URL) {
