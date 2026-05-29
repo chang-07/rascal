@@ -94,29 +94,7 @@ enum FolderSync {
             let to   = destination.appendingPathComponent(e.relPath)
             switch e.status {
             case .onlySource, .differs:
-                try? fm.createDirectory(at: to.deletingLastPathComponent(),
-                                        withIntermediateDirectories: true)
-                do {
-                    if fm.fileExists(atPath: to.path) {
-                        // Never delete-then-copy (a failed copy would lose the
-                        // original). Copy to a temp sibling, then swap it in
-                        // atomically so the existing file survives any failure.
-                        let tmp = to.deletingLastPathComponent()
-                            .appendingPathComponent(".ftsync-" + UUID().uuidString)
-                        do {
-                            try fm.copyItem(at: from, to: tmp)
-                            _ = try fm.replaceItemAt(to, withItemAt: tmp)
-                        } catch {
-                            try? fm.removeItem(at: tmp)
-                            throw error
-                        }
-                    } else {
-                        try fm.copyItem(at: from, to: to)
-                    }
-                    ops += 1
-                } catch {
-                    // Leave the existing destination intact on failure.
-                }
+                if copyOverwrite(from: from, to: to, fm: fm) { ops += 1 }
             case .onlyDestination:
                 if prune {
                     if (try? fm.trashItem(at: to, resultingItemURL: nil)) != nil { ops += 1 }
@@ -125,5 +103,59 @@ enum FolderSync {
             }
         }
         return ops
+    }
+
+    /// 2-way sync: union both trees. Each side gains the other's unique files;
+    /// for files present on both that differ, the NEWER one wins (by mtime).
+    /// Nothing is ever deleted. Returns the number of files written.
+    @discardableResult
+    static func syncBothWays(source: URL, destination: URL) -> Int {
+        let src = listTree(source)
+        let dst = listTree(destination)
+        let fm = FileManager.default
+        var ops = 0
+        var keys = Set(src.keys); keys.formUnion(dst.keys)
+        for key in keys.sorted() {
+            let s = src[key]; let d = dst[key]
+            let from: URL, to: URL
+            switch (s, d) {
+            case (.some, nil):
+                from = source.appendingPathComponent(key); to = destination.appendingPathComponent(key)
+            case (nil, .some):
+                from = destination.appendingPathComponent(key); to = source.appendingPathComponent(key)
+            case let (.some(sm), .some(dm)):
+                if sm.size == dm.size && abs(sm.mtime.timeIntervalSince(dm.mtime)) < 2 { continue }
+                if sm.mtime >= dm.mtime {
+                    from = source.appendingPathComponent(key); to = destination.appendingPathComponent(key)
+                } else {
+                    from = destination.appendingPathComponent(key); to = source.appendingPathComponent(key)
+                }
+            default: continue
+            }
+            if copyOverwrite(from: from, to: to, fm: fm) { ops += 1 }
+        }
+        return ops
+    }
+
+    /// Copy `from` over `to`, creating parents. When `to` exists, copy to a
+    /// temp sibling and swap atomically so a failed copy never loses the
+    /// original. Returns true on success.
+    @discardableResult
+    static func copyOverwrite(from: URL, to: URL, fm: FileManager = .default) -> Bool {
+        try? fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            if fm.fileExists(atPath: to.path) {
+                let tmp = to.deletingLastPathComponent().appendingPathComponent(".ftsync-" + UUID().uuidString)
+                do {
+                    try fm.copyItem(at: from, to: tmp)
+                    _ = try fm.replaceItemAt(to, withItemAt: tmp)
+                } catch {
+                    try? fm.removeItem(at: tmp); return false
+                }
+            } else {
+                try fm.copyItem(at: from, to: to)
+            }
+            return true
+        } catch { return false }
     }
 }
