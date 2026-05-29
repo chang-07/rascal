@@ -1934,6 +1934,24 @@ final class TestRunner {
         tmView.setRoot(tmRoot)
         assert("treemap lays out tiles for a scanned folder", tmView.testTileCount > 0, "no tiles")
 
+        // Treemap drill history powers the ← / → back-forward arrows.
+        let histRoot = mkNode("/h", dir: true)
+        let histChild = mkNode("/h/sub", dir: true)
+        histChild.children.append(mkNode("/h/sub/leaf", dir: false, size: 100)); histChild.size = 100
+        histRoot.children.append(histChild); histRoot.size = 100
+        let htv = TreemapView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        htv.setRoot(histRoot)
+        assert("treemap: at root there's nowhere to go back/forward",
+               !htv.canGoBack && !htv.canGoForward, "back=\(htv.canGoBack) fwd=\(htv.canGoForward)")
+        htv.testDrill(into: histChild)
+        assert("treemap: after drilling in, ← is enabled and → is not",
+               htv.canGoBack && !htv.canGoForward, "back=\(htv.canGoBack) fwd=\(htv.canGoForward)")
+        htv.goBack()
+        assert("treemap: ← returns to the parent and enables →",
+               htv.currentRoot === histRoot && htv.canGoForward, "root=\(htv.currentRoot?.name ?? "nil")")
+        htv.goForward()
+        assert("treemap: → re-enters the child", htv.currentRoot === histChild, "root=\(htv.currentRoot?.name ?? "nil")")
+
         // --- Disk scan accuracy: no symlink-follow, hard-link dedup, allocated size ---
         let duTmp = sandbox.appendingPathComponent("duusage-\(UUID().uuidString)")
         let duReal = duTmp.appendingPathComponent("real")
