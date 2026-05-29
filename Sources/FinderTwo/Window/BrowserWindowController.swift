@@ -72,6 +72,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         sidebarVC.onSelect = { [weak self] url in
             self?.panesContainer.activePane?.navigate(to: url)
         }
+        sidebarVC.onOpenInNewTab = { [weak self] url in
+            self?.panesContainer.activePane?.newTab(at: url)
+        }
+        sidebarVC.onOpenInNewWindow = { url in
+            (NSApp.delegate as? AppDelegate)?.openNewBrowserWindow(at: url)
+        }
         panesContainer.onActivePathChange = { [weak self] url in
             guard let self else { return }
             let name = url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent

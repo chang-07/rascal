@@ -65,6 +65,17 @@ final class DirectoryModel {
     func navigate(to url: URL) {
         guard url != self.url else { return }
         self.url = url
+        if SidebarController.isRecentsURL(url) {
+            // Recents smart folder: recently-modified files via Spotlight.
+            watcher?.stop()
+            watcher = nil
+            TagIndex.recentFiles { [weak self] urls in
+                guard let self, self.url == url else { return }
+                self.rawItems = urls.compactMap { FileItem.load($0) }
+                self.recompute(forceSync: true)
+            }
+            return
+        }
         if SidebarController.isTagURL(url) {
             // Tag smart folder: populate via Spotlight, no FS watcher.
             watcher?.stop()
