@@ -77,6 +77,7 @@ declare -a EXPECT=(
     "File|Search File Contents…"
     "File|Copy Path"
     "File|Open in Terminal"
+    "File|Find Duplicate Files…"
     "File|Open in Editor"
     "Edit|Cut"
     "Edit|Copy"
