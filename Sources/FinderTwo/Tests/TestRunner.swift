@@ -1456,6 +1456,22 @@ final class TestRunner {
         let info = GetInfoSheetController(url: sandbox)
         assert("GetInfoSheetController builds", info.window?.contentView != nil, "nil")
 
+        // Editable permissions: read on construct + chmod round-trip.
+        let permFile = sandbox.appendingPathComponent("perm_me.txt")
+        try? "x".write(to: permFile, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o600)], ofItemAtPath: permFile.path)
+        let permInfo = GetInfoSheetController(url: permFile)
+        _ = permInfo.window?.contentView
+        assert("Get Info has 9 permission checkboxes", permInfo.testPermBoxCount == 9,
+               "got \(permInfo.testPermBoxCount)")
+        assert("Get Info reads the on-disk mode (0o600)", permInfo.testCurrentMode == 0o600,
+               "got \(String(permInfo.testCurrentMode, radix: 8))")
+        permInfo.testApplyMode(0o644)
+        let actualMode = ((try? FileManager.default.attributesOfItem(atPath: permFile.path))?[.posixPermissions]
+            as? NSNumber)?.uint16Value ?? 0
+        assert("Get Info chmod writes the new mode (0o644)", actualMode == 0o644,
+               "got \(String(actualMode, radix: 8))")
+
         // Transfer progress sheet builds + drives without popping a window
         // (no present() → stays off-screen, satisfies the headless constraint).
         let prog = TransferProgressController(total: 3, move: false, parent: nil)
