@@ -105,6 +105,33 @@ final class TestRunner {
         assert("select tab 0", pane.testActiveTabIndex == 0,
                "active=\(pane.testActiveTabIndex)")
 
+        // --- T8b: tab cycling (wraps), last-tab jump, and reorder ---
+        while pane.testTabCount < 3 { pane.newTab(at: sandbox) }
+        let tabN = pane.testTabCount
+        pane.selectTab(at: 0)
+        pane.nextTab()
+        assert("nextTab advances", pane.testActiveTabIndex == 1, "active=\(pane.testActiveTabIndex)")
+        pane.prevTab()
+        assert("prevTab goes back", pane.testActiveTabIndex == 0, "active=\(pane.testActiveTabIndex)")
+        pane.prevTab()
+        assert("prevTab wraps to last tab", pane.testActiveTabIndex == tabN - 1,
+               "active=\(pane.testActiveTabIndex)")
+        pane.nextTab()
+        assert("nextTab wraps to first tab", pane.testActiveTabIndex == 0,
+               "active=\(pane.testActiveTabIndex)")
+        pane.selectLastTab()
+        assert("selectLastTab jumps to last", pane.testActiveTabIndex == tabN - 1,
+               "active=\(pane.testActiveTabIndex)")
+        pane.moveActiveTab(by: -1)
+        assert("moveActiveTab(-1) reorders and keeps it active",
+               pane.testActiveTabIndex == tabN - 2, "active=\(pane.testActiveTabIndex)")
+        pane.moveActiveTab(by: 1)
+        assert("moveActiveTab(+1) reorders and keeps it active",
+               pane.testActiveTabIndex == tabN - 1, "active=\(pane.testActiveTabIndex)")
+        // Tear back down to initialTabs + 1 so T9 below still holds.
+        while pane.testTabCount > initialTabs + 1 { pane.closeActiveTab() }
+        pane.selectTab(at: 0)
+
         // --- T9: close tab ---
         pane.closeActiveTab()
         assert("close tab decrements",
@@ -121,6 +148,22 @@ final class TestRunner {
         assert("extra pane closes",
                wc.testPaneCount == panesBefore,
                "panes=\(wc.testPaneCount)")
+
+        // --- T10b: keyboard pane focus switching ---
+        wc.testToggleExtraPane()   // open a second pane
+        let paneA = wc.testActivePane
+        wc.focusPrevPane(nil)
+        let paneB = wc.testActivePane
+        assert("focus prev pane switches active pane",
+               paneB != nil && paneB !== paneA, "same/nil pane")
+        wc.focusNextPane(nil)
+        assert("focus next pane returns to the original",
+               wc.testActivePane === paneA, "did not return")
+        wc.testToggleExtraPane()   // back to one pane
+        let solo = wc.testActivePane
+        wc.focusNextPane(nil)
+        assert("pane focus is a no-op with a single pane",
+               wc.testActivePane === solo, "single-pane focus changed")
 
         // --- T11: new folder via FileOps ---
         let newFolderURL = FileOps.newFolder(in: sandbox, baseName: "freshfolder")
