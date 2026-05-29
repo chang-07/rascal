@@ -32,8 +32,10 @@ if [[ ! -x "$BIN" ]]; then
     exit 1
 fi
 
-pkill -f "$BIN" 2>/dev/null || true
-sleep 0.4
+# Kill ANY running FinderTwo (build or installed) so `tell process "FinderTwo"`
+# can't resolve to a stale instance and shadow the freshly-built bundle.
+pkill -f "FinderTwo.app/Contents/MacOS/FinderTwo" 2>/dev/null || true
+sleep 0.6
 FT_HEADLESS_TESTING=1 "$BIN" > "$LOG" 2>&1 &
 APP_PID=$!
 trap 'kill $APP_PID 2>/dev/null' EXIT
@@ -92,10 +94,16 @@ declare -a EXPECT=(
     "Go|Go to Folder…"
     "Go|Home"
     "Go|Jump to Project Root"
-    "Go|Show Tab 1"
-    "Go|Show Tab 9"
+    "View|Focus Next Pane"
+    "View|Focus Previous Pane"
     "Window|Minimize"
     "Window|Zoom"
+    "Window|Next Tab"
+    "Window|Previous Tab"
+    "Window|Move Tab Left"
+    "Window|Move Tab Right"
+    "Window|Tab 1"
+    "Window|Last Tab"
 )
 for spec in "${EXPECT[@]}"; do
     IFS="|" read -r menu item <<< "$spec"
@@ -151,6 +159,15 @@ check_shortcut "Edit" "Paste" "v" "0"
 check_shortcut "Edit" "Move Items Here" "v" "2"
 check_shortcut "Edit" "Duplicate" "d" "0"
 check_shortcut "Edit" "Select All" "a" "0"
+# Tab / pane / view-mode management (mods: 1=⌘⇧, 2=⌘⌥, 4=⌘⌃)
+check_shortcut "Window" "Next Tab" "]" "1"
+check_shortcut "Window" "Previous Tab" "[" "1"
+check_shortcut "Window" "Move Tab Left" "[" "4"
+check_shortcut "Window" "Move Tab Right" "]" "4"
+check_shortcut "Window" "Tab 1" "1" "0"
+check_shortcut "Window" "Last Tab" "9" "0"
+check_shortcut "View" "as List" "1" "2"
+check_shortcut "View" "as Columns" "2" "2"
 
 # -- Phase 4: AX exposes menu titles correctly ------------------------------
 

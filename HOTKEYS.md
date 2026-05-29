@@ -29,16 +29,24 @@ keyboard. Every shortcut below is also discoverable in the menu bar and the
 | `⌘T` | New tab |
 | `⌘W` | Close tab (closes the window if it's the last tab) |
 | `⌘⇧W` | Close window |
-| `⌘⌥1`…`⌘⌥9` | Switch to tab N |
+| `⌘⇧]` | Next tab (wraps around) |
+| `⌘⇧[` | Previous tab (wraps around) |
+| `⌘⌃]` | Move current tab right |
+| `⌘⌃[` | Move current tab left |
+| `⌘1`…`⌘8` | Jump to tab N |
+| `⌘9` | Jump to the last tab |
 
 The tab strip only appears when you have 2+ tabs. Hover a tab to see its full
-path; click the `×` to close it.
+path; click the `×` to close it, or drag to reorder. Tab-switching and the
+numbered jumps also live in the **Window** menu.
 
 ## Panes
 
 | Shortcut | Action |
 |---|---|
 | `⌘\` | Toggle extra pane (single-pane by default; opens a second pane) |
+| `⌘⌥→` | Focus the next pane |
+| `⌘⌥←` | Focus the previous pane |
 | click a pane | Make it the active pane (accent border shows which is active) |
 
 Drag files between panes to copy/move them.
@@ -74,8 +82,8 @@ In the palette / search sheets: `↑`/`↓` move, `Return` activates, `Esc` clos
 
 | Shortcut | Action |
 |---|---|
-| `⌘2` | List view |
-| `⌘3` | Column (Miller) view |
+| `⌥⌘1` | List view |
+| `⌥⌘2` | Column (Miller) view |
 | `⌘⇧.` | Toggle hidden files |
 | `⌥⌘B` | Show/Hide the hotbar (the quick-action button row) |
 | *(View menu)* | Show/Hide the window title bar |
