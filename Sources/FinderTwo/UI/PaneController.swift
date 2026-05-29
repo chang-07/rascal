@@ -1,6 +1,6 @@
 import AppKit
 
-enum ViewMode { case list, columns }
+enum ViewMode { case list, columns, icon }
 
 final class PaneController: NSViewController, DirectoryModelDelegate, FileListDelegate, TabStripDelegate {
 
@@ -457,39 +457,66 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func setViewMode(_ mode: ViewMode) {
         guard mode != viewMode else { return }
         viewMode = mode
-        if mode == .columns {
-            installColumnsView()
-        } else {
-            installListView()
+        switch mode {
+        case .columns: installColumnsView()
+        case .icon:    installIconView()
+        case .list:    installListView()
         }
     }
 
     private var columnVC: ColumnViewController?
+    private var iconVC: IconViewController?
+    private var iconSelection: [FileItem] = []
+
+    /// Remove any installed alternate (columns/icon) view controller.
+    private func teardownAlternateViews() {
+        columnVC?.view.removeFromSuperview(); columnVC?.removeFromParent(); columnVC = nil
+        iconVC?.view.removeFromSuperview(); iconVC?.removeFromParent(); iconVC = nil
+        iconSelection = []
+    }
+
+    /// Pin an alternate view's edges into the content region (hotbar↓ to status,
+    /// stopping at the notes drawer) — same frame the list view occupies.
+    private func pinAlternate(_ v: NSView, in host: NSView) {
+        v.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(v)
+        NSLayoutConstraint.activate([
+            v.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
+            v.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            v.trailingAnchor.constraint(equalTo: notesView.leadingAnchor),
+            v.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+        ])
+    }
 
     private func installColumnsView() {
         guard let host = view as? PaneRootView else { return }
-        let col = ColumnViewController(pane: self)
-        addChild(col)
-        col.view.translatesAutoresizingMaskIntoConstraints = false
+        teardownAlternateViews()
         // Hide the list rather than remove it — removing would deactivate the
         // empty-state and notes-drawer constraints that are pinned to it.
         fileList.view.isHidden = true
         emptyState.isHidden = true
-        host.addSubview(col.view)
-        NSLayoutConstraint.activate([
-            col.view.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
-            col.view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            // Stop at the notes drawer (when open) just like the list view does.
-            col.view.trailingAnchor.constraint(equalTo: notesView.leadingAnchor),
-            col.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
-        ])
+        let col = ColumnViewController(pane: self)
+        addChild(col)
+        pinAlternate(col.view, in: host)
         columnVC = col
     }
 
+    private func installIconView() {
+        guard let host = view as? PaneRootView else { return }
+        teardownAlternateViews()
+        fileList.view.isHidden = true
+        emptyState.isHidden = true
+        let icon = IconViewController()
+        addChild(icon)
+        icon.onOpen = { [weak self] item in self?.fileListOpenItem(item) }
+        icon.onSelectionChange = { [weak self] items in self?.iconSelection = items; self?.updateStatus() }
+        pinAlternate(icon.view, in: host)
+        iconVC = icon
+        icon.reload(activeTab.model.items)
+    }
+
     private func installListView() {
-        columnVC?.view.removeFromSuperview()
-        columnVC?.removeFromParent()
-        columnVC = nil
+        teardownAlternateViews()
         fileList.view.isHidden = false
         // Re-evaluate the empty-state placeholder for the current contents.
         updateStatus()
@@ -506,7 +533,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     }
 
     func selectedURLs() -> [URL] {
-        fileList.selectedItems().map { $0.url }
+        if viewMode == .icon { return iconSelection.map { $0.url } }
+        return fileList.selectedItems().map { $0.url }
     }
 
     /// Copy currently selected files to the general pasteboard as file URLs.
@@ -612,6 +640,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         if announce { onURLChange?(activeTab.currentURL) }
         if notesVisible { notesView.folderURL = activeTab.currentURL }
         if terminalVisible { terminalView.cwd = activeTab.currentURL }
+        iconVC?.reload(activeTab.model.items)
         updateStatus()
         updateTabStripVisibility()
     }
@@ -659,6 +688,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         // Only update UI if the changed model belongs to the active tab.
         if model === activeTab.model {
             fileList.reload()
+            iconVC?.reload(activeTab.model.items)
             updateStatus()
         }
     }

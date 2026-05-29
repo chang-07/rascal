@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var testWindowControllers: [BrowserWindowController] { windowControllers }
     private weak var chromeHotbarItem: NSMenuItem?
     private weak var chromeTitleBarItem: NSMenuItem?
+    private weak var chromeAsIconsItem: NSMenuItem?
     private weak var chromeAsListItem: NSMenuItem?
     private weak var chromeAsColumnsItem: NSMenuItem?
     private weak var chromeHiddenItem: NSMenuItem?
@@ -241,6 +242,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // ---- View ----
         let viewMenu = NSMenu(title: "View")
         viewMenu.delegate = self   // refresh checkmarks just before the menu opens
+        let asIconsItem = routed("view.as-icons")
+        viewMenu.addItem(asIconsItem); chromeAsIconsItem = asIconsItem
         let asListItem = routed("view.as-list")
         viewMenu.addItem(asListItem); chromeAsListItem = asListItem
         let asColumnsItem = routed("view.as-columns")
@@ -432,6 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refreshViewModeChecks() {
         let pane = currentBrowserWC()?.testActivePane
         let mode = pane?.viewMode
+        chromeAsIconsItem?.state = (mode == .icon) ? .on : .off
         chromeAsListItem?.state = (mode == .list) ? .on : .off
         chromeAsColumnsItem?.state = (mode == .columns) ? .on : .off
         chromeHiddenItem?.state = (pane?.testModel.showHidden == true) ? .on : .off
