@@ -15,6 +15,8 @@ final class GetInfoSheetController: NSWindowController {
 
     private let url: URL
     private let sizeLabel = NSTextField(labelWithString: "Calculating…")
+    /// 9 permission checkboxes in order: owner r,w,x · group r,w,x · other r,w,x.
+    private var permBoxes: [NSButton] = []
 
     init(url: URL) {
         self.url = url
@@ -75,7 +77,8 @@ final class GetInfoSheetController: NSWindowController {
         let created = (rv?.creationDate).map { DateFormatterCache.string($0) } ?? "—"
         let modified = (rv?.contentModificationDate).map { DateFormatterCache.string($0) } ?? "—"
         let owner = (attrs?[.ownerAccountName] as? String) ?? "—"
-        let perm = (attrs?[.posixPermissions] as? NSNumber).map { Self.permString($0.uint16Value) } ?? "—"
+        let group = (attrs?[.groupOwnerAccountName] as? String) ?? "—"
+        let mode = (attrs?[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
         let whereStr = (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
 
         let grid = NSGridView()
@@ -88,7 +91,8 @@ final class GetInfoSheetController: NSWindowController {
         grid.addRow(with: [keyField("Created:"), valueField(created)])
         grid.addRow(with: [keyField("Modified:"), valueField(modified)])
         grid.addRow(with: [keyField("Owner:"), valueField(owner)])
-        grid.addRow(with: [keyField("Permissions:"), valueField(perm)])
+        grid.addRow(with: [keyField("Group:"), valueField(group)])
+        grid.addRow(with: [keyField("Permissions:"), permEditorView(mode: mode)])
         grid.addRow(with: [keyField("Path:"), valueField(url.path)])
 
         let root = NSStackView(views: [header, NSBox.divider, grid])
@@ -122,6 +126,67 @@ final class GetInfoSheetController: NSWindowController {
     static func permString(_ mode: UInt16) -> String {
         let parts = ["---", "--x", "-w-", "-wx", "r--", "r-x", "rw-", "rwx"]
         return parts[Int((mode >> 6) & 7)] + parts[Int((mode >> 3) & 7)] + parts[Int(mode & 7)]
+    }
+
+    // MARK: Editable permissions
+
+    /// A 3×3 grid of checkboxes (Owner / Group / Everyone × Read / Write / Exec).
+    /// Toggling any box re-chmods the item and re-reads the on-disk mode so the
+    /// UI stays truthful even if the change is rejected (e.g. not the owner).
+    private func permEditorView(mode: UInt16) -> NSView {
+        let scopes = ["Owner", "Group", "Everyone"]
+        let cols = ["R", "W", "X"]
+        let g = NSGridView()
+        g.rowSpacing = 2; g.columnSpacing = 6
+        g.translatesAutoresizingMaskIntoConstraints = false
+        // header
+        var header: [NSView] = [NSGridCell.emptyContentView]
+        for c in cols {
+            let l = NSTextField(labelWithString: c)
+            l.font = .systemFont(ofSize: 9); l.textColor = .tertiaryLabelColor; l.alignment = .center
+            header.append(l)
+        }
+        g.addRow(with: header)
+        permBoxes.removeAll()
+        for (si, scope) in scopes.enumerated() {
+            let l = NSTextField(labelWithString: scope)
+            l.font = .systemFont(ofSize: 10); l.textColor = .secondaryLabelColor; l.alignment = .right
+            var row: [NSView] = [l]
+            for bit in 0..<3 {
+                let box = NSButton(checkboxWithTitle: "", target: self, action: #selector(permsChanged))
+                let shift = UInt16((2 - si) * 3 + (2 - bit))   // owner=bits6-8, R is high bit
+                box.state = (mode >> shift) & 1 == 1 ? .on : .off
+                box.tag = Int(shift)
+                permBoxes.append(box)
+                row.append(box)
+            }
+            g.addRow(with: row)
+        }
+        return g
+    }
+
+    private func currentMode() -> UInt16 {
+        var m: UInt16 = 0
+        for box in permBoxes where box.state == .on { m |= (1 << UInt16(box.tag)) }
+        return m
+    }
+
+    // Test hooks (headless): inspect/drive the permission editor without UI.
+    var testPermBoxCount: Int { permBoxes.count }
+    var testCurrentMode: UInt16 { currentMode() }
+    func testApplyMode(_ m: UInt16) {
+        for box in permBoxes { box.state = (m >> UInt16(box.tag)) & 1 == 1 ? .on : .off }
+        permsChanged()
+    }
+
+    @objc private func permsChanged() {
+        let m = currentMode()
+        try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: m)], ofItemAtPath: url.path)
+        // Re-read truth and resync (a rejected chmod leaves the old mode).
+        let actual = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.posixPermissions]
+            as? NSNumber)?.uint16Value ?? m
+        if actual != m { NSSound.beep() }
+        for box in permBoxes { box.state = (actual >> UInt16(box.tag)) & 1 == 1 ? .on : .off }
     }
 }
 
