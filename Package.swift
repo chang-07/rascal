@@ -13,7 +13,9 @@ let package = Package(
             path: "Sources/FinderTwo",
             linkerSettings: [
                 // NetFSMountURLSync for SMB / FTP / AFP / WebDAV mounts.
-                .linkedFramework("NetFS")
+                .linkedFramework("NetFS"),
+                // SecCode* APIs for detecting ad-hoc signing (PermissionsManager).
+                .linkedFramework("Security")
             ]
         )
     ]
