@@ -14,11 +14,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         self.panesContainer = PanesContainerController(initialURL: rootURL)
 
         let initialFrame = NSRect(x: 200, y: 200, width: 1100, height: 700)
-        let window = NSWindow(
-            contentRect: initialFrame,
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
-            backing: .buffered, defer: false
-        )
+        let headless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1"
+        let style: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
+        // Headless audit runs use a window that refuses screen-constraint, so it
+        // can be parked far off-screen for AX presence without AppKit yanking it
+        // back onto a display (which would make it visible to the user).
+        let window: NSWindow = headless
+            ? OffscreenSafeWindow(contentRect: initialFrame, styleMask: style, backing: .buffered, defer: false)
+            : NSWindow(contentRect: initialFrame, styleMask: style, backing: .buffered, defer: false)
         window.title = rootURL.lastPathComponent
         window.titlebarAppearsTransparent = false
         window.titleVisibility = .visible
@@ -287,6 +290,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
     @objc func viewAsList(_ sender: Any?) { activePane?.setViewMode(.list) }
     @objc func viewAsColumns(_ sender: Any?) { activePane?.setViewMode(.columns) }
+    @objc func viewAsGallery(_ sender: Any?) { activePane?.setViewMode(.gallery) }
 
     @objc func toggleHidden(_ sender: Any?) { activePane?.toggleHidden() }
     @objc func toggleExtraPane(_ sender: Any?) { panesContainer.toggleExtraPane() }
@@ -482,5 +486,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         for p in panes.dropFirst() {
             panesContainer.addPaneForRestore(snap: p)
         }
+    }
+}
+
+/// A window that does NOT constrain its frame to the visible screen. Used only
+/// in headless audit runs so the window can be parked far off-screen (giving
+/// the app AX/menu-bar presence) without AppKit pulling it back into view.
+final class OffscreenSafeWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect   // never clamp onto a display
     }
 }

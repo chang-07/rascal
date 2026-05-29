@@ -1,6 +1,6 @@
 import AppKit
 
-enum ViewMode { case list, columns, icon }
+enum ViewMode { case list, columns, icon, gallery }
 
 final class PaneController: NSViewController, DirectoryModelDelegate, FileListDelegate, TabStripDelegate {
 
@@ -499,18 +499,21 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         switch mode {
         case .columns: installColumnsView()
         case .icon:    installIconView()
+        case .gallery: installGalleryView()
         case .list:    installListView()
         }
     }
 
     private var columnVC: ColumnViewController?
     private var iconVC: IconViewController?
+    private var galleryVC: GalleryViewController?
     private var iconSelection: [FileItem] = []
 
-    /// Remove any installed alternate (columns/icon) view controller.
+    /// Remove any installed alternate (columns/icon/gallery) view controller.
     private func teardownAlternateViews() {
         columnVC?.view.removeFromSuperview(); columnVC?.removeFromParent(); columnVC = nil
         iconVC?.view.removeFromSuperview(); iconVC?.removeFromParent(); iconVC = nil
+        galleryVC?.view.removeFromSuperview(); galleryVC?.removeFromParent(); galleryVC = nil
         iconSelection = []
     }
 
@@ -554,6 +557,20 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         icon.reload(activeTab.model.items)
     }
 
+    private func installGalleryView() {
+        guard let host = view as? PaneRootView else { return }
+        teardownAlternateViews()
+        fileList.view.isHidden = true
+        emptyState.isHidden = true
+        let gallery = GalleryViewController()
+        addChild(gallery)
+        gallery.onOpen = { [weak self] item in self?.fileListOpenItem(item) }
+        gallery.onSelectionChange = { [weak self] items in self?.iconSelection = items; self?.updateStatus() }
+        pinAlternate(gallery.view, in: host)
+        galleryVC = gallery
+        gallery.reload(activeTab.model.items)
+    }
+
     private func installListView() {
         teardownAlternateViews()
         fileList.view.isHidden = false
@@ -572,7 +589,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     }
 
     func selectedURLs() -> [URL] {
-        if viewMode == .icon { return iconSelection.map { $0.url } }
+        if viewMode == .icon || viewMode == .gallery { return iconSelection.map { $0.url } }
         return fileList.selectedItems().map { $0.url }
     }
 
@@ -680,6 +697,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         if notesVisible { notesView.folderURL = activeTab.currentURL }
         if terminalVisible { terminalView.cwd = activeTab.currentURL }
         iconVC?.reload(activeTab.model.items)
+        galleryVC?.reload(activeTab.model.items)
         updateStatus()
         updateTabStripVisibility()
     }
@@ -729,6 +747,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         if model === activeTab.model {
             fileList.reload()
             iconVC?.reload(activeTab.model.items)
+        galleryVC?.reload(activeTab.model.items)
             updateStatus()
         }
     }

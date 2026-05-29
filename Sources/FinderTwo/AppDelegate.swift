@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private weak var chromeAsIconsItem: NSMenuItem?
     private weak var chromeAsListItem: NSMenuItem?
     private weak var chromeAsColumnsItem: NSMenuItem?
+    private weak var chromeAsGalleryItem: NSMenuItem?
     private weak var chromeHiddenItem: NSMenuItem?
     private weak var chromeUseGroupsItem: NSMenuItem?
     private weak var chromeSyncBrowsingItem: NSMenuItem?
@@ -114,12 +115,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func finishOpening(_ wc: BrowserWindowController) {
         let isHeadless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1"
         if isHeadless {
-            // For tests: park the window far off-screen so it's never visible,
-            // but order it front + key so AppKit treats it as the active
-            // window for AX queries.
-            wc.window?.setFrameOrigin(NSPoint(x: -30000, y: -30000))
+            // Park the window thousands of points off every display, THEN order
+            // it front for AX/menu-bar presence. The window is an
+            // OffscreenSafeWindow (constrainFrameRect is a no-op), so AppKit
+            // can't pull it back onto a screen — it never becomes visible.
+            wc.window?.setFrameOrigin(NSPoint(x: -50000, y: -50000))
+            wc.window?.makeKeyAndOrderFront(nil)
+            wc.window?.setFrameOrigin(NSPoint(x: -50000, y: -50000))
+        } else {
+            wc.window?.makeKeyAndOrderFront(nil)
         }
-        wc.window?.makeKeyAndOrderFront(nil)
         windowControllers.append(wc)
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: wc.window, queue: .main
@@ -254,6 +259,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(asListItem); chromeAsListItem = asListItem
         let asColumnsItem = routed("view.as-columns")
         viewMenu.addItem(asColumnsItem); chromeAsColumnsItem = asColumnsItem
+        let asGalleryItem = routed("view.as-gallery")
+        viewMenu.addItem(asGalleryItem); chromeAsGalleryItem = asGalleryItem
         let arrangeItem = NSMenuItem(title: "Arrange By", action: nil, keyEquivalent: "")
         let arrangeMenu = NSMenu()
         for (title, key) in [("Name", "name"), ("Kind", "kind"),
@@ -464,6 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         chromeAsIconsItem?.state = (mode == .icon) ? .on : .off
         chromeAsListItem?.state = (mode == .list) ? .on : .off
         chromeAsColumnsItem?.state = (mode == .columns) ? .on : .off
+        chromeAsGalleryItem?.state = (mode == .gallery) ? .on : .off
         chromeHiddenItem?.state = (pane?.testModel.showHidden == true) ? .on : .off
         chromeUseGroupsItem?.state = Settings.useGroups ? .on : .off
         chromeSyncBrowsingItem?.state = (currentBrowserWC()?.syncBrowsingOn == true) ? .on : .off
