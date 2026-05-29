@@ -190,6 +190,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func moveTabRight(_ sender: Any?) { activePane?.moveActiveTab(by: 1) }
     @objc func focusNextPane(_ sender: Any?) { panesContainer.focusPane(by: 1) }
     @objc func focusPrevPane(_ sender: Any?) { panesContainer.focusPane(by: -1) }
+    @objc func toggleSidebarItem(_ sender: Any?) { splitVC.toggleSidebar(sender) }
+    @objc func toggleStatusBarItem(_ sender: Any?) { Settings.showStatusBar.toggle() }
+    @objc func togglePathBarItem(_ sender: Any?) { Settings.showPathBar.toggle() }
+    @objc func copyToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: false) }
+    @objc func moveToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: true) }
     @objc func newFolder(_ sender: Any?) {
         guard let pane = activePane,
               let url = FileOps.newFolder(in: pane.currentURL) else { return }
