@@ -842,6 +842,15 @@ final class TestRunner {
                    "url=\(sp[1].currentURL.path)")
         } else { assert("sync: two panes", false, "got \(sp.count)") }
 
+        // --- T42d6: breadcrumb subfolder dropdown helper ---
+        let bcRoot = sandbox.appendingPathComponent("bc")
+        try? FileManager.default.createDirectory(at: bcRoot.appendingPathComponent("zeta"), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: bcRoot.appendingPathComponent("alpha"), withIntermediateDirectories: true)
+        try? "x".write(to: bcRoot.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try? FileManager.default.createDirectory(at: bcRoot.appendingPathComponent(".hidden"), withIntermediateDirectories: true)
+        let bcSubs = PathBarView.subdirectories(of: bcRoot).map { $0.lastPathComponent }
+        assert("breadcrumb lists only visible subfolders, sorted", bcSubs == ["alpha", "zeta"], "got \(bcSubs)")
+
         // --- T42e: tag write/read with color round-trips ---
         let colorTagFile = sandbox.appendingPathComponent("tagme.txt")
         try? "x".write(to: colorTagFile, atomically: true, encoding: .utf8)
