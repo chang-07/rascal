@@ -968,6 +968,68 @@ final class TestRunner {
                ThemeManager.shared.effectiveAccent == ThemeManager.shared.current.accent, "wrong fallback")
         Settings.accent = origAccent
 
+        // --- T58b2: window-chrome toggles (hotbar + title bar hidden by default) ---
+        let origShowHotbar = Settings.showHotbar
+        let origShowTitleBar = Settings.showTitleBar
+
+        // Hotbar + title bar ship OFF by default (clean, chromeless look). The
+        // nav/path/search toolbar, by contrast, is always visible.
+        UserDefaults.standard.removeObject(forKey: "FinderTwo.showHotbar")
+        UserDefaults.standard.removeObject(forKey: "FinderTwo.showTitleBar")
+        assert("showHotbar defaults to false", Settings.showHotbar == false,
+               "got=\(Settings.showHotbar)")
+        assert("showTitleBar defaults to false", Settings.showTitleBar == false,
+               "got=\(Settings.showTitleBar)")
+
+        // The toolbar is always visible regardless of the hotbar/title settings.
+        assert("toolbar is always visible", pane.testToolbarVisible,
+               "visible=\(pane.testToolbarVisible)")
+
+        // Hotbar collapses to height 0 when hidden, expands to 32 when shown.
+        Settings.showHotbar = false
+        wait(0.02)
+        assert("hotbar hidden when showHotbar=false",
+               !pane.testHotbarVisible && pane.testHotbarHeight == 0,
+               "visible=\(pane.testHotbarVisible) h=\(pane.testHotbarHeight)")
+        Settings.showHotbar = true
+        wait(0.02)
+        assert("hotbar shown when showHotbar=true",
+               pane.testHotbarVisible && pane.testHotbarHeight == 32,
+               "visible=\(pane.testHotbarVisible) h=\(pane.testHotbarHeight)")
+        assert("toolbar still visible with hotbar shown", pane.testToolbarVisible,
+               "visible=\(pane.testToolbarVisible)")
+        Settings.showHotbar = origShowHotbar
+        wait(0.02)
+
+        // Title bar: hidden = full-size content + transparent + hidden title; the
+        // sidebar AND the pane's toolbar both gain a top inset so their top edges
+        // line up and clear the traffic lights. Shown reverses all of it.
+        let chromeSidebar = (wc.window?.contentViewController as? NSSplitViewController)?
+            .splitViewItems.compactMap { $0.viewController as? SidebarController }.first
+        let inset = PaneController.hiddenTitleBarInset
+        Settings.showTitleBar = false
+        wait(0.02)
+        assert("title hidden → fullSizeContentView",
+               wc.window?.styleMask.contains(.fullSizeContentView) ?? false, "no fullSize")
+        assert("title hidden → titleVisibility .hidden",
+               wc.window?.titleVisibility == .hidden, "vis=\(String(describing: wc.window?.titleVisibility))")
+        assert("title hidden → sidebar top inset \(inset)",
+               chromeSidebar?.testTopInset == inset, "inset=\(chromeSidebar?.testTopInset ?? -9)")
+        assert("title hidden → pane toolbar top inset \(inset) (aligns with sidebar)",
+               pane.testToolbarTopInset == inset, "inset=\(pane.testToolbarTopInset)")
+        Settings.showTitleBar = true
+        wait(0.02)
+        assert("title shown → no fullSizeContentView",
+               !(wc.window?.styleMask.contains(.fullSizeContentView) ?? true), "still fullSize")
+        assert("title shown → titleVisibility .visible",
+               wc.window?.titleVisibility == .visible, "vis=\(String(describing: wc.window?.titleVisibility))")
+        assert("title shown → sidebar top inset 0",
+               chromeSidebar?.testTopInset == 0, "inset=\(chromeSidebar?.testTopInset ?? -9)")
+        assert("title shown → pane toolbar top inset 0",
+               pane.testToolbarTopInset == 0, "inset=\(pane.testToolbarTopInset)")
+        Settings.showTitleBar = origShowTitleBar
+        wait(0.02)
+
         // --- T58c: shortcut customization + conflict detection ---
         ActionRegistry.setShortcut(nil, forId: "tab.new")
         ActionRegistry.setShortcut(nil, forId: "tab.close")
