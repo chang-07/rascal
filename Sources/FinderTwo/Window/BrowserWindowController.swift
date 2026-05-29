@@ -174,6 +174,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     @objc func newTab(_ sender: Any?) { panesContainer.activePane?.newTab(at: nil) }
     @objc func closeTab(_ sender: Any?) { panesContainer.activePane?.closeActiveTab() }
+    @objc func nextTab(_ sender: Any?) { activePane?.nextTab() }
+    @objc func prevTab(_ sender: Any?) { activePane?.prevTab() }
+    @objc func selectLastTab(_ sender: Any?) { activePane?.selectLastTab() }
+    @objc func moveTabLeft(_ sender: Any?) { activePane?.moveActiveTab(by: -1) }
+    @objc func moveTabRight(_ sender: Any?) { activePane?.moveActiveTab(by: 1) }
+    @objc func focusNextPane(_ sender: Any?) { panesContainer.focusPane(by: 1) }
+    @objc func focusPrevPane(_ sender: Any?) { panesContainer.focusPane(by: -1) }
     @objc func newFolder(_ sender: Any?) {
         guard let pane = activePane,
               let url = FileOps.newFolder(in: pane.currentURL) else { return }

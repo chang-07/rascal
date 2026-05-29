@@ -146,8 +146,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             action.perform(wc)
             return
         }
-        // Tab-by-index uses the tag field.
-        if sender.tag > 0 {
+        // Tab-by-index uses the tag field. Tag 9 jumps to the LAST tab
+        // (browser convention), regardless of how many tabs are open.
+        if sender.tag == 9 {
+            wc.testActivePane?.selectLastTab()
+        } else if sender.tag > 0 {
             wc.testActivePane?.selectTab(at: sender.tag - 1)
         }
     }
@@ -241,6 +244,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(hiddenItem); chromeHiddenItem = hiddenItem
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(routed("pane.toggle-extra", title: "Open Extra Pane"))
+        viewMenu.addItem(routed("pane.focus-next"))
+        viewMenu.addItem(routed("pane.focus-prev"))
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(routed("panel.terminal"))
         viewMenu.addItem(routed("panel.notes"))
@@ -277,15 +282,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         goMenu.addItem(routed("nav.home", title: "Home"))
         goMenu.addItem(routed("project.jump-root", title: "Jump to Project Root"))
         goMenu.addItem(routed("net.connect-server", title: "Connect to Server…"))
-        goMenu.addItem(NSMenuItem.separator())
-        for i in 1...9 {
-            let tabItem = NSMenuItem(title: "Show Tab \(i)",
-                                     action: #selector(dispatchAction(_:)),
-                                     keyEquivalent: "\(i)")
-            tabItem.keyEquivalentModifierMask = [.command, .option]
-            tabItem.tag = i
-            goMenu.addItem(tabItem)
-        }
         attach(goMenu, to: mainMenu)
 
         // ---- Window ----
@@ -297,6 +293,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         windowMenu.addItem(systemItem(title: "Zoom",
                                       action: #selector(NSWindow.performZoom(_:)),
                                       key: ""))
+        windowMenu.addItem(NSMenuItem.separator())
+        // Tab navigation (macOS puts tab commands in the Window menu).
+        windowMenu.addItem(routed("tab.prev"))
+        windowMenu.addItem(routed("tab.next"))
+        windowMenu.addItem(routed("tab.move-left"))
+        windowMenu.addItem(routed("tab.move-right"))
+        windowMenu.addItem(NSMenuItem.separator())
+        // Jump to tab N with ⌘1–⌘9 (⌘9 = last tab, browser convention).
+        for i in 1...9 {
+            let title = (i == 9) ? "Last Tab" : "Tab \(i)"
+            let tabItem = NSMenuItem(title: title,
+                                     action: #selector(dispatchAction(_:)),
+                                     keyEquivalent: "\(i)")
+            tabItem.keyEquivalentModifierMask = [.command]
+            tabItem.tag = i
+            windowMenu.addItem(tabItem)
+        }
         windowMenu.addItem(NSMenuItem.separator())
         windowMenu.addItem(systemItem(title: "Bring All to Front",
                                       action: #selector(NSApplication.arrangeInFront(_:)),

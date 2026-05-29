@@ -78,6 +78,14 @@ final class PanesContainerController: NSSplitViewController {
         return pane
     }
 
+    /// Move keyboard focus to the next/previous pane (wraps). No-op with one pane.
+    func focusPane(by delta: Int) {
+        guard panes.count > 1 else { return }
+        activeIndex = (activeIndex + delta + panes.count) % panes.count
+        updateAfterActiveChange()
+        activePane?.focusFileList()
+    }
+
     private func updateAfterActiveChange() {
         for (i, p) in panes.enumerated() {
             p.setActive(i == activeIndex)
