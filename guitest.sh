@@ -109,6 +109,7 @@ declare -a EXPECT=(
     "View|Use Groups"
     "View|Transfer Activity"
     "View|Drop Stack"
+    "View|Theme"
     "Window|Minimize"
     "Window|Zoom"
     "Window|Next Tab"

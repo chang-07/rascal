@@ -14,10 +14,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private weak var chromeSyncBrowsingItem: NSMenuItem?
     private weak var undoMenuItem: NSMenuItem?
     private weak var redoMenuItem: NSMenuItem?
+    private weak var themeMenu: NSMenu?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
         PluginHost.shared.loadAll()
+        ThemeStore.ensureDirectory()   // so users have a place to drop themes
+        NotificationCenter.default.addObserver(
+            forName: ThemeManager.themeDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.rebuildThemeMenu() }
         installMainMenu()
         // Rebuild the menu live whenever a custom shortcut changes so edits in
         // Settings take effect immediately.
@@ -317,6 +322,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                       action: #selector(toggleTitleBarMenu(_:)), keyEquivalent: "")
         viewMenu.addItem(showTitleBar)
         chromeTitleBarItem = showTitleBar
+        viewMenu.addItem(NSMenuItem.separator())
+        let themeRoot = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
+        let themeSub = NSMenu(title: "Theme")
+        themeRoot.submenu = themeSub
+        viewMenu.addItem(themeRoot)
+        themeMenu = themeSub
+        rebuildThemeMenu()
         attach(viewMenu, to: mainMenu)
 
         // ---- Go ----
@@ -472,6 +484,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func refreshChromeChecks() {
         chromeHotbarItem?.state = Settings.showHotbar ? .on : .off
         chromeTitleBarItem?.state = Settings.showTitleBar ? .on : .off
+    }
+
+    /// Rebuild the View ▸ Theme submenu from the live theme list (checkmark the
+    /// active one) plus the Reload / Reveal / Export actions.
+    private func rebuildThemeMenu() {
+        guard let menu = themeMenu else { return }
+        menu.removeAllItems()
+        let currentID = ThemeManager.shared.current.id
+        for theme in ThemeManager.shared.available {
+            let it = NSMenuItem(title: theme.name, action: #selector(chooseTheme(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = theme.id
+            it.state = (theme.id == currentID) ? .on : .off
+            menu.addItem(it)
+        }
+        menu.addItem(.separator())
+        for (title, sel) in [("Reload Themes", #selector(reloadThemes(_:))),
+                             ("Reveal Themes Folder", #selector(revealThemesFolder(_:))),
+                             ("Export Current Theme…", #selector(exportCurrentTheme(_:)))] {
+            let it = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            it.target = self; menu.addItem(it)
+        }
+    }
+
+    @objc func chooseTheme(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? String { ThemeManager.shared.setTheme(id: id) }
+    }
+    @objc func reloadThemes(_ sender: Any?) { ThemeManager.shared.reloadThemes() }
+    @objc func revealThemesFolder(_ sender: Any?) {
+        let dir = ThemeStore.ensureDirectory()
+        NSWorkspace.shared.activateFileViewerSelecting([dir])
+    }
+    @objc func exportCurrentTheme(_ sender: Any?) {
+        if let url = ThemeStore.export(ThemeManager.shared.current) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else { NSSound.beep() }
     }
 
     /// Reflect the file-action stack in the Edit ▸ Undo/Redo item titles.
