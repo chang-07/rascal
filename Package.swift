@@ -10,7 +10,11 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "FinderTwo",
-            path: "Sources/FinderTwo"
+            path: "Sources/FinderTwo",
+            linkerSettings: [
+                // NetFSMountURLSync for SMB / FTP / AFP / WebDAV mounts.
+                .linkedFramework("NetFS")
+            ]
         )
     ]
 )
