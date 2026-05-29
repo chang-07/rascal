@@ -28,6 +28,10 @@ final class TabStripView: NSView, ThemeObserving {
 
     private func setup() {
         wantsLayer = true
+        // Clip subviews: when the strip is collapsed to zero height (single tab)
+        // the 22pt "+" button is centered on y=0 and would otherwise bleed out
+        // into the gap above the breadcrumb.
+        layer?.masksToBounds = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.6).cgColor
 
         stack.orientation = .horizontal
