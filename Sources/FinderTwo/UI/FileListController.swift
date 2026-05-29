@@ -642,6 +642,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         m.addItem(NSMenuItem(title: "Duplicate", action: #selector(menuDuplicate), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Rename", action: #selector(menuRename), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Make Alias", action: #selector(menuMakeAlias), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Add to Drop Stack", action: #selector(menuAddToShelf), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "New Folder with Selection", action: #selector(menuNewFolderWithSelection), keyEquivalent: ""))
         m.addItem(NSMenuItem.separator())
         let compressTitle = selectedItems().count == 1 ? "Compress “\(selectedItems()[0].name)”" : "Compress \(selectedItems().count) Items"
@@ -896,6 +897,11 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         guard !urls.isEmpty else { return }
         FileOps.makeAliases(for: urls)
         model.reload()
+    }
+    @objc private func menuAddToShelf() {
+        let urls = selectedItems().map { $0.url }
+        guard !urls.isEmpty else { return }
+        if DropStack.add(urls) > 0 { DropStackController.shared.present() }
     }
     @objc private func menuCompress() {
         let urls = selectedItems().map { $0.url }

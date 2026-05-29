@@ -832,6 +832,21 @@ final class TestRunner {
         // appCandidates must not crash for a real file (count is env-dependent).
         _ = FileListController.appCandidates(for: hashFile)
 
+        // --- T42f4: Drop Stack (shelf) model ---
+        DropStack.clear()
+        let ds1 = sandbox.appendingPathComponent("ds1.txt"); try? "a".write(to: ds1, atomically: true, encoding: .utf8)
+        let ds2 = sandbox.appendingPathComponent("ds2.txt"); try? "b".write(to: ds2, atomically: true, encoding: .utf8)
+        assert("drop stack starts empty", DropStack.all().isEmpty, "not empty")
+        assert("drop stack adds 2 new", DropStack.add([ds1, ds2]) == 2, "wrong count")
+        assert("drop stack de-dupes", DropStack.add([ds1]) == 0, "re-added")
+        assert("drop stack contains added", DropStack.contains(ds1), "missing")
+        assert("drop stack count is 2", DropStack.all().count == 2, "got \(DropStack.all().count)")
+        DropStack.remove(ds1)
+        assert("drop stack remove drops one", !DropStack.contains(ds1) && DropStack.all().count == 1, "still there")
+        try? FileManager.default.removeItem(at: ds2)
+        assert("drop stack filters deleted files", DropStack.all().isEmpty, "stale entry survives")
+        DropStack.clear()
+
         // --- T42g: view/layout setting defaults ---
         for k in ["FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar"] {
             UserDefaults.standard.removeObject(forKey: k)
@@ -1533,6 +1548,11 @@ final class TestRunner {
         let activity = TransferActivityController.shared
         assert("TransferActivityController builds", activity.window?.contentView != nil, "nil")
         activity.refresh()
+
+        // Drop Stack panel builds (no present() → off-screen).
+        let shelf = DropStackController.shared
+        assert("DropStackController builds", shelf.window?.contentView != nil, "nil")
+        shelf.reload()
 
         // Smart-folder creation sheet builds (no present() → stays off-screen).
         var savedSF: SmartFolder?
