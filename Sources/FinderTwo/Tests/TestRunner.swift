@@ -1295,8 +1295,38 @@ final class TestRunner {
         assert("setViewMode(.icon) honored", pane.viewMode == .icon, "got=\(pane.viewMode)")
         pane.setViewMode(.gallery)
         assert("setViewMode(.gallery) honored", pane.viewMode == .gallery, "got=\(pane.viewMode)")
+        // vim move in gallery mode must not crash / must not touch the list.
+        pane.vimSelectFirst(); pane.vimMove(by: 1); pane.vimSelectLast()
+        assert("vim nav in gallery mode is safe", pane.viewMode == .gallery, "mode changed")
         pane.setViewMode(.list)
         assert("setViewMode(.list) honored", pane.viewMode == .list, "got=\(pane.viewMode)")
+
+        // --- Vim navigation in icon + gallery controllers ---
+        let vnavDir = sandbox.appendingPathComponent("vnav")
+        try? FileManager.default.createDirectory(at: vnavDir, withIntermediateDirectories: true)
+        for n in ["v1.txt", "v2.txt", "v3.txt"] {
+            try? "x".write(to: vnavDir.appendingPathComponent(n), atomically: true, encoding: .utf8)
+        }
+        let vnavItems = ["v1.txt", "v2.txt", "v3.txt"].compactMap { FileItem.load(vnavDir.appendingPathComponent($0)) }
+        if vnavItems.count == 3 {
+            let icv = IconViewController(); _ = icv.view; icv.reload(vnavItems)
+            icv.selectFirst()
+            assert("icon vim: selectFirst → v1", icv.testSelectedItems.first?.name == "v1.txt", "got \(icv.testSelectedItems.first?.name ?? "nil")")
+            icv.moveSelection(by: 1)
+            assert("icon vim: j → v2", icv.testSelectedItems.first?.name == "v2.txt", "got \(icv.testSelectedItems.first?.name ?? "nil")")
+            icv.selectLast()
+            assert("icon vim: G → v3", icv.testSelectedItems.first?.name == "v3.txt", "got \(icv.testSelectedItems.first?.name ?? "nil")")
+            icv.moveSelection(by: -1)
+            assert("icon vim: k → v2", icv.testSelectedItems.first?.name == "v2.txt", "got \(icv.testSelectedItems.first?.name ?? "nil")")
+
+            let gv = GalleryViewController(); _ = gv.view; gv.reload(vnavItems)
+            gv.focusFirst()
+            assert("gallery vim: focusFirst → v1", gv.focused?.name == "v1.txt", "got \(gv.focused?.name ?? "nil")")
+            gv.moveFocus(by: 1)
+            assert("gallery vim: j → v2", gv.focused?.name == "v2.txt", "got \(gv.focused?.name ?? "nil")")
+            gv.focusLast()
+            assert("gallery vim: G → v3", gv.focused?.name == "v3.txt", "got \(gv.focused?.name ?? "nil")")
+        } else { assert("vnav items loaded", false, "got \(vnavItems.count)") }
         pane.arrangeBy(.kind)
         assert("arrangeBy(.kind) sets the sort key", pane.testModel.sort.key == .kind,
                "got=\(pane.testModel.sort.key)")
