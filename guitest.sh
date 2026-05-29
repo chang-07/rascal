@@ -58,6 +58,7 @@ done
 echo "=== Phase 2: menu items ==="
 declare -a EXPECT=(
     "FinderTwo|Settings…"
+    "FinderTwo|Full Disk Access…"
     "FinderTwo|About FinderTwo"
     "FinderTwo|Quit FinderTwo"
     "File|New Window"

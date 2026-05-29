@@ -50,5 +50,22 @@
     <string>© 2026 chang</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <!-- Privacy usage strings. macOS shows these in the permission prompt, and
+         requires them before an app may touch these protected locations — an
+         app that accesses them without a usage string can be killed outright. -->
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>FinderTwo manages and displays the files on your Desktop.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>FinderTwo manages and displays the files in your Documents folder.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>FinderTwo manages and displays the files in your Downloads folder.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>FinderTwo browses and manages files on connected drives and SD cards.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>FinderTwo browses and manages files on mounted network shares.</string>
+    <key>NSFileProviderDomainUsageDescription</key>
+    <string>FinderTwo displays files synced by cloud storage providers.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>FinderTwo opens folders in Terminal and your editor on your behalf.</string>
 </dict>
 </plist>
