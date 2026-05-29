@@ -1,8 +1,10 @@
 import AppKit
 
-final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, ThemeObserving {
+final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, ThemeObserving, NSMenuDelegate {
 
     var onSelect: ((URL) -> Void)?
+    var onOpenInNewTab: ((URL) -> Void)?
+    var onOpenInNewWindow: ((URL) -> Void)?
 
     private let outline = NSOutlineView()
     private let scrollView = NSScrollView()
@@ -94,9 +96,53 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         outline.intercellSpacing = NSSize(width: 0, height: 3)
         outline.rowHeight = 28
 
+        outline.menu = NSMenu()
+        outline.menu?.delegate = self
+
         buildSections()
         outline.reloadData()
         for s in sections { outline.expandItem(s) }
+
+        NotificationCenter.default.addObserver(self, selector: #selector(bookmarksChanged),
+                                               name: SidebarBookmarks.didChange, object: nil)
+    }
+
+    @objc private func bookmarksChanged() {
+        buildSections()
+        outline.reloadData()
+        for s in sections { outline.expandItem(s) }
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    // MARK: Context menu (built per right-click for the clicked row)
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let row = outline.clickedRow
+        guard row >= 0, let entry = outline.item(atRow: row) as? Entry,
+              !SidebarController.isTagURL(entry.url) else { return }
+        let openTab = NSMenuItem(title: "Open in New Tab", action: #selector(ctxOpenNewTab(_:)), keyEquivalent: "")
+        let openWin = NSMenuItem(title: "Open in New Window", action: #selector(ctxOpenNewWindow(_:)), keyEquivalent: "")
+        for it in [openTab, openWin] { it.target = self; it.representedObject = entry.url; menu.addItem(it) }
+        if let rv = try? entry.url.resourceValues(forKeys: [.volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsRootFileSystemKey]),
+           (rv.volumeIsEjectable == true || rv.volumeIsRemovable == true), rv.volumeIsRootFileSystem != true {
+            menu.addItem(.separator())
+            let eject = NSMenuItem(title: "Eject", action: #selector(ctxEject(_:)), keyEquivalent: "")
+            eject.target = self; eject.representedObject = entry.url; menu.addItem(eject)
+        }
+        if SidebarBookmarks.contains(entry.url) {
+            menu.addItem(.separator())
+            let rm = NSMenuItem(title: "Remove from Sidebar", action: #selector(ctxRemoveBookmark(_:)), keyEquivalent: "")
+            rm.target = self; rm.representedObject = entry.url; menu.addItem(rm)
+        }
+    }
+    @objc private func ctxOpenNewTab(_ s: NSMenuItem) { if let u = s.representedObject as? URL { onOpenInNewTab?(u) } }
+    @objc private func ctxOpenNewWindow(_ s: NSMenuItem) { if let u = s.representedObject as? URL { onOpenInNewWindow?(u) } }
+    @objc private func ctxRemoveBookmark(_ s: NSMenuItem) { if let u = s.representedObject as? URL { SidebarBookmarks.remove(u) } }
+    @objc private func ctxEject(_ s: NSMenuItem) {
+        guard let u = s.representedObject as? URL else { return }
+        do { try NSWorkspace.shared.unmountAndEjectDevice(at: u) } catch { NSSound.beep() }
     }
 
     @objc func applyTheme() {
@@ -143,6 +189,9 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         }
 
         var favs: [Entry] = []
+        let clock = NSImage(systemSymbolName: "clock", accessibilityDescription: nil) ?? NSImage()
+        clock.size = NSSize(width: 16, height: 16)
+        favs.append(Entry(title: "Recents", url: SidebarController.recentsURL, icon: clock))
         for (title, sub) in [
             ("Applications", "/Applications"),
             ("Desktop", home.appendingPathComponent("Desktop").path),
@@ -156,6 +205,13 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             if let e = makeEntry(title, sub, fallback: NSImage.folderName) {
                 favs.append(e)
             }
+        }
+        // User-added bookmarks live at the bottom of Favorites.
+        for url in SidebarBookmarks.all() where fm.fileExists(atPath: url.path) {
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            icon.size = NSSize(width: 16, height: 16)
+            let name = url.path == "/" ? "Macintosh HD" : url.lastPathComponent
+            favs.append(Entry(title: name, url: url, icon: icon))
         }
 
         var locations: [Entry] = []
@@ -204,6 +260,8 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
 
     /// Returns true if this URL is the synthetic `/tag/<name>` URL produced
     /// by the Tags section.
+    static let recentsURL = URL(fileURLWithPath: "/recents")
+    static func isRecentsURL(_ url: URL) -> Bool { url.path == "/recents" }
     static func isTagURL(_ url: URL) -> Bool { url.path.hasPrefix("/tag/") }
     static func tagName(from url: URL) -> String? {
         guard url.path.hasPrefix("/tag/") else { return nil }

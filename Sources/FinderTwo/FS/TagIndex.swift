@@ -47,12 +47,29 @@ enum TagIndex {
         }
     }
 
+    /// Recently-modified files (last 14 days) under the home folder, newest
+    /// first — backs the sidebar "Recents" smart folder.
+    static func recentFiles(completion: @escaping ([URL]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let q = "kMDItemFSContentChangeDate >= $time.now(-1209600) && kMDItemContentType != \"public.folder\""
+            var urls = runMDFind(query: q, limit: 1000, onlyIn: home)
+            urls.sort {
+                let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return a > b
+            }
+            let top = Array(urls.prefix(100))
+            DispatchQueue.main.async { completion(top) }
+        }
+    }
+
     /// Run `mdfind` for a Spotlight query string and return matched URLs,
-    /// capped at `limit`.
-    private static func runMDFind(query: String, limit: Int) -> [URL] {
+    /// capped at `limit`. Optionally scoped to a directory subtree.
+    private static func runMDFind(query: String, limit: Int, onlyIn: String? = nil) -> [URL] {
         let p = Process()
         p.launchPath = "/usr/bin/mdfind"
-        p.arguments = [query]
+        p.arguments = (onlyIn.map { ["-onlyin", $0] } ?? []) + [query]
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice  // unused; nullDevice avoids a full-pipe deadlock
