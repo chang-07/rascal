@@ -898,6 +898,21 @@ final class TestRunner {
         // appCandidates must not crash for a real file (count is env-dependent).
         _ = FileListController.appCandidates(for: hashFile)
 
+        // --- T42f3b: duplicate finder (size + content hash) ---
+        let dupRoot = sandbox.appendingPathComponent("dups")
+        try? FileManager.default.createDirectory(at: dupRoot.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try? "identical-content".write(to: dupRoot.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try? "identical-content".write(to: dupRoot.appendingPathComponent("sub/b.txt"), atomically: true, encoding: .utf8)
+        try? "unique".write(to: dupRoot.appendingPathComponent("c.txt"), atomically: true, encoding: .utf8)
+        // same SIZE as each other but different content → must NOT be grouped
+        try? "size8888".write(to: dupRoot.appendingPathComponent("d.txt"), atomically: true, encoding: .utf8)
+        try? "8888size".write(to: dupRoot.appendingPathComponent("e.txt"), atomically: true, encoding: .utf8)
+        let dupGroups = DuplicateFinder.find(in: dupRoot)
+        assert("duplicate finder finds exactly one group", dupGroups.count == 1, "got \(dupGroups.count)")
+        assert("duplicate group has both identical files", dupGroups.first?.urls.count == 2, "got \(dupGroups.first?.urls.count ?? -1)")
+        let dupNames = Set((dupGroups.first?.urls ?? []).map { $0.lastPathComponent })
+        assert("duplicate group is a.txt + b.txt", dupNames == ["a.txt", "b.txt"], "got \(dupNames)")
+
         // --- T42f4: Drop Stack (shelf) model ---
         DropStack.clear()
         let ds1 = sandbox.appendingPathComponent("ds1.txt"); try? "a".write(to: ds1, atomically: true, encoding: .utf8)
@@ -1648,6 +1663,10 @@ final class TestRunner {
         // Network-mount connect sheet builds (no show() → off-screen).
         let netSheet = ServerConnectSheetController(target: wc)
         assert("ServerConnectSheetController builds", netSheet.window?.contentView != nil, "nil")
+
+        // Duplicate-finder window builds (no show()/scan → off-screen).
+        let dupWin = DuplicateFinderWindowController(root: sandbox)
+        assert("DuplicateFinderWindowController builds", dupWin.window?.contentView != nil, "nil")
 
         // Smart-folder creation sheet builds (no present() → stays off-screen).
         var savedSF: SmartFolder?
