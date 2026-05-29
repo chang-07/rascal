@@ -18,20 +18,21 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     private let scrollView = NSScrollView()
     private(set) var model: DirectoryModel
 
-    /// Move selection by delta rows, clamped to bounds.
+    /// Move selection by delta items, clamped to bounds (skips group headers).
     func moveSelection(by delta: Int) {
         let n = model.items.count
         guard n > 0 else { return }
-        let current = tableView.selectedRow
-        let target = max(0, min(n - 1, (current < 0 ? 0 : current) + delta))
-        tableView.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
-        tableView.scrollRowToVisible(target)
+        let currentModel = modelIndex(forRow: tableView.selectedRow) ?? (delta >= 0 ? -1 : n)
+        let targetModel = max(0, min(n - 1, currentModel + delta))
+        selectRow(targetModel)
     }
 
+    /// Select the item at model index `row` (clamped), scrolling it into view.
     func selectRow(_ row: Int) {
         let n = model.items.count
         guard n > 0 else { return }
-        let r = max(0, min(n - 1, row))
+        let mi = max(0, min(n - 1, row))
+        let r = tableRow(forModelIndex: mi)
         tableView.selectRowIndexes(IndexSet(integer: r), byExtendingSelection: false)
         tableView.scrollRowToVisible(r)
     }
@@ -48,6 +49,81 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     /// `reload()` and used to make async thumbnail callbacks O(1) instead of
     /// O(n) (matters once items.count gets into the tens of thousands).
     private var urlToRowIndex: [URL: Int] = [:]
+
+    // MARK: "Use Groups" (visual section grouping)
+    /// When grouping is active, the table shows header rows interleaved with
+    /// items. `displayRows` is the table's row list; empty == identity mode
+    /// (grouping off), where table row N maps straight to model.items[N] and
+    /// the whole hot path is byte-for-byte unchanged.
+    private enum DisplayRow { case header(String); case item(Int) }
+    private var displayRows: [DisplayRow] = []
+    private var groupsActive: Bool { !displayRows.isEmpty }
+
+    /// Rebuild `displayRows` from the (already sorted) model + the grouping
+    /// setting. Groups by the current sort key; identical adjacent group titles
+    /// stay in one section (items are contiguous because they're pre-sorted).
+    private func rebuildDisplayRows() {
+        guard Settings.useGroups, !model.items.isEmpty else { displayRows = []; return }
+        let key = model.sort.key
+        var rows: [DisplayRow] = []
+        var last: String? = nil
+        for (i, item) in model.items.enumerated() {
+            let title = Self.groupTitle(for: item, key: key)
+            if title != last { rows.append(.header(title)); last = title }
+            rows.append(.item(i))
+        }
+        displayRows = rows
+    }
+
+    /// Model index for a table row (nil for header rows). Identity when off.
+    private func modelIndex(forRow row: Int) -> Int? {
+        if displayRows.isEmpty { return model.items.indices.contains(row) ? row : nil }
+        guard displayRows.indices.contains(row), case let .item(i) = displayRows[row] else { return nil }
+        return i
+    }
+    /// Table row showing a given model index. Identity when off.
+    private func tableRow(forModelIndex i: Int) -> Int {
+        if displayRows.isEmpty { return i }
+        for (r, dr) in displayRows.enumerated() { if case .item(let j) = dr, j == i { return r } }
+        return 0
+    }
+    private func displayRowCount() -> Int { displayRows.isEmpty ? model.items.count : displayRows.count }
+
+    /// Section title for an item under a given sort/group key.
+    static func groupTitle(for item: FileItem, key: SortKey) -> String {
+        switch key {
+        case .name:
+            if item.isDirectory { return "Folders" }
+            let c = item.name.first.map(String.init)?.uppercased() ?? "#"
+            return c.range(of: "[A-Z]", options: .regularExpression) != nil ? c : "#"
+        case .kind:
+            return item.isDirectory ? "Folders" : (item.url.pathExtension.isEmpty
+                ? "Documents" : item.url.pathExtension.uppercased() + " files")
+        case .size:
+            if item.isDirectory { return "Folders" }
+            let s = item.size
+            switch s {
+            case ..<0: return "Folders"
+            case 0: return "Zero bytes"
+            case ..<100_000: return "Under 100 KB"
+            case ..<1_000_000: return "100 KB – 1 MB"
+            case ..<100_000_000: return "1 MB – 100 MB"
+            case ..<1_000_000_000: return "100 MB – 1 GB"
+            default: return "Over 1 GB"
+            }
+        case .dateModified, .dateCreated:
+            let date = key == .dateCreated ? item.created : item.modified
+            let days = Int(Date().timeIntervalSince(date) / 86_400)
+            switch days {
+            case ..<0: return "Today"
+            case 0: return "Today"
+            case 1: return "Yesterday"
+            case 2..<7: return "Previous 7 Days"
+            case 7..<30: return "Previous 30 Days"
+            default: return "Older"
+            }
+        }
+    }
 
     // MARK: Spring-loaded folders
     /// The folder row a drag is currently hovering (-1 = none), plus the timer
@@ -72,6 +148,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
 
         tableView.style = .inset
         tableView.usesAlternatingRowBackgroundColors = true
+        tableView.floatsGroupRows = false   // "Use Groups" headers scroll inline
         tableView.gridStyleMask = []
         tableView.rowHeight = ThemeManager.shared.effectiveRowHeight
         tableView.intercellSpacing = NSSize(width: 0, height: 2)
@@ -162,12 +239,14 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     func reload() {
         // Preserve selection by URL
         let prevSel = selectedItems().map { $0.url }
-        // Rebuild the URL→row map in one pass (much cheaper than firstIndex
-        // lookups when async thumbnail callbacks arrive).
+        rebuildDisplayRows()
+        // Rebuild the URL→(table)row map in one pass (much cheaper than
+        // firstIndex lookups when async thumbnail callbacks arrive). Maps to
+        // TABLE rows so callbacks stay correct when group headers are present.
         var newMap: [URL: Int] = [:]
         newMap.reserveCapacity(model.items.count)
         for (i, item) in model.items.enumerated() {
-            newMap[item.url] = i
+            newMap[item.url] = tableRow(forModelIndex: i)
         }
         urlToRowIndex = newMap
         tableView.reloadData()
@@ -175,7 +254,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             var indexes = IndexSet()
             let prevSelSet = Set(prevSel)
             for (i, item) in model.items.enumerated() where prevSelSet.contains(item.url) {
-                indexes.insert(i)
+                indexes.insert(tableRow(forModelIndex: i))
             }
             tableView.selectRowIndexes(indexes, byExtendingSelection: false)
         }
@@ -191,10 +270,18 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
                              columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
     }
 
+    /// Settings changed: a grouping on/off flip needs a full reload (to build
+    /// or tear down header rows); everything else is a light repaint.
+    func settingsDidChange() {
+        let wantGroups = Settings.useGroups && !model.items.isEmpty
+        if wantGroups != groupsActive { reload() } else { reloadVisibleRows() }
+    }
+
     func select(item: FileItem, scroll: Bool) {
         if let idx = model.items.firstIndex(of: item) {
-            tableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
-            if scroll { tableView.scrollRowToVisible(idx) }
+            let r = tableRow(forModelIndex: idx)
+            tableView.selectRowIndexes(IndexSet(integer: r), byExtendingSelection: false)
+            if scroll { tableView.scrollRowToVisible(r) }
         }
     }
 
@@ -210,7 +297,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         guard !trimmed.isEmpty else { return 0 }
         var idx = IndexSet()
         for (i, item) in model.items.enumerated() where Self.matchesGlob(item.name, trimmed) {
-            idx.insert(i)
+            idx.insert(tableRow(forModelIndex: i))
         }
         tableView.selectRowIndexes(idx, byExtendingSelection: false)
         if let first = idx.first { tableView.scrollRowToVisible(first) }
@@ -238,12 +325,15 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     }
 
     func selectedItems() -> [FileItem] {
-        tableView.selectedRowIndexes.compactMap { model.items.indices.contains($0) ? model.items[$0] : nil }
+        tableView.selectedRowIndexes.compactMap { row in
+            guard let i = modelIndex(forRow: row) else { return nil }
+            return model.items.indices.contains(i) ? model.items[i] : nil
+        }
     }
 
     // MARK: NSTableViewDataSource
 
-    func numberOfRows(in tableView: NSTableView) -> Int { model.items.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { displayRowCount() }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
         guard let d = tableView.sortDescriptors.first, let key = d.key, let k = SortKey(rawValue: key) else { return }
@@ -309,8 +399,32 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let col = tableColumn, model.items.indices.contains(row) else { return nil }
-        let item = model.items[row]
+        // Group header rows (only when grouping is active).
+        if groupsActive, case let .header(title) = displayRows[row] {
+            // NSTableView asks once per column for a group row; emit only for
+            // the first (name) column.
+            guard tableColumn == nil || tableColumn?.identifier.rawValue == "name" else { return nil }
+            let id = NSUserInterfaceItemIdentifier("GroupHeader")
+            let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView) ?? {
+                let v = NSTableCellView()
+                let tf = NSTextField(labelWithString: "")
+                tf.translatesAutoresizingMaskIntoConstraints = false
+                tf.font = .systemFont(ofSize: 11, weight: .semibold)
+                tf.textColor = .secondaryLabelColor
+                v.addSubview(tf); v.textField = tf
+                NSLayoutConstraint.activate([
+                    tf.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 4),
+                    tf.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+                ])
+                v.identifier = id
+                return v
+            }()
+            cell.textField?.stringValue = title.uppercased()
+            return cell
+        }
+        guard let col = tableColumn, let mi = modelIndex(forRow: row),
+              model.items.indices.contains(mi) else { return nil }
+        let item = model.items[mi]
         let id = col.identifier.rawValue
 
         switch id {
@@ -337,6 +451,16 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         default:
             return nil
         }
+    }
+
+    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
+        guard groupsActive, displayRows.indices.contains(row) else { return false }
+        if case .header = displayRows[row] { return true }
+        return false
+    }
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        if groupsActive, displayRows.indices.contains(row), case .header = displayRows[row] { return false }
+        return true
     }
 
     private var lastSelectionNotify: TimeInterval = 0
@@ -396,16 +520,16 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
 
     // Drag source
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        guard model.items.indices.contains(row) else { return nil }
-        return model.items[row].url as NSURL
+        guard let mi = modelIndex(forRow: row), model.items.indices.contains(mi) else { return nil }
+        return model.items[mi].url as NSURL
     }
 
     // Drop validation
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo,
                    proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
         // Drop on a folder row → "on"; otherwise treat as drop into current dir
-        if dropOperation == .on, model.items.indices.contains(row), model.items[row].isDirectory {
-            armSpring(forRow: row)
+        if dropOperation == .on, let mi = modelIndex(forRow: row), model.items[mi].isDirectory {
+            armSpring(forModelIndex: mi)
             return modifierIsOption(info) ? .copy : .move
         }
         cancelSpring()
@@ -415,13 +539,13 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         return modifierIsOption(info) ? .copy : .move
     }
 
-    /// Start (or keep) the spring-load timer for `row`. Hovering a *different*
-    /// folder restarts the countdown; hovering the same one leaves it running.
-    private func armSpring(forRow row: Int) {
+    /// Start (or keep) the spring-load timer for a model index. Hovering a
+    /// *different* folder restarts the countdown; the same one leaves it running.
+    private func armSpring(forModelIndex i: Int) {
         guard Settings.springLoadedFolders else { return }
-        if row == springRow, springTimer != nil { return }
+        if i == springRow, springTimer != nil { return }
         cancelSpring()
-        springRow = row
+        springRow = i
         let t = Timer(timeInterval: Settings.springLoadDelay, repeats: false) { [weak self] _ in
             self?.springFire()
         }
@@ -452,8 +576,8 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             return false
         }
         let target: URL
-        if dropOperation == .on, model.items.indices.contains(row), model.items[row].isDirectory {
-            target = model.items[row].url
+        if dropOperation == .on, let mi = modelIndex(forRow: row), model.items[mi].isDirectory {
+            target = model.items[mi].url
         } else {
             target = model.url
         }
@@ -524,9 +648,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     }
 
     @objc private func handleDoubleClick() {
-        let row = tableView.clickedRow
-        guard model.items.indices.contains(row) else { return }
-        delegate?.fileListOpenItem(model.items[row])
+        guard let mi = modelIndex(forRow: tableView.clickedRow),
+              model.items.indices.contains(mi) else { return }
+        delegate?.fileListOpenItem(model.items[mi])
     }
 
     fileprivate func handleKey(_ event: NSEvent) -> Bool {
@@ -571,9 +695,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     /// Programmatic rename without requiring keyboard focus — useful for tests and
     /// future automation. Renames the currently selected item to `newName`.
     func commitInlineRename(to newName: String) {
-        let row = tableView.selectedRow
-        guard row >= 0, model.items.indices.contains(row) else { NSSound.beep(); return }
-        let item = model.items[row]
+        guard let mi = modelIndex(forRow: tableView.selectedRow),
+              model.items.indices.contains(mi) else { NSSound.beep(); return }
+        let item = model.items[mi]
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains("/") else { NSSound.beep(); return }
         let newURL = item.url.deletingLastPathComponent().appendingPathComponent(trimmed)

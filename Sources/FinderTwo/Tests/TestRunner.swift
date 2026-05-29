@@ -796,6 +796,30 @@ final class TestRunner {
         assert("2-way: nothing deleted (A keeps onlyA)", FileManager.default.fileExists(atPath: twA.appendingPathComponent("onlyA.txt").path), "deleted")
         assert("2-way: did >=3 writes", twOps >= 3, "ops=\(twOps)")
 
+        // --- T42d4: Use Groups (visual grouping) ---
+        // Pure title helper.
+        let grpDir = sandbox.appendingPathComponent("groups")
+        try? FileManager.default.createDirectory(at: grpDir, withIntermediateDirectories: true)
+        for n in ["apple.txt", "banana.txt", "cherry.png"] {
+            try? "x".write(to: grpDir.appendingPathComponent(n), atomically: true, encoding: .utf8)
+        }
+        if let appleItem = FileItem.load(grpDir.appendingPathComponent("apple.txt")) {
+            assert("group title by name = first letter", FileListController.groupTitle(for: appleItem, key: .name) == "A",
+                   "got \(FileListController.groupTitle(for: appleItem, key: .name))")
+            assert("group title by kind = ext files", FileListController.groupTitle(for: appleItem, key: .kind) == "TXT files",
+                   "got \(FileListController.groupTitle(for: appleItem, key: .kind))")
+        } else { assert("loaded apple.txt", false, "nil") }
+        // Toggling grouping must not lose items or break selection/rename.
+        Settings.useGroups = true
+        pane.navigate(to: grpDir); pane.testReloadSync()
+        assert("grouping keeps all items", pane.testCurrentItems.count == 3, "got \(pane.testCurrentItems.count)")
+        assert("select-by-mask still works under grouping", pane.testSelectMatching("*.png") == 1,
+               "got \(pane.testSelectMatching("*.png"))")
+        Settings.useGroups = false
+        pane.testReloadSync()
+        assert("ungrouped still lists items", pane.testCurrentItems.count == 3, "got \(pane.testCurrentItems.count)")
+        pane.navigate(to: sandbox); pane.testReloadSync()
+
         // --- T42e: tag write/read with color round-trips ---
         let colorTagFile = sandbox.appendingPathComponent("tagme.txt")
         try? "x".write(to: colorTagFile, atomically: true, encoding: .utf8)

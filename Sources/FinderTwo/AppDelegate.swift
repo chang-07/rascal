@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private weak var chromeAsListItem: NSMenuItem?
     private weak var chromeAsColumnsItem: NSMenuItem?
     private weak var chromeHiddenItem: NSMenuItem?
+    private weak var chromeUseGroupsItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
@@ -261,6 +262,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         arrangeItem.submenu = arrangeMenu
         viewMenu.addItem(arrangeItem)
+        let useGroupsItem = routed("view.use-groups")
+        viewMenu.addItem(useGroupsItem); chromeUseGroupsItem = useGroupsItem
         viewMenu.addItem(NSMenuItem.separator())
         let hiddenItem = routed("view.toggle-hidden", title: "Show Hidden Files")
         viewMenu.addItem(hiddenItem); chromeHiddenItem = hiddenItem
@@ -457,6 +460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         chromeAsListItem?.state = (mode == .list) ? .on : .off
         chromeAsColumnsItem?.state = (mode == .columns) ? .on : .off
         chromeHiddenItem?.state = (pane?.testModel.showHidden == true) ? .on : .off
+        chromeUseGroupsItem?.state = Settings.useGroups ? .on : .off
     }
 
     // NSMenuDelegate — refresh the View menu's checkmarks right before it shows

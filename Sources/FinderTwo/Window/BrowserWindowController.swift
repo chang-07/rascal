@@ -193,6 +193,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func focusPrevPane(_ sender: Any?) { panesContainer.focusPane(by: -1) }
     @objc func toggleSidebarItem(_ sender: Any?) { splitVC.toggleSidebar(sender) }
     @objc func toggleStatusBarItem(_ sender: Any?) { Settings.showStatusBar.toggle() }
+    @objc func toggleUseGroups(_ sender: Any?) { Settings.useGroups.toggle() }
     @objc func togglePreview(_ sender: Any?) { activePane?.togglePreviewDrawer() }
     @objc func showTransferActivity(_ sender: Any?) { TransferActivityController.shared.present() }
     @objc func toggleDropStack(_ sender: Any?) { DropStackController.shared.toggle() }
