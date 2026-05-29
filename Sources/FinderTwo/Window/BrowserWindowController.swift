@@ -239,6 +239,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         FileOps.getInfo(sel.isEmpty ? [pane.currentURL] : sel)
     }
 
+    @objc func viewAsIcons(_ sender: Any?) { activePane?.setViewMode(.icon) }
     @objc func viewAsList(_ sender: Any?) { activePane?.setViewMode(.list) }
     @objc func viewAsColumns(_ sender: Any?) { activePane?.setViewMode(.columns) }
 

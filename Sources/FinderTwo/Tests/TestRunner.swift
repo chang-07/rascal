@@ -954,6 +954,8 @@ final class TestRunner {
         // --- T47: viewAsList / viewAsColumns wire through to setViewMode ---
         pane.setViewMode(.columns)
         assert("setViewMode(.columns) honored", pane.viewMode == .columns, "got=\(pane.viewMode)")
+        pane.setViewMode(.icon)
+        assert("setViewMode(.icon) honored", pane.viewMode == .icon, "got=\(pane.viewMode)")
         pane.setViewMode(.list)
         assert("setViewMode(.list) honored", pane.viewMode == .list, "got=\(pane.viewMode)")
 

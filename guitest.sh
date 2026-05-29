@@ -85,6 +85,7 @@ declare -a EXPECT=(
     "Edit|Select All"
     "Edit|Undo"
     "Edit|Redo"
+    "View|as Icons"
     "View|as List"
     "View|as Columns"
     "View|Show Hidden Files"
@@ -168,8 +169,9 @@ check_shortcut "Window" "Move Tab Left" "[" "4"
 check_shortcut "Window" "Move Tab Right" "]" "4"
 check_shortcut "Window" "Tab 1" "1" "0"
 check_shortcut "Window" "Last Tab" "9" "0"
-check_shortcut "View" "as List" "1" "2"
-check_shortcut "View" "as Columns" "2" "2"
+check_shortcut "View" "as Icons" "1" "2"
+check_shortcut "View" "as List" "2" "2"
+check_shortcut "View" "as Columns" "3" "2"
 
 # -- Phase 4: AX exposes menu titles correctly ------------------------------
 
