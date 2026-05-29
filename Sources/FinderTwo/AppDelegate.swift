@@ -3,6 +3,8 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowControllers: [BrowserWindowController] = []
     var testWindowControllers: [BrowserWindowController] { windowControllers }
+    private weak var chromeHotbarItem: NSMenuItem?
+    private weak var chromeTitleBarItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
@@ -14,6 +16,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: ActionRegistry.shortcutsDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             self?.installMainMenu()
+        }
+        // Keep the View-menu chrome checkmarks in sync when toggled from the
+        // menu, a keyboard shortcut, or the Settings window.
+        NotificationCenter.default.addObserver(
+            forName: Settings.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.refreshChromeChecks()
         }
         if ProcessInfo.processInfo.environment["FT_RUN_TESTS"] == "1" {
             DispatchQueue.main.async {
@@ -228,6 +237,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(routed("panel.terminal"))
         viewMenu.addItem(routed("panel.notes"))
+        viewMenu.addItem(NSMenuItem.separator())
+        let showHotbar = NSMenuItem(title: "Show Hotbar",
+                                    action: #selector(toggleHotbarMenu(_:)), keyEquivalent: "b")
+        showHotbar.keyEquivalentModifierMask = [.command, .option]
+        viewMenu.addItem(showHotbar)
+        chromeHotbarItem = showHotbar
+        let showTitleBar = NSMenuItem(title: "Show Title Bar",
+                                      action: #selector(toggleTitleBarMenu(_:)), keyEquivalent: "")
+        viewMenu.addItem(showTitleBar)
+        chromeTitleBarItem = showTitleBar
         attach(viewMenu, to: mainMenu)
 
         // ---- Go ----
@@ -279,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         disableAutoenable(mainMenu)
         NSApp.mainMenu = mainMenu
+        refreshChromeChecks()
     }
 
     private func attach(_ submenu: NSMenu, to parent: NSMenu) {
@@ -342,6 +362,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         SettingsController.show()
+    }
+
+    @objc func toggleHotbarMenu(_ sender: Any?) { Settings.showHotbar.toggle() }
+    @objc func toggleTitleBarMenu(_ sender: Any?) { Settings.showTitleBar.toggle() }
+
+    /// Refresh the View-menu chrome checkmarks (autoenablesItems is off, so we
+    /// update state manually on launch + whenever a setting changes).
+    @objc func refreshChromeChecks() {
+        chromeHotbarItem?.state = Settings.showHotbar ? .on : .off
+        chromeTitleBarItem?.state = Settings.showTitleBar ? .on : .off
     }
 
     // MARK: - CLI
