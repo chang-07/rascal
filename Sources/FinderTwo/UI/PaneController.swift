@@ -584,12 +584,12 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     /// Paste file URLs from pasteboard into current directory (copy semantics).
     func pasteHere() {
-        FileOps.paste(NSPasteboard.general, into: currentURL, move: false)
+        FileOps.paste(NSPasteboard.general, into: currentURL, move: false, from: view.window)
     }
 
     /// Paste file URLs from pasteboard into current directory (move semantics).
     func pasteMoveHere() {
-        FileOps.paste(NSPasteboard.general, into: currentURL, move: true)
+        FileOps.paste(NSPasteboard.general, into: currentURL, move: true, from: view.window)
     }
 
     /// Duplicate currently selected files in the current directory (Finder Cmd+D).
