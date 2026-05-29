@@ -336,7 +336,36 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         }
     }
 
+    // MARK: View-aware keyboard navigation (used by Vim mode)
+
+    /// Move selection/focus by `delta` in whichever view is active.
+    func vimMove(by delta: Int) {
+        switch viewMode {
+        case .icon:    iconVC?.moveSelection(by: delta)
+        case .gallery: galleryVC?.moveFocus(by: delta)
+        default:       fileList.moveSelection(by: delta)
+        }
+    }
+    func vimSelectFirst() {
+        switch viewMode {
+        case .icon:    iconVC?.selectFirst()
+        case .gallery: galleryVC?.focusFirst()
+        default:       fileList.selectRow(0)
+        }
+    }
+    func vimSelectLast() {
+        switch viewMode {
+        case .icon:    iconVC?.selectLast()
+        case .gallery: galleryVC?.focusLast()
+        default:       fileList.selectRow(fileList.lastRowIndex)
+        }
+    }
+
     func openSelection() {
+        // Icon/gallery keep their own selection; route those through the
+        // alternate view so Enter / vim `l` open the focused item there too.
+        if viewMode == .icon { iconVC?.openSelected(); return }
+        if viewMode == .gallery { galleryVC?.openFocused(); return }
         let sel = fileList.selectedItems()
         if sel.isEmpty { NSSound.beep(); return }
         // Route through the same handler as double-click so folders enter,

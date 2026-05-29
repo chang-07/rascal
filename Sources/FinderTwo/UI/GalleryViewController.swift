@@ -98,6 +98,22 @@ final class GalleryViewController: NSViewController {
         onSelectionChange?(item.map { [$0] } ?? [])
     }
 
+    // MARK: Keyboard navigation (vim j/k/gg/G + open)
+
+    /// Move the focused item by `delta` (j/k map to ±1), clamped + scrolled.
+    func moveFocus(by delta: Int) {
+        guard !items.isEmpty else { return }
+        let cur = focused.flatMap { items.firstIndex(of: $0) } ?? (delta >= 0 ? -1 : items.count)
+        let next = max(0, min(items.count - 1, cur + delta))
+        focus(items[next])
+        if stripButtons.indices.contains(next) {
+            stripButtons[next].scrollToVisible(stripButtons[next].bounds)
+        }
+    }
+    func focusFirst() { guard let f = items.first else { return }; focus(f) }
+    func focusLast() { guard let l = items.last else { return }; focus(l) }
+    func openFocused() { if let f = focused { onOpen?(f) } }
+
     @objc private func thumbClicked(_ sender: NSButton) {
         guard items.indices.contains(sender.tag) else { return }
         focus(items[sender.tag])

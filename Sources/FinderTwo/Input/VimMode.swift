@@ -72,7 +72,7 @@ final class VimMode {
             pending = ""
             switch combined {
             case "gg":
-                fileList.selectRow(0)
+                pane.vimSelectFirst()
                 return true
             case "gt":
                 stepTab(in: pane, forward: true)
@@ -108,18 +108,18 @@ final class VimMode {
             pane.goUp()
             return true
         case "j":
-            for _ in 0..<repeatCount { fileList.moveSelection(by: 1) }
+            for _ in 0..<repeatCount { pane.vimMove(by: 1) }
             applyVisualExtend(fileList: fileList)
             return true
         case "k":
-            for _ in 0..<repeatCount { fileList.moveSelection(by: -1) }
+            for _ in 0..<repeatCount { pane.vimMove(by: -1) }
             applyVisualExtend(fileList: fileList)
             return true
         case "l":
             pane.openSelection()
             return true
         case "G":
-            fileList.selectRow(fileList.lastRowIndex)
+            pane.vimSelectLast()
             return true
         case "t":
             pane.newTab(at: nil)

@@ -60,6 +60,36 @@ final class IconViewController: NSViewController, NSCollectionViewDataSource,
         collection.reloadData()
     }
 
+    // MARK: Keyboard navigation (vim j/k/gg/G + open)
+
+    /// Move the single selection by `delta` items, clamped, scrolling to it.
+    func moveSelection(by delta: Int) {
+        guard !items.isEmpty else { return }
+        let cur = collection.selectionIndexPaths.first?.item ?? (delta >= 0 ? -1 : items.count)
+        select(index: max(0, min(items.count - 1, cur + delta)))
+    }
+    func selectFirst() { guard !items.isEmpty else { return }; select(index: 0) }
+    func selectLast() { guard !items.isEmpty else { return }; select(index: items.count - 1) }
+
+    /// Test hook: the currently-selected item(s).
+    var testSelectedItems: [FileItem] {
+        collection.selectionIndexPaths.compactMap { items.indices.contains($0.item) ? items[$0.item] : nil }
+    }
+
+    private func select(index: Int) {
+        let ip = IndexPath(item: index, section: 0)
+        collection.deselectAll(nil)
+        collection.selectItems(at: [ip], scrollPosition: .nearestHorizontalEdge)
+        reportSelection()
+    }
+
+    /// Open the focused (selected) item, if any.
+    func openSelected() {
+        if let ip = collection.selectionIndexPaths.first, items.indices.contains(ip.item) {
+            onOpen?(items[ip.item])
+        }
+    }
+
     @objc func applyTheme() {
         let t = ThemeManager.shared.current
         let bg: NSColor = t.id == "system" ? .controlBackgroundColor : t.background
