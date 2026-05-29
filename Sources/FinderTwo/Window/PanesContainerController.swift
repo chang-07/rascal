@@ -78,6 +78,18 @@ final class PanesContainerController: NSSplitViewController {
         return pane
     }
 
+    /// Copy or move the active pane's selection into the OTHER pane's folder
+    /// (dual-pane workflow). No-op with a single pane or empty selection.
+    func transferSelectionToOtherPane(move: Bool) {
+        guard panes.count > 1, let active = activePane else { return }
+        let other = panes[(activeIndex + 1) % panes.count]
+        let sel = active.selectedURLs()
+        guard !sel.isEmpty else { return }
+        FileOps.transfer(sel, into: other.currentURL, move: move)
+        active.reload()
+        other.reload()
+    }
+
     /// Move keyboard focus to the next/previous pane (wraps). No-op with one pane.
     func focusPane(by delta: Int) {
         guard panes.count > 1 else { return }

@@ -709,6 +709,14 @@ final class TestRunner {
         SidebarBookmarks.remove(bmURL)
         assert("sidebar bookmark removed", !SidebarBookmarks.contains(bmURL), "still present")
 
+        // --- T42g: view/layout setting defaults ---
+        for k in ["FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar"] {
+            UserDefaults.standard.removeObject(forKey: k)
+        }
+        assert("typeToSelect defaults off", Settings.typeToSelect == false, "got \(Settings.typeToSelect)")
+        assert("showStatusBar defaults on", Settings.showStatusBar == true, "got \(Settings.showStatusBar)")
+        assert("showPathBar defaults on", Settings.showPathBar == true, "got \(Settings.showPathBar)")
+
         // --- T43: AppUninstaller bundle-id read ---
         // We can't test scanLeftovers in a hermetic way (it reads real
         // ~/Library); verify the bundle-id reader works against a known app.

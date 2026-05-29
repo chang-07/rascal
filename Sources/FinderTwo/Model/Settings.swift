@@ -119,6 +119,25 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.typeAhead"); notify() }
     }
 
+    /// When on, typing in the list selects the next matching item (Finder
+    /// behavior) instead of opening the type-to-filter field. Off by default.
+    static var typeToSelect: Bool {
+        get { d.object(forKey: "FinderTwo.typeToSelect") as? Bool ?? false }
+        set { d.set(newValue, forKey: "FinderTwo.typeToSelect"); notify() }
+    }
+
+    /// Show the per-pane status bar (item count / free space). On by default.
+    static var showStatusBar: Bool {
+        get { d.object(forKey: "FinderTwo.showStatusBar") as? Bool ?? true }
+        set { d.set(newValue, forKey: "FinderTwo.showStatusBar"); notify() }
+    }
+
+    /// Show the breadcrumb path bar. On by default.
+    static var showPathBar: Bool {
+        get { d.object(forKey: "FinderTwo.showPathBar") as? Bool ?? true }
+        set { d.set(newValue, forKey: "FinderTwo.showPathBar"); notify() }
+    }
+
     // MARK: Window chrome
 
     /// Show the customizable hotbar — the quick-action button row below the
@@ -153,7 +172,8 @@ enum Settings {
         for key in ["FinderTwo.defaultLocation", "FinderTwo.restoreSession",
                     "FinderTwo.showHiddenByDefault", "FinderTwo.defaultView",
                     "FinderTwo.density", "FinderTwo.fontSizeDelta", "FinderTwo.accent",
-                    "FinderTwo.typeAhead", "FinderTwo.showHotbar", "FinderTwo.showTitleBar"] {
+                    "FinderTwo.typeAhead", "FinderTwo.showHotbar", "FinderTwo.showTitleBar",
+                    "FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar"] {
             d.removeObject(forKey: key)
         }
         notifyAppearance()

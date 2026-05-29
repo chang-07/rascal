@@ -403,7 +403,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             return true
         }
         // Type-ahead → live filter: alphanumeric + a few punctuation, no Cmd/Opt/Ctrl.
-        if Settings.typeAheadEnabled,
+        // When "type to select" is on, fall through so NSTableView's built-in
+        // type-select (move the selection to the next matching name) takes over.
+        if Settings.typeAheadEnabled, !Settings.typeToSelect,
            event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
            chars.count == 1,
            let ch = chars.unicodeScalars.first,
