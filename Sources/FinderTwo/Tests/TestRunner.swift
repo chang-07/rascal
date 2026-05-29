@@ -729,6 +729,22 @@ final class TestRunner {
         assert("showStatusBar defaults on", Settings.showStatusBar == true, "got \(Settings.showStatusBar)")
         assert("showPathBar defaults on", Settings.showPathBar == true, "got \(Settings.showPathBar)")
 
+        // --- T42g2: spring-loaded folder settings ---
+        for k in ["FinderTwo.springLoadedFolders", "FinderTwo.springLoadDelay"] {
+            UserDefaults.standard.removeObject(forKey: k)
+        }
+        assert("springLoadedFolders defaults on", Settings.springLoadedFolders == true,
+               "got \(Settings.springLoadedFolders)")
+        assert("springLoadDelay defaults to 0.6", abs(Settings.springLoadDelay - 0.6) < 0.001,
+               "got \(Settings.springLoadDelay)")
+        Settings.springLoadDelay = 5.0   // over max
+        assert("springLoadDelay clamps to <= 2.0", Settings.springLoadDelay <= 2.0,
+               "got \(Settings.springLoadDelay)")
+        Settings.springLoadDelay = 0.05  // under min
+        assert("springLoadDelay clamps to >= 0.2", Settings.springLoadDelay >= 0.2,
+               "got \(Settings.springLoadDelay)")
+        UserDefaults.standard.removeObject(forKey: "FinderTwo.springLoadDelay")
+
         // --- T43: AppUninstaller bundle-id read ---
         // We can't test scanLeftovers in a hermetic way (it reads real
         // ~/Library); verify the bundle-id reader works against a known app.

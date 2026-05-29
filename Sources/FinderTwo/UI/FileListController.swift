@@ -48,6 +48,13 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     /// O(n) (matters once items.count gets into the tens of thousands).
     private var urlToRowIndex: [URL: Int] = [:]
 
+    // MARK: Spring-loaded folders
+    /// The folder row a drag is currently hovering (-1 = none), plus the timer
+    /// that fires `springLoadDelay` after the hover settles. When it fires we
+    /// navigate into that folder so the user can drop deeper (Finder behavior).
+    private var springRow = -1
+    private var springTimer: Timer?
+
     init(model: DirectoryModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
@@ -358,16 +365,49 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
                    proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
         // Drop on a folder row → "on"; otherwise treat as drop into current dir
         if dropOperation == .on, model.items.indices.contains(row), model.items[row].isDirectory {
+            armSpring(forRow: row)
             return modifierIsOption(info) ? .copy : .move
         }
+        cancelSpring()
         if dropOperation == .above {
             tableView.setDropRow(-1, dropOperation: .on)  // map to current directory
         }
         return modifierIsOption(info) ? .copy : .move
     }
 
+    /// Start (or keep) the spring-load timer for `row`. Hovering a *different*
+    /// folder restarts the countdown; hovering the same one leaves it running.
+    private func armSpring(forRow row: Int) {
+        guard Settings.springLoadedFolders else { return }
+        if row == springRow, springTimer != nil { return }
+        cancelSpring()
+        springRow = row
+        let t = Timer(timeInterval: Settings.springLoadDelay, repeats: false) { [weak self] _ in
+            self?.springFire()
+        }
+        // .eventTracking so it still fires while the drag loop is spinning.
+        RunLoop.current.add(t, forMode: .eventTracking)
+        RunLoop.current.add(t, forMode: .default)
+        springTimer = t
+    }
+
+    /// Cancel any pending spring-load (drag left the folder, dropped, or ended).
+    func cancelSpring() {
+        springTimer?.invalidate()
+        springTimer = nil
+        springRow = -1
+    }
+
+    private func springFire() {
+        let row = springRow
+        cancelSpring()
+        guard model.items.indices.contains(row), model.items[row].isDirectory else { return }
+        delegate?.fileListOpenItem(model.items[row])
+    }
+
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo,
                    row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
+        cancelSpring()
         guard let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], !urls.isEmpty else {
             return false
         }
@@ -819,6 +859,17 @@ final class FileListTableView: NSTableView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    // Spring-loaded folders: kill the pending hover-open when the drag leaves
+    // the table or finishes, so we never navigate after the user moves on.
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        listController?.cancelSpring()
+        super.draggingExited(sender)
+    }
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        listController?.cancelSpring()
+        super.draggingEnded(sender)
     }
 
     /// Build the context menu fresh per right-click. On a row: select it first
