@@ -194,6 +194,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func toggleSidebarItem(_ sender: Any?) { splitVC.toggleSidebar(sender) }
     @objc func toggleStatusBarItem(_ sender: Any?) { Settings.showStatusBar.toggle() }
     @objc func togglePreview(_ sender: Any?) { activePane?.togglePreviewDrawer() }
+    @objc func showTransferActivity(_ sender: Any?) { TransferActivityController.shared.present() }
     @objc func togglePathBarItem(_ sender: Any?) { Settings.showPathBar.toggle() }
     @objc func copyToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: false) }
     @objc func moveToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: true) }

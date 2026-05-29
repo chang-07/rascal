@@ -100,6 +100,7 @@ declare -a EXPECT=(
     "Go|Jump to Project Root"
     "View|Focus Next Pane"
     "View|Focus Previous Pane"
+    "View|Transfer Activity"
     "Window|Minimize"
     "Window|Zoom"
     "Window|Next Tab"

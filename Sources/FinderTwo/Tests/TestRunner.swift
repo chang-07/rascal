@@ -249,6 +249,34 @@ final class TestRunner {
         assert("merge(move): file moved into dst", read(mDst2.appendingPathComponent("z.txt")) == "z", "missing")
         assert("merge(move): emptied source dir removed", !FileManager.default.fileExists(atPath: mSrc2.path), "src2 remains")
 
+        // --- T11d: TransferQueue (streamed copy, completion, pause, cancel) ---
+        let tqDir = sandbox.appendingPathComponent("tq")
+        try? FileManager.default.createDirectory(at: tqDir, withIntermediateDirectories: true)
+        let tqSrc = tqDir.appendingPathComponent("payload.bin")
+        let tqBytes = Data((0..<300_000).map { UInt8($0 & 0xff) })
+        try? tqBytes.write(to: tqSrc)
+        let tqOut = tqDir.appendingPathComponent("out.bin")
+        let qop = TransferQueue.shared.enqueue(plan: [(tqSrc, tqOut, false)], move: false)
+        waitUntil(5) { qop.state == .done }
+        assert("queue runs a copy to completion", qop.state == .done, "state=\(qop.state)")
+        assert("queued streamed copy is byte-identical", (try? Data(contentsOf: tqOut)) == tqBytes, "bytes differ")
+        assert("queue reports full progress", qop.fraction >= 0.999, "frac=\(qop.fraction)")
+        // pause flag toggles
+        TransferQueue.shared.setPaused(true)
+        assert("queue pause flag sets", TransferQueue.shared.isPaused, "not paused")
+        TransferQueue.shared.setPaused(false)
+        assert("queue resume clears pause", !TransferQueue.shared.isPaused, "still paused")
+        // cancelAll: enqueue while paused so the op is intercepted, then cancel
+        TransferQueue.shared.setPaused(true)
+        let tqSrc2 = tqDir.appendingPathComponent("p2.bin"); try? Data(repeating: 9, count: 5000).write(to: tqSrc2)
+        let qop2 = TransferQueue.shared.enqueue(plan: [(tqSrc2, tqDir.appendingPathComponent("out2.bin"), false)], move: false)
+        TransferQueue.shared.cancelAll()
+        TransferQueue.shared.setPaused(false)
+        waitUntil(3) { qop2.state == .cancelled || qop2.state == .done }
+        assert("cancelAll cancels a queued op", qop2.state == .cancelled, "state=\(qop2.state)")
+        TransferQueue.shared.clearFinished()
+        assert("clearFinished empties the op list", TransferQueue.shared.snapshot.isEmpty, "remaining=\(TransferQueue.shared.snapshot.count)")
+
         // --- T12: rename via FileListController.commitInlineRename ---
         // Sync reload so the file list picks up the new folder before we assert.
         pane.testReloadSync()
@@ -1500,16 +1528,11 @@ final class TestRunner {
         assert("Get Info chmod writes the new mode (0o644)", actualMode == 0o644,
                "got \(String(actualMode, radix: 8))")
 
-        // Transfer progress sheet builds + drives without popping a window
-        // (no present() → stays off-screen, satisfies the headless constraint).
-        let prog = TransferProgressController(total: 3, move: false, parent: nil)
-        assert("TransferProgressController builds", prog.window?.contentView != nil, "nil")
-        prog.advance(to: 1, name: "a.txt")
-        prog.advance(to: 3, name: "c.txt")
-        assert("TransferProgress cancel flag starts clear", prog.cancelFlag.value == false, "already set")
-        prog.cancelFlag.cancel()
-        assert("TransferProgress cancel flag sets", prog.cancelFlag.value == true, "didn't set")
-        prog.finish()
+        // Transfer activity panel builds without popping a window (no present()
+        // → stays off-screen, satisfies the headless constraint).
+        let activity = TransferActivityController.shared
+        assert("TransferActivityController builds", activity.window?.contentView != nil, "nil")
+        activity.refresh()
 
         // Smart-folder creation sheet builds (no present() → stays off-screen).
         var savedSF: SmartFolder?
