@@ -24,6 +24,11 @@ final class DiskScan {
     private var cancelled = false
     private let queue = DispatchQueue(label: "FinderTwo.DiskScan", qos: .userInitiated)
 
+    /// Identifies a physical file by (device, inode) so a hard-linked file —
+    /// which appears under several paths — is only counted toward the total once.
+    private struct INodeKey: Hashable { let dev: Int32; let ino: UInt64 }
+    private var countedInodes = Set<INodeKey>()
+
     init(root: URL) {
         self.root = Node(url: root, name: root.lastPathComponent.isEmpty ? "/" : root.lastPathComponent,
                          isDirectory: true)
@@ -59,15 +64,28 @@ final class DiskScan {
         var lastReport = lastReportAt
         for e in entries {
             if cancelled { return }
-            let childNode = Node(url: e.url, name: e.name, isDirectory: e.isDirectory)
+            // A symlink is NOT a real directory for usage purposes: we count the
+            // link's own (tiny) footprint and never recurse through it. This is
+            // what `du` does, and it stops framework `Current → A` symlinks (and
+            // any symlink cycles) from double-counting or looping forever.
+            let isRealDir = e.isDirectory && !e.isSymlink
+            let childNode = Node(url: e.url, name: e.name, isDirectory: isRealDir)
             childNode.parent = node
-            if e.isDirectory {
+            if isRealDir {
                 walk(childNode, lastReportAt: lastReport, onUpdate: onUpdate)
                 node.children.append(childNode)
                 node.size += childNode.size
                 node.fileCount += childNode.fileCount
             } else {
-                let s = max(e.size, 0)
+                // Use the ALLOCATED size (blocks), not the apparent size, so
+                // sparse files (disk images, VMs) count their real footprint.
+                var s = max(e.physicalSize, 0)
+                // De-duplicate hard links: a file with multiple links is only
+                // charged to the total the first time we encounter it.
+                if e.linkCount > 1 {
+                    let key = INodeKey(dev: e.device, ino: e.inode)
+                    if countedInodes.contains(key) { s = 0 } else { countedInodes.insert(key) }
+                }
                 childNode.size = s
                 childNode.fileCount = 1
                 node.children.append(childNode)

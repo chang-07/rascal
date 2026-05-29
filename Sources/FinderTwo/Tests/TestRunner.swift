@@ -1141,9 +1141,10 @@ final class TestRunner {
         // --- T44: DiskScan computes a non-zero total on a populated dir ---
         let dsRoot = sandbox.appendingPathComponent("disk_scan_root")
         try? FileManager.default.createDirectory(at: dsRoot, withIntermediateDirectories: true)
+        let dsContent = String(repeating: "x", count: 4096)   // 4 KB each, ≥ 1 block
         for i in 0..<10 {
-            try? "x".write(to: dsRoot.appendingPathComponent("f_\(i)"),
-                           atomically: true, encoding: .utf8)
+            try? dsContent.write(to: dsRoot.appendingPathComponent("f_\(i)"),
+                                 atomically: true, encoding: .utf8)
         }
         // Sanity-check FastDirScan sees what we just wrote.
         let dsList = FastDirScan.list(dsRoot)
@@ -1151,9 +1152,11 @@ final class TestRunner {
                dsList.count == 10, "got=\(dsList.count)")
         let scan = DiskScan(root: dsRoot)
         let scanRoot = scan.runSync()
-        assert("DiskScan totals",
-               scanRoot.size == 10,
-               "got=\(scanRoot.size) (expected 10 = 10 × 1-byte files)")
+        // DiskScan now reports ALLOCATED size (blocks), so it's ≥ the 40 KB of
+        // logical content — never the old logical-byte sum.
+        assert("DiskScan totals (allocated size, ≥ logical)",
+               scanRoot.size >= 40_960,
+               "got=\(scanRoot.size) (expected ≥ 40960 = 10 × 4 KB allocated)")
         assert("DiskScan file count",
                scanRoot.fileCount == 10,
                "got=\(scanRoot.fileCount)")
@@ -1930,6 +1933,23 @@ final class TestRunner {
         let tmView = TreemapView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         tmView.setRoot(tmRoot)
         assert("treemap lays out tiles for a scanned folder", tmView.testTileCount > 0, "no tiles")
+
+        // --- Disk scan accuracy: no symlink-follow, hard-link dedup, allocated size ---
+        let duTmp = sandbox.appendingPathComponent("duusage-\(UUID().uuidString)")
+        let duReal = duTmp.appendingPathComponent("real")
+        try? FileManager.default.createDirectory(at: duReal, withIntermediateDirectories: true)
+        let duFile = duReal.appendingPathComponent("a.bin")
+        FileManager.default.createFile(atPath: duFile.path, contents: Data(repeating: 0xAB, count: 200_000))
+        // Hard link to the same bytes — must be charged to the total only once.
+        try? FileManager.default.linkItem(at: duFile, to: duReal.appendingPathComponent("a-hardlink.bin"))
+        // Symlink to the real dir — must NOT be followed (else its bytes double-count).
+        try? FileManager.default.createSymbolicLink(at: duTmp.appendingPathComponent("link-to-real"), withDestinationURL: duReal)
+        let duScan = DiskScan(root: duTmp).runSync()
+        assert("disk scan doesn't follow symlinked dirs or double-count hard links",
+               duScan.size < 350_000, "size \(duScan.size) — a broken scan would be ~800K")
+        assert("disk scan still counts the real file's allocated size",
+               duScan.size >= 150_000, "size \(duScan.size) too small")
+        try? FileManager.default.removeItem(at: duTmp)
 
         // Native Get Info panel builds for a real path (incl. its NSGridView).
         let info = GetInfoSheetController(url: sandbox)

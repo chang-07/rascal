@@ -17,10 +17,15 @@ enum FastDirScan {
         let isDirectory: Bool
         let isSymlink: Bool
         let isHidden: Bool
-        let size: Int64
+        let size: Int64          // logical size (st_size) — what the file list shows
         let modified: Date
         let created: Date
         let ext: String
+        // Disk-usage fields (used by DiskScan, ignored by the file list):
+        let physicalSize: Int64  // allocated bytes (st_blocks * 512) — the real footprint
+        let inode: UInt64        // for de-duplicating hard links
+        let device: Int32        // (device, inode) uniquely identifies a file
+        let linkCount: Int       // st_nlink; > 1 means a hard-linked file
     }
 
     /// List `dir` quickly. Returns name + lstat metadata for every entry that
@@ -66,6 +71,11 @@ enum FastDirScan {
             let ctime = Date(timeIntervalSince1970: Double(st.st_birthtimespec.tv_sec)
                                 + Double(st.st_birthtimespec.tv_nsec) / 1_000_000_000)
             let size = isDir ? Int64(-1) : Int64(st.st_size)
+            // st_blocks is in fixed 512-byte units (POSIX), independent of the
+            // filesystem block size — this is the actual on-disk footprint and
+            // is what `du` and Disk Utility's "used" are based on. For symlinks
+            // this is the link's own (tiny) allocation, not the target's.
+            let physicalSize = Int64(st.st_blocks) * 512
             let isHidden = name.hasPrefix(".")
             let dot = name.lastIndex(of: ".")
             let ext = (dot != nil && dot != name.startIndex)
@@ -81,7 +91,9 @@ enum FastDirScan {
             out.append(Entry(
                 url: url, name: name,
                 isDirectory: isDir, isSymlink: isSymlink, isHidden: isHidden,
-                size: size, modified: mtime, created: ctime, ext: ext
+                size: size, modified: mtime, created: ctime, ext: ext,
+                physicalSize: physicalSize, inode: UInt64(st.st_ino),
+                device: Int32(st.st_dev), linkCount: Int(st.st_nlink)
             ))
         }
         return out

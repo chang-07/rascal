@@ -52,6 +52,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Headless disk-usage probe — prints the scanner's total for a path so it
+        // can be diffed against `du -sh`. FT_DU=<dir>.
+        if let duPath = ProcessInfo.processInfo.environment["FT_DU"] {
+            DispatchQueue.main.async {
+                let n = DiskScan(root: URL(fileURLWithPath: duPath)).runSync()
+                let line = "FT_DU \(duPath): \(n.fileCount) files · \(n.size) bytes · \(SizeFormatter.string(n.size))\n"
+                FileHandle.standardError.write(line.data(using: .utf8)!)
+                NSApp.terminate(nil)
+            }
+            return
+        }
         // Headless treemap screenshot generator (no window shown) — for demos and
         // off-screen visual verification. FT_TREEMAP_SHOT=<out.png> [FT_TREEMAP_ROOT=<dir>].
         if let shot = ProcessInfo.processInfo.environment["FT_TREEMAP_SHOT"] {
