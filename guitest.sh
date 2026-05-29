@@ -11,7 +11,7 @@
 #   - We DO NOT try to invoke actions via AX or read window contents — those
 #     paths are unreliable in background mode.
 #   - The deep functional verification lives in `smoketest.sh` (in-process
-#     test runner with 125+ assertions covering every feature, including
+#     test runner with 200+ assertions covering every feature, including
 #     window/pane/file-list state, file ops, themes, vim, palette, etc.).
 #
 # Both scripts run silently, never bring the app on-screen, never steal focus.
