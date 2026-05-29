@@ -559,6 +559,27 @@ final class TestRunner {
             assert("Archive lists both files",
                    names.contains("a.txt") && names.contains("b.txt"),
                    "got=\(names)")
+
+            // --- T42b: Archive extraction (single entry + extract-all) ---
+            if let aEntry = entries.first(where: { ($0.path as NSString).lastPathComponent == "a.txt" }) {
+                let exDir = sandbox.appendingPathComponent("zip_extract_one")
+                try? FileManager.default.createDirectory(at: exDir, withIntermediateDirectories: true)
+                let outURL = Archive.extract(aEntry, from: zipPath, to: exDir)
+                let contents = outURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+                assert("Archive.extract writes the entry's real contents",
+                       contents == "hello", "got=\(contents ?? "nil")")
+            }
+            let exAll = sandbox.appendingPathComponent("zip_extract_all")
+            try? FileManager.default.createDirectory(at: exAll, withIntermediateDirectories: true)
+            let allOK = Archive.extractAll(zipPath, to: exAll)
+            let extracted = (try? FileManager.default.contentsOfDirectory(atPath: exAll.path)) ?? []
+            assert("Archive.extractAll extracts every entry",
+                   allOK && extracted.contains("a.txt") && extracted.contains("b.txt"),
+                   "ok=\(allOK) got=\(extracted)")
+            // entriesAreSafe accepts a normal archive (the zip-slip guard only
+            // rejects absolute / ".." entries, which a benign zip never has).
+            assert("Archive.entriesAreSafe accepts a benign archive",
+                   Archive.entriesAreSafe(zipPath), "benign archive flagged unsafe")
         }
 
         // --- T43: AppUninstaller bundle-id read ---
@@ -608,6 +629,55 @@ final class TestRunner {
                statuses.contains("only_in_a.txt:onlySource"), "got=\(statuses)")
         assert("FolderSync identifies onlyDestination",
                statuses.contains("only_in_b.txt:onlyDestination"), "got=\(statuses)")
+
+        // --- T45b: FolderSync mirror applies copies / overwrites / prune safely ---
+        let mOps = FolderSync.mirrorSourceToDestination(syncDiff, source: fsA, destination: fsB, prune: false)
+        assert("FolderSync mirror reports operations", mOps >= 1, "ops=\(mOps)")
+        let mirroredContents = try? String(
+            contentsOf: fsB.appendingPathComponent("only_in_a.txt"), encoding: .utf8)
+        assert("FolderSync mirror copies the new file with source contents",
+               mirroredContents == "only-a", "got=\(mirroredContents ?? "nil")")
+        assert("FolderSync mirror leaves destination-only files when prune=false",
+               FileManager.default.fileExists(atPath: fsB.appendingPathComponent("only_in_b.txt").path),
+               "only_in_b.txt was removed without prune")
+        // Overwrite a differing file (distinct sizes → .differs) via atomic swap.
+        try? "source-content".write(to: fsA.appendingPathComponent("shared.txt"),
+                                    atomically: true, encoding: .utf8)
+        try? "dst".write(to: fsB.appendingPathComponent("shared.txt"),
+                         atomically: true, encoding: .utf8)
+        let mDiff2 = FolderSync.compare(source: fsA, destination: fsB)
+        FolderSync.mirrorSourceToDestination(mDiff2, source: fsA, destination: fsB, prune: false)
+        let overwritten = try? String(
+            contentsOf: fsB.appendingPathComponent("shared.txt"), encoding: .utf8)
+        assert("FolderSync mirror overwrites differing files with source contents",
+               overwritten == "source-content", "got=\(overwritten ?? "nil")")
+        // Prune removes a destination-only file when requested.
+        try? "prune-me".write(to: fsB.appendingPathComponent("prune_target.txt"),
+                              atomically: true, encoding: .utf8)
+        let mDiff3 = FolderSync.compare(source: fsA, destination: fsB)
+        FolderSync.mirrorSourceToDestination(mDiff3, source: fsA, destination: fsB, prune: true)
+        assert("FolderSync prune removes destination-only files",
+               !FileManager.default.fileExists(atPath: fsB.appendingPathComponent("prune_target.txt").path),
+               "prune_target.txt still present after prune")
+
+        // --- T45c: SFTPClient.parseLs parses an `ls -la` listing ---
+        let lsSample = """
+        total 24
+        drwxr-xr-x   5 user  staff   160 Jan  1 12:00 .
+        drwxr-xr-x   3 user  staff    96 Jan  1 12:00 ..
+        -rw-r--r--   1 user  staff  1234 Jan  2 09:30 readme.txt
+        drwxr-xr-x   4 user  staff   128 Jan  3 10:00 my folder
+        """
+        let lsEntries = SFTPClient.testParseLs(lsSample)
+        assert("parseLs skips . and ..",
+               !lsEntries.contains { $0.name == "." || $0.name == ".." },
+               "got=\(lsEntries.map { $0.name })")
+        assert("parseLs parses a regular file with size",
+               lsEntries.contains { $0.name == "readme.txt" && !$0.isDirectory && $0.size == 1234 },
+               "got=\(lsEntries.map { "\($0.name):\($0.isDirectory):\($0.size)" })")
+        assert("parseLs parses a directory whose name contains a space",
+               lsEntries.contains { $0.name == "my folder" && $0.isDirectory },
+               "got=\(lsEntries.map { $0.name })")
 
         // --- T46: GitBranchWorkspaces repoRoot + currentBranch ---
         let gitProj = sandbox.appendingPathComponent("git_proj")

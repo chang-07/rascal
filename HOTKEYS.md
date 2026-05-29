@@ -77,7 +77,15 @@ In the palette / search sheets: `↑`/`↓` move, `Return` activates, `Esc` clos
 | `⌘2` | List view |
 | `⌘3` | Column (Miller) view |
 | `⌘⇧.` | Toggle hidden files |
+| `⌥⌘B` | Show/Hide the hotbar (the quick-action button row) |
+| *(View menu)* | Show/Hide the window title bar |
 | *(palette)* | Cycle Theme |
+
+> **Window chrome.** FinderTwo ships chromeless by default: the **hotbar** and
+> the **window title bar** are hidden, while the navigation toolbar (back/forward/up
+> + path field + search) stays visible. Toggle the hotbar with `⌥⌘B` (View ▸ Show
+> Hotbar) and the title bar from View ▸ Show Title Bar. Both choices persist. The
+> active view mode and hidden-files state are check-marked in the View menu.
 
 ## Panels & tools
 

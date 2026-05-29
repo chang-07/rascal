@@ -80,13 +80,13 @@ Two complementary test scripts. Both run silently and **never** disrupt your
 foreground work — windows never appear on screen, focus is never taken.
 
 ```bash
-./smoketest.sh     # in-process functional runner — 125 assertions
+./smoketest.sh     # in-process functional runner — 200+ assertions
 ./guitest.sh       # Accessibility-level structural audit — 0 failures
 ```
 
 | Script | What it verifies | How |
 |---|---|---|
-| `smoketest.sh` | Every feature works end-to-end | Launches the binary with `FT_RUN_TESTS=1`. The in-process `TestRunner` instantiates real `BrowserWindowController`s, panes, file lists, sheets, palette, vim, etc., and asserts on their state and side-effects. **125 assertions** cover navigation, tabs, panes, view modes, filter, sort, rename, copy/paste, drag-drop, sessions, workspaces, tags, themes, shortcuts, vim, palette, search, and edge cases. |
+| `smoketest.sh` | Every feature works end-to-end | Launches the binary with `FT_RUN_TESTS=1`. The in-process `TestRunner` instantiates real `BrowserWindowController`s, panes, file lists, sheets, palette, vim, etc., and asserts on their state and side-effects. **200+ assertions** cover navigation, tabs, panes, view modes, filter, sort, rename, copy/paste, drag-drop, sessions, workspaces, tags, themes, shortcuts, vim, palette, search, git status, folder sync, archive extraction, window chrome, and edge cases. |
 | `guitest.sh` | Menu structure is wired correctly | Launches with `FT_HEADLESS_TESTING=1` and queries the app over Accessibility. Asserts every top-level menu, every menu item, and every keyboard shortcut is present and bound correctly. |
 
 The functional runner is the source of truth (it can instantiate controllers
@@ -204,10 +204,10 @@ Sources/FinderTwo/
 ├── Window/
 │   ├── BrowserWindowController.swift          # owns split: [sidebar | panes]
 │   └── PanesContainerController.swift         # hosts 1..N PaneControllers
-└── Tests/TestRunner.swift                     # 80 in-process assertions
+└── Tests/TestRunner.swift                     # 200+ in-process assertions
 ```
 
-## Test coverage (current 80 assertions)
+## Test coverage (200+ assertions)
 
 - **Navigation**: nav-up, nav-down, back/forward, Go-to-Folder, root-edge
 - **Tabs**: open, switch, close, decrement
