@@ -233,6 +233,13 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
         return score
     }
 
+    /// Demo/screenshot hook: type a query and refresh synchronously.
+    func demoSetQuery(_ q: String) {
+        _ = window?.contentView          // ensure laid out
+        searchField.stringValue = q
+        filter(query: q)
+    }
+
     // MARK: NSTextFieldDelegate
 
     func controlTextDidChange(_ obj: Notification) {
@@ -275,6 +282,10 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
     // MARK: NSTableViewDataSource / Delegate
 
     func numberOfRows(in tableView: NSTableView) -> Int { filtered.count }
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        OverlayUI.makeRowView()
+    }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let entry = filtered[row]
