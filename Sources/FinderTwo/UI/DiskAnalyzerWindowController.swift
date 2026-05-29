@@ -12,6 +12,7 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
     private let pathBar = NSTextField(labelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
     private let spinner = NSProgressIndicator()
+    private var nav: NSSegmentedControl!   // ← / → back-forward through the drill history
 
     static func show(for wc: BrowserWindowController, rootURL: URL) {
         let c = DiskAnalyzerWindowController(target: wc, rootURL: rootURL)
@@ -46,9 +47,14 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
             DispatchQueue.main.async { self.target?.testActivePane?.select(url: node.url) }
         }
 
-        let up = NSButton(title: "Up", target: self, action: #selector(focusUp))
-        up.bezelStyle = .rounded
-        up.translatesAutoresizingMaskIntoConstraints = false
+        let chevL = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Back") ?? NSImage()
+        let chevR = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Forward") ?? NSImage()
+        nav = NSSegmentedControl(images: [chevL, chevR], trackingMode: .momentary,
+                                 target: self, action: #selector(navSegment(_:)))
+        nav.segmentStyle = .rounded
+        nav.setEnabled(false, forSegment: 0)
+        nav.setEnabled(false, forSegment: 1)
+        nav.translatesAutoresizingMaskIntoConstraints = false
 
         pathBar.translatesAutoresizingMaskIntoConstraints = false
         pathBar.font = NSFont.systemFont(ofSize: 12, weight: .medium)
@@ -72,20 +78,20 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
         let legend = makeLegend()
         legend.translatesAutoresizingMaskIntoConstraints = false
 
-        for v in [up, pathBar, statusLabel, spinner, treemap, reveal, legend] { cv.addSubview(v) }
+        for v in [nav!, pathBar, statusLabel, spinner, treemap, reveal, legend] { cv.addSubview(v) }
 
         NSLayoutConstraint.activate([
-            up.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12),
-            up.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 12),
-            pathBar.centerYAnchor.constraint(equalTo: up.centerYAnchor),
-            pathBar.leadingAnchor.constraint(equalTo: up.trailingAnchor, constant: 10),
+            nav.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12),
+            nav.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 12),
+            pathBar.centerYAnchor.constraint(equalTo: nav.centerYAnchor),
+            pathBar.leadingAnchor.constraint(equalTo: nav.trailingAnchor, constant: 10),
             pathBar.trailingAnchor.constraint(equalTo: statusLabel.leadingAnchor, constant: -10),
-            spinner.centerYAnchor.constraint(equalTo: up.centerYAnchor),
+            spinner.centerYAnchor.constraint(equalTo: nav.centerYAnchor),
             spinner.trailingAnchor.constraint(equalTo: statusLabel.leadingAnchor, constant: -6),
-            statusLabel.centerYAnchor.constraint(equalTo: up.centerYAnchor),
+            statusLabel.centerYAnchor.constraint(equalTo: nav.centerYAnchor),
             statusLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -12),
             statusLabel.widthAnchor.constraint(equalToConstant: 220),
-            treemap.topAnchor.constraint(equalTo: up.bottomAnchor, constant: 12),
+            treemap.topAnchor.constraint(equalTo: nav.bottomAnchor, constant: 12),
             treemap.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 12),
             treemap.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -12),
             treemap.bottomAnchor.constraint(equalTo: legend.topAnchor, constant: -10),
@@ -131,8 +137,8 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
             self?.statusLabel.stringValue = "\(count) files · \(SizeFormatter.string(size))"
         }, onFinish: { [weak self] root in
             self?.spinner.stopAnimation(nil)
+            self?.treemap.setRoot(root)   // initializes history before focus() reads it
             self?.focus(root)
-            self?.treemap.setRoot(root)
         })
     }
 
@@ -142,9 +148,13 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
         focusedNode = node
         pathBar.stringValue = relativePath(of: node)
         statusLabel.stringValue = "\(node.fileCount) files · \(SizeFormatter.string(node.size))"
+        nav.setEnabled(treemap.canGoBack, forSegment: 0)
+        nav.setEnabled(treemap.canGoForward, forSegment: 1)
     }
 
-    @objc private func focusUp() { treemap.focusUp() }
+    @objc private func navSegment(_ sender: NSSegmentedControl) {
+        if sender.selectedSegment == 0 { treemap.goBack() } else { treemap.goForward() }
+    }
 
     @objc private func revealInPane() {
         guard let n = focusedNode else { return }
@@ -243,6 +253,12 @@ final class TreemapView: NSView {
     private var hoverPoint: CGPoint = .zero
     private var tracking: NSTrackingArea?
 
+    /// Browser-style drill history: `history[historyIndex]` is the current view.
+    private var history: [DiskScan.Node] = []
+    private var historyIndex = -1
+    var canGoBack: Bool { historyIndex > 0 }
+    var canGoForward: Bool { historyIndex >= 0 && historyIndex < history.count - 1 }
+
     private let maxDepth = 3
     private let headerH: CGFloat = 16
 
@@ -259,24 +275,53 @@ final class TreemapView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
+    /// Set the starting root and reset history (called once after the scan).
     func setRoot(_ node: DiskScan.Node) {
         currentRoot = node
+        history = [node]
+        historyIndex = 0
         hovered = nil
         rebuild()
     }
 
-    /// Drill up to the parent of the current root, with a shrink-away transition.
-    func focusUp() {
-        guard let cur = currentRoot, let parent = cur.parent else { NSSound.beep(); return }
+    /// ← Go back one step in the drill history (zooms back out).
+    func goBack() {
+        guard canGoBack else { NSSound.beep(); return }
+        let leaving = currentRoot
+        historyIndex -= 1
         let snap = snapshotOverlay()
-        setRoot(parent)
-        onDrill?(parent)
+        showRoot(history[historyIndex])
         if let snap {
             addSubview(snap)
-            let target = tiles.first(where: { $0.node === cur })?.rect
+            // Shrink the old (deeper) view down into the tile it now occupies.
+            let target = tiles.first(where: { $0.node === leaving })?.rect
                 ?? bounds.insetBy(dx: bounds.width * 0.4, dy: bounds.height * 0.4)
             animate(snap, to: target)
         }
+    }
+
+    /// → Go forward one step in the drill history (zooms back in).
+    func goForward() {
+        guard canGoForward else { NSSound.beep(); return }
+        let node = history[historyIndex + 1]
+        let fromRect = tiles.first(where: { $0.node === node })?.rect ?? bounds
+        historyIndex += 1
+        zoomIn(to: node, from: fromRect)
+    }
+
+    /// Record a freshly drilled-into node, discarding any forward history.
+    private func pushHistory(_ node: DiskScan.Node) {
+        if historyIndex < history.count - 1 { history.removeSubrange((historyIndex + 1)...) }
+        history.append(node)
+        historyIndex = history.count - 1
+    }
+
+    /// Swap the displayed root without touching history.
+    private func showRoot(_ node: DiskScan.Node) {
+        currentRoot = node
+        hovered = nil
+        rebuild()
+        onDrill?(node)
     }
 
     // MARK: layout
@@ -434,11 +479,11 @@ final class TreemapView: NSView {
         }, completionHandler: { snap.removeFromSuperview() })
     }
 
-    /// Drill into a directory, zooming its tile out to fill the view.
-    private func drill(into node: DiskScan.Node, from rect: CGRect) {
+    /// Visually zoom into `node`, expanding its tile (`rect`) to fill the view.
+    /// History is the caller's responsibility.
+    private func zoomIn(to node: DiskScan.Node, from rect: CGRect) {
         let snap = snapshotOverlay()
-        setRoot(node)
-        onDrill?(node)
+        showRoot(node)
         guard let snap, rect.width > 1, rect.height > 1 else { return }
         addSubview(snap)
         let b = bounds
@@ -458,10 +503,26 @@ final class TreemapView: NSView {
         let p = convert(event.locationInWindow, from: nil)
         guard let hit = deepestTile(at: p) else { return }
         if hit.node.isDirectory && !hit.node.children.isEmpty {
-            drill(into: hit.node, from: hit.rect)
+            pushHistory(hit.node)
+            zoomIn(to: hit.node, from: hit.rect)
         } else {
             onOpenFile?(hit.node)
         }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 123: goBack()        // ←
+        case 124: goForward()     // →
+        default:   super.keyDown(with: event)
+        }
+    }
+
+    /// Test hook: drill into a node as if its tile were clicked (no animation
+    /// dependency on a live run loop).
+    func testDrill(into node: DiskScan.Node) {
+        pushHistory(node)
+        showRoot(node)
     }
 
     override func updateTrackingAreas() {
