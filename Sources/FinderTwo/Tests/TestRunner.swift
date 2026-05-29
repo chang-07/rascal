@@ -1029,6 +1029,15 @@ final class TestRunner {
         } else { assert("createPDF returns a URL", false, "nil") }
         _ = QuickActions.installedShortcuts()   // env-dependent; must not crash
 
+        // --- T42f3e: package detection (Show Package Contents) ---
+        let finderAppPkg = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
+        if FileManager.default.fileExists(atPath: finderAppPkg.path), let appItem = FileItem.load(finderAppPkg) {
+            assert("an .app is detected as a package", appItem.isPackage, "not a package")
+        }
+        if let plainDir = FileItem.load(sandbox) {
+            assert("a plain folder is not a package", !plainDir.isPackage, "false positive")
+        }
+
         // --- T42f3b: duplicate finder (size + content hash) ---
         let dupRoot = sandbox.appendingPathComponent("dups")
         try? FileManager.default.createDirectory(at: dupRoot.appendingPathComponent("sub"), withIntermediateDirectories: true)

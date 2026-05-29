@@ -14,6 +14,18 @@ struct FileItem: Hashable {
     let contentType: UTType?
     let kindDescription: String
 
+    /// True for app/bundle "packages" — directories the Finder treats as a
+    /// single opaque item (double-click launches; "Show Package Contents"
+    /// browses inside). Computed so the memberwise init is unchanged.
+    var isPackage: Bool {
+        guard isDirectory else { return false }
+        if let t = contentType,
+           t.conforms(to: .package) || t.conforms(to: .bundle) || t.conforms(to: .application) {
+            return true
+        }
+        return (try? url.resourceValues(forKeys: [.isPackageKey]).isPackage) == true
+    }
+
     static func load(_ url: URL) -> FileItem? {
         let keys: Set<URLResourceKey> = [
             .nameKey, .isDirectoryKey, .isSymbolicLinkKey, .isHiddenKey,
