@@ -145,6 +145,19 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.calculateFolderSizes"); notify() }
     }
 
+    /// Spring-loaded folders: hovering a folder during a drag opens it after a
+    /// short delay (Finder behavior). On by default.
+    static var springLoadedFolders: Bool {
+        get { d.object(forKey: "FinderTwo.springLoadedFolders") as? Bool ?? true }
+        set { d.set(newValue, forKey: "FinderTwo.springLoadedFolders"); notify() }
+    }
+
+    /// Delay before a spring-loaded folder opens, in seconds. Clamped 0.2…2.0.
+    static var springLoadDelay: Double {
+        get { let v = d.object(forKey: "FinderTwo.springLoadDelay") as? Double ?? 0.6; return min(2.0, max(0.2, v)) }
+        set { d.set(min(2.0, max(0.2, newValue)), forKey: "FinderTwo.springLoadDelay"); notify() }
+    }
+
     // MARK: Window chrome
 
     /// Show the customizable hotbar — the quick-action button row below the
@@ -180,7 +193,8 @@ enum Settings {
                     "FinderTwo.showHiddenByDefault", "FinderTwo.defaultView",
                     "FinderTwo.density", "FinderTwo.fontSizeDelta", "FinderTwo.accent",
                     "FinderTwo.typeAhead", "FinderTwo.showHotbar", "FinderTwo.showTitleBar",
-                    "FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar"] {
+                    "FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar",
+                    "FinderTwo.springLoadedFolders", "FinderTwo.springLoadDelay"] {
             d.removeObject(forKey: key)
         }
         notifyAppearance()

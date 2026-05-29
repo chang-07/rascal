@@ -175,6 +175,11 @@ final class GeneralPane: SettingsPane {
         typeAhead.state = Settings.typeAheadEnabled ? .on : .off
         addRow("", typeAhead)
 
+        let spring = NSButton(checkboxWithTitle: "Spring-loaded folders (open on drag-hover)",
+                              target: self, action: #selector(springChanged(_:)))
+        spring.state = Settings.springLoadedFolders ? .on : .off
+        addRow("Dragging:", spring)
+
         let view = NSPopUpButton()
         for v in Settings.DefaultView.allCases { view.addItem(withTitle: v.label) }
         view.selectItem(withTitle: Settings.defaultView.label)
@@ -189,6 +194,7 @@ final class GeneralPane: SettingsPane {
     @objc private func restoreChanged(_ s: NSButton) { Settings.restoreSession = s.state == .on }
     @objc private func hiddenChanged(_ s: NSButton) { Settings.showHiddenByDefault = s.state == .on }
     @objc private func typeAheadChanged(_ s: NSButton) { Settings.typeAheadEnabled = s.state == .on }
+    @objc private func springChanged(_ s: NSButton) { Settings.springLoadedFolders = s.state == .on }
     @objc private func viewChanged(_ s: NSPopUpButton) {
         if let v = Settings.DefaultView(rawValue: (s.titleOfSelectedItem ?? "").lowercased()) {
             Settings.defaultView = v
