@@ -813,6 +813,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         m.addItem(NSMenuItem(title: "Make Alias", action: #selector(menuMakeAlias), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Add to Drop Stack", action: #selector(menuAddToShelf), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "New Folder with Selection", action: #selector(menuNewFolderWithSelection), keyEquivalent: ""))
+        m.addItem(quickActionsSubmenuItem())
         m.addItem(NSMenuItem.separator())
         let compressTitle = selectedItems().count == 1 ? "Compress “\(selectedItems()[0].name)”" : "Compress \(selectedItems().count) Items"
         m.addItem(NSMenuItem(title: compressTitle, action: #selector(menuCompress), keyEquivalent: ""))
@@ -921,6 +922,88 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             if out.count >= 10 { break }
         }
         return out
+    }
+
+    /// "Quick Actions" ▸ image rotate/convert, Create PDF, and Run Shortcut.
+    private func quickActionsSubmenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Quick Actions", action: nil, keyEquivalent: "")
+        let menu = NSMenu()
+        let urls = selectedItems().map { $0.url }
+        let hasImage = urls.contains { QuickActions.isImage($0) }
+        func add(_ title: String, _ sel: Selector, _ rep: Any? = nil) {
+            let it = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            it.target = self; it.representedObject = rep; menu.addItem(it)
+        }
+        if hasImage {
+            add("Rotate Left", #selector(menuQARotateLeft))
+            add("Rotate Right", #selector(menuQARotateRight))
+            let conv = NSMenuItem(title: "Convert Image To", action: nil, keyEquivalent: "")
+            let cm = NSMenu()
+            for (label, fmt) in [("PNG", "png"), ("JPEG", "jpeg"), ("HEIC", "heic")] {
+                let it = NSMenuItem(title: label, action: #selector(menuQAConvert(_:)), keyEquivalent: "")
+                it.target = self; it.representedObject = fmt; cm.addItem(it)
+            }
+            conv.submenu = cm; menu.addItem(conv)
+            add("Create PDF", #selector(menuQACreatePDF))
+            menu.addItem(.separator())
+        }
+        add("Run Shortcut…", #selector(menuQARunShortcut))
+        item.submenu = menu
+        return item
+    }
+
+    @objc private func menuQARotateLeft() {
+        let urls = selectedItems().map { $0.url }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            QuickActions.rotate(urls, clockwise: false)
+            DispatchQueue.main.async { self?.model.reload() }
+        }
+    }
+    @objc private func menuQARotateRight() {
+        let urls = selectedItems().map { $0.url }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            QuickActions.rotate(urls, clockwise: true)
+            DispatchQueue.main.async { self?.model.reload() }
+        }
+    }
+    @objc private func menuQAConvert(_ sender: NSMenuItem) {
+        guard let fmt = sender.representedObject as? String else { return }
+        let urls = selectedItems().map { $0.url }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            _ = QuickActions.convert(urls, to: fmt)
+            DispatchQueue.main.async { self?.model.reload() }
+        }
+    }
+    @objc private func menuQACreatePDF() {
+        let urls = selectedItems().map { $0.url }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let made = QuickActions.createPDF(from: urls)
+            DispatchQueue.main.async { if made == nil { NSSound.beep() }; self?.model.reload() }
+        }
+    }
+    @objc private func menuQARunShortcut() {
+        let urls = selectedItems().map { $0.url }
+        guard !urls.isEmpty else { NSSound.beep(); return }
+        let names = QuickActions.installedShortcuts()
+        guard !names.isEmpty else {
+            let a = NSAlert(); a.messageText = "No Shortcuts found"
+            a.informativeText = "Create shortcuts in the Shortcuts app, then they'll appear here."
+            a.runModal(); return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Run Shortcut on \(urls.count) item\(urls.count == 1 ? "" : "s")"
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 26))
+        for n in names.prefix(200) { popup.addItem(withTitle: n) }
+        alert.accessoryView = popup
+        alert.addButton(withTitle: "Run"); alert.addButton(withTitle: "Cancel")
+        let go: (NSApplication.ModalResponse) -> Void = { resp in
+            guard resp == .alertFirstButtonReturn, let name = popup.titleOfSelectedItem else { return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = QuickActions.runShortcut(named: name, on: urls)
+            }
+        }
+        if let w = view.window { alert.beginSheetModal(for: w, completionHandler: go) }
+        else { go(alert.runModal()) }
     }
 
     /// "Copy Checksum" ▸ MD5 / SHA-256 for the selected file(s).
