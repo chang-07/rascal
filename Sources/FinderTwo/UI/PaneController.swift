@@ -404,7 +404,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         let titles = tabs.map { $0.currentURL.lastPathComponent.isEmpty ? "/" : $0.currentURL.lastPathComponent }
         let tooltips = tabs.map { $0.currentURL.path }
         tabStrip.setTabs(titles, activeIndex: activeTabIndex, tooltips: tooltips)
-        tabStripHeightConstraint.constant = tabs.count > 1 ? 26 : 0
+        let multi = tabs.count > 1
+        tabStrip.isHidden = !multi
+        tabStripHeightConstraint.constant = multi ? 26 : 0
     }
 
     // TabStripDelegate
@@ -686,6 +688,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     var testFileList: FileListController { fileList }
     var testToolbarVisible: Bool { !toolbar.isHidden }
     var testHotbarVisible: Bool { !hotbar.isHidden }
+    var testTabStripVisible: Bool { !tabStrip.isHidden }
     var testHotbarHeight: CGFloat { hotbarHeightConstraint.constant }
     var testToolbarTopInset: CGFloat { topInsetConstraint.constant }
     func testToolbarHasFocusAPI() -> Bool {
