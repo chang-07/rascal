@@ -38,6 +38,14 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     private static let freeBytesTTL: TimeInterval = 5.0
 
     private var tabStripHeightConstraint: NSLayoutConstraint!
+    private var hotbarHeightConstraint: NSLayoutConstraint!
+    /// Inset for the first row of pane content. Non-zero when the window title
+    /// bar is hidden, so the toolbar clears the traffic-light strip and lines up
+    /// with the (also-inset) sidebar.
+    private var topInsetConstraint: NSLayoutConstraint!
+    /// Top inset applied when the window title bar is hidden (matches the
+    /// sidebar inset in BrowserWindowController so both edges align).
+    static let hiddenTitleBarInset: CGFloat = 28
 
     init(url: URL) {
         let initialTab = TabState(url: url)
@@ -138,9 +146,11 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         terminalHeightConstraint = terminalView.heightAnchor.constraint(equalToConstant: 0)
 
         tabStripHeightConstraint = tabStrip.heightAnchor.constraint(equalToConstant: 0)
+        hotbarHeightConstraint = hotbar.heightAnchor.constraint(equalToConstant: 32)
+        topInsetConstraint = toolbar.topAnchor.constraint(equalTo: root.topAnchor)
 
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: root.topAnchor),
+            topInsetConstraint,
             toolbar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             toolbar.heightAnchor.constraint(equalToConstant: 36),
@@ -158,7 +168,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
             hotbar.topAnchor.constraint(equalTo: pathBar.bottomAnchor),
             hotbar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             hotbar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            hotbar.heightAnchor.constraint(equalToConstant: 32),
+            hotbarHeightConstraint,
 
             fileList.view.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
             fileList.view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
@@ -197,11 +207,33 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         self.view = root
         updateAfterNavigate(announce: true)
         updateTabStripVisibility()
+        applyHotbarVisibility()
+        applyTopInset()
         // Honor the default-view preference now that the view hierarchy exists.
         if Settings.defaultView == .columns { setViewMode(.columns) }
         DispatchQueue.main.async { [weak self] in
             self?.hotbar.target = self?.view.window?.windowController as? BrowserWindowController
         }
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged),
+                                               name: Settings.didChange, object: nil)
+    }
+
+    @objc private func settingsChanged() {
+        applyHotbarVisibility()
+        applyTopInset()
+    }
+
+    /// Show or hide the customizable hotbar per the user setting. Hidden by
+    /// default; collapses to zero height so the file list reclaims the space.
+    private func applyHotbarVisibility() {
+        hotbar.isHidden = !Settings.showHotbar
+        hotbarHeightConstraint.constant = Settings.showHotbar ? 32 : 0
+    }
+
+    /// When the window title bar is hidden, inset the toolbar from the top so it
+    /// clears the traffic lights and lines up with the (also-inset) sidebar.
+    private func applyTopInset() {
+        topInsetConstraint.constant = Settings.showTitleBar ? 0 : PaneController.hiddenTitleBarInset
     }
 
     func setActive(_ active: Bool) {
@@ -609,6 +641,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         activeTab.model.reload(sync: true)
     }
     var testFileList: FileListController { fileList }
+    var testToolbarVisible: Bool { !toolbar.isHidden }
+    var testHotbarVisible: Bool { !hotbar.isHidden }
+    var testHotbarHeight: CGFloat { hotbarHeightConstraint.constant }
+    var testToolbarTopInset: CGFloat { topInsetConstraint.constant }
     func testToolbarHasFocusAPI() -> Bool {
         // Compile-time presence — calling shouldn't crash.
         toolbar.focusSearchField()
