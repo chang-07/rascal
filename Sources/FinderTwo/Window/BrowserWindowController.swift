@@ -135,6 +135,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func installVimKeyMonitor() {
         vimKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
+            // Orthodox-commander function keys (work regardless of Vim mode):
+            // F5 copy to other pane, F6 move to other pane, F8 move to Trash.
+            if event.window === self.window, !self.firstResponderIsTextEditing(),
+               event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+               let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first {
+                switch Int(scalar.value) {
+                case 0xF708: self.copyToOtherPane(nil); return nil   // F5
+                case 0xF709: self.moveToOtherPane(nil); return nil   // F6
+                case 0xF70B: self.moveToTrash(nil); return nil       // F8
+                default: break
+                }
+            }
             guard VimMode.shared.enabled else { return event }
             // Only handle events targeted at our window.
             guard event.window === self.window else { return event }
