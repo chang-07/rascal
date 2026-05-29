@@ -219,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fileMenu.addItem(routed("tool.browse-archive"))
         fileMenu.addItem(routed("tool.folder-sync"))
         fileMenu.addItem(routed("tool.analyze-disk"))
+        fileMenu.addItem(routed("tool.find-duplicates"))
         fileMenu.addItem(routed("tool.uninstall-app"))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("file.trash"))
