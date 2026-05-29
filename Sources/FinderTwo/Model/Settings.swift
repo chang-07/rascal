@@ -152,6 +152,13 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.springLoadedFolders"); notify() }
     }
 
+    /// "Use Groups": partition the list view into sections by the current
+    /// Arrange-By key (Finder's grouping). Off by default.
+    static var useGroups: Bool {
+        get { d.bool(forKey: "FinderTwo.useGroups") }
+        set { d.set(newValue, forKey: "FinderTwo.useGroups"); notify() }
+    }
+
     /// Delay before a spring-loaded folder opens, in seconds. Clamped 0.2…2.0.
     static var springLoadDelay: Double {
         get { let v = d.object(forKey: "FinderTwo.springLoadDelay") as? Double ?? 0.6; return min(2.0, max(0.2, v)) }
@@ -194,7 +201,8 @@ enum Settings {
                     "FinderTwo.density", "FinderTwo.fontSizeDelta", "FinderTwo.accent",
                     "FinderTwo.typeAhead", "FinderTwo.showHotbar", "FinderTwo.showTitleBar",
                     "FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar",
-                    "FinderTwo.springLoadedFolders", "FinderTwo.springLoadDelay"] {
+                    "FinderTwo.springLoadedFolders", "FinderTwo.springLoadDelay",
+                    "FinderTwo.useGroups"] {
             d.removeObject(forKey: key)
         }
         notifyAppearance()
