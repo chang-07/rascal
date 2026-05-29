@@ -43,8 +43,6 @@ enum FileOps {
 
     enum Conflict { case keepBoth, replace, skip, merge }
 
-    private static let transferQueue = DispatchQueue(label: "FinderTwo.transfer", qos: .userInitiated)
-
     private static func isDir(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
@@ -89,30 +87,15 @@ enum FileOps {
         }
         guard !plan.isEmpty else { return }
 
-        // Phase 2: execute off-main. Show a progress sheet for multi-item /
-        // folder work (where it may take a noticeable amount of time).
-        let progress: TransferProgressController? =
-            (plan.count > 1 || hasDirectory) ? TransferProgressController(total: plan.count, move: move, parent: window) : nil
-        progress?.present()
-        let cancel = progress?.cancelFlag
-        transferQueue.async {
-            var failures = 0
-            for (i, step) in plan.enumerated() {
-                if cancel?.value == true { break }
-                if step.merge {
-                    failures += mergeDirectory(src: step.src, into: step.dst, move: move, fm: fm)
-                } else {
-                    do {
-                        if move { try fm.moveItem(at: step.src, to: step.dst) }
-                        else { try fm.copyItem(at: step.src, to: step.dst) }
-                    } catch { failures += 1 }
-                }
-                DispatchQueue.main.async { progress?.advance(to: i + 1, name: step.src.lastPathComponent) }
-            }
-            DispatchQueue.main.async {
-                progress?.finish()
-                if failures > 0 { NSSound.beep() }
-            }
+        // Phase 2: hand the plan to the shared transfer queue (serial, off-main,
+        // pausable/cancellable, streamed). Surface the activity panel for
+        // non-trivial work — but never in headless test runs (keeps tests
+        // window-free).
+        _ = window  // (the queue's activity panel is window-independent)
+        TransferQueue.shared.enqueue(plan: plan, move: move)
+        let headless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] != nil
+        if !headless && (plan.count > 1 || hasDirectory) {
+            DispatchQueue.main.async { TransferActivityController.shared.present() }
         }
     }
 
