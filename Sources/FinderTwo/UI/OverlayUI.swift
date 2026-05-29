@@ -2,18 +2,25 @@ import AppKit
 
 /// Shared look for the overlay finders — Command Palette, Find Files, and
 /// Search File Contents — so they feel like one coherent control: the same
-/// floating HUD panel, the same big rounded search field, and the same
-/// icon + title + subtitle result row.
+/// floating panel, the same big rounded search field, and the same
+/// icon + title + subtitle result row. The panel adopts the active theme, so
+/// in Rascal Light it's a warm light card, in Rascal Dark a deep one.
 enum OverlayUI {
     static let panelWidth: CGFloat = 640
     static let panelHeight: CGFloat = 440
     static let rowHeight: CGFloat = 36
 
-    /// A floating, non-activating HUD panel with a hidden title bar.
+    private static var isDark: Bool {
+        let t = ThemeManager.shared.current
+        if t.id == "system" { return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
+        return t.appearance == .dark
+    }
+
+    /// A floating, themed panel with a hidden title bar and rounded corners.
     static func makePanel() -> NSPanel {
         let p = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
-            styleMask: [.titled, .closable, .nonactivatingPanel, .hudWindow, .resizable],
+            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered, defer: false)
         p.titleVisibility = .hidden
         p.titlebarAppearsTransparent = true
@@ -21,6 +28,20 @@ enum OverlayUI {
         p.level = .modalPanel
         p.becomesKeyOnlyIfNeeded = false
         p.hidesOnDeactivate = true
+        p.isMovableByWindowBackground = true
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        for b: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            p.standardWindowButton(b)?.isHidden = true
+        }
+        let t = ThemeManager.shared.current
+        switch t.appearance {
+        case .light: p.appearance = NSAppearance(named: .aqua)
+        case .dark:  p.appearance = NSAppearance(named: .darkAqua)
+        case .automatic: p.appearance = nil
+        }
+        p.contentView = OverlayPanelBackground()
         return p
     }
 
@@ -57,9 +78,45 @@ enum OverlayUI {
         scroll.borderType = .noBorder
         scroll.documentView = table
     }
+
+    /// Shared selection row — fills the selected row with the theme accent so
+    /// every finder highlights in Rascal's orange (not the system blue).
+    static func makeRowView() -> NSTableRowView { OverlayRowView() }
 }
 
-/// One result row: icon + bold-ish title over a muted subtitle. Used by the
+/// Rounded, themed background that fills an overlay panel's content view.
+final class OverlayPanelBackground: NSView {
+    override init(frame frameRect: NSRect) { super.init(frame: frameRect); wantsLayer = true; apply() }
+    required init?(coder: NSCoder) { super.init(coder: coder); wantsLayer = true; apply() }
+    override var isFlipped: Bool { true }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); apply() }
+
+    private func apply() {
+        let t = ThemeManager.shared.current
+        let bg = t.id == "system" ? NSColor.windowBackgroundColor : t.background
+        let border = t.id == "system" ? NSColor.separatorColor : t.labelTertiary.withAlphaComponent(0.35)
+        layer?.backgroundColor = bg.cgColor
+        layer?.cornerRadius = 14
+        layer?.masksToBounds = true
+        layer?.borderWidth = 1
+        layer?.borderColor = border.cgColor
+    }
+}
+
+/// Selection fill for overlay rows — the theme accent, lightly tinted.
+final class OverlayRowView: NSTableRowView {
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard isSelected else { return }
+        let t = ThemeManager.shared.current
+        let fill = t.id == "system"
+            ? NSColor.selectedContentBackgroundColor.withAlphaComponent(0.85)
+            : t.accent.withAlphaComponent(0.22)
+        fill.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 7, yRadius: 7).fill()
+    }
+}
+
+/// One result row: icon + title over a muted subtitle, themed. Used by the
 /// palette and both search modes.
 final class OverlayResultRow: NSTableCellView {
     let iconView = NSImageView()
@@ -79,12 +136,17 @@ final class OverlayResultRow: NSTableCellView {
     required init?(coder: NSCoder) { super.init(coder: coder); setup() }
 
     private func setup() {
+        let t = ThemeManager.shared.current
+        let primary = t.id == "system" ? NSColor.labelColor : t.labelPrimary
+        let secondary = t.id == "system" ? NSColor.secondaryLabelColor : t.labelSecondary
+
         iconView.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.textColor = primary
         subtitleLabel.font = .systemFont(ofSize: 11)
-        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.textColor = secondary
         titleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.lineBreakMode = .byTruncatingTail
         addSubview(iconView); addSubview(titleLabel); addSubview(subtitleLabel)
