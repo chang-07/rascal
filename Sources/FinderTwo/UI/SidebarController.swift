@@ -57,6 +57,10 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         scrollView.documentView = outline
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
+        // The clip view defaults to drawing an OPAQUE system background, which
+        // sits in front of the tint and is what made every theme look "system".
+        // Turn it off so the outline's own background (set per-theme) shows.
+        scrollView.contentView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(scrollView)
         scrollTopConstraint = scrollView.topAnchor.constraint(equalTo: v.topAnchor)
@@ -166,19 +170,20 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
 
     @objc func applyTheme() {
         let t = ThemeManager.shared.current
-        // System: clear tint so the visual-effect view's translucency shows.
-        // Custom: paint the EXACT sidebar color over the vibrancy (the `.inset`
-        // outline is non-vibrant, so this fully governs the background).
-        tintView.layer?.backgroundColor =
-            t.id == "system" ? NSColor.clear.cgColor : t.sidebarBackground.cgColor
+        // The `.inset` outline draws its OWN background, in front of the tint
+        // and clip view — so THAT is the surface that has to carry the theme
+        // color. System → clear (the visual-effect view's translucency shows);
+        // custom → the exact opaque sidebar color. The tint mirrors it as a
+        // backstop for any sliver the table doesn't cover (e.g. inset margins).
+        let bg: NSColor = t.id == "system" ? .clear : t.sidebarBackground
+        outline.backgroundColor = bg
+        tintView.layer?.backgroundColor = bg.cgColor
         outline.reloadData()
     }
 
-    /// Test hook: the sidebar's painted background (clear/zero-alpha = native).
-    var testSidebarTint: NSColor? {
-        guard let cg = tintView.layer?.backgroundColor else { return nil }
-        return NSColor(cgColor: cg)
-    }
+    /// Test hook: the surface the sidebar actually renders (the outline's own
+    /// background). Clear / zero-alpha = native vibrancy.
+    var testSidebarBackground: NSColor? { outline.backgroundColor }
 
     func highlight(url: URL) {
         selectedURL = url
