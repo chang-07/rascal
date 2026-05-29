@@ -721,6 +721,44 @@ final class TestRunner {
         SidebarBookmarks.remove(bmURL)
         assert("sidebar bookmark removed", !SidebarBookmarks.contains(bmURL), "still present")
 
+        // --- T42f2: smart folders (saved searches) ---
+        // Synthetic URL round-trip.
+        let sfURL = SidebarController.smartFolderURL(id: "my-search")
+        assert("smart-folder URL is recognized", SidebarController.isSmartFolderURL(sfURL), "not recognized")
+        assert("smart-folder id round-trips",
+               SidebarController.smartFolderId(from: sfURL) == "my-search",
+               "got \(SidebarController.smartFolderId(from: sfURL) ?? "nil")")
+        assert("a normal path is not a smart folder",
+               !SidebarController.isSmartFolderURL(sandbox), "false positive")
+        // Persistence: upsert / find / remove + id uniqueness.
+        let existingSF = SmartFolders.all()
+        for f in existingSF where f.id.hasPrefix("test-sf") { SmartFolders.remove(id: f.id) }
+        let id1 = SmartFolders.makeId(for: "Test SF Reports")
+        let sf1 = SmartFolder(id: id1, name: "Reports", nameContains: "report",
+                              contentContains: "", rootPath: sandbox.path)
+        SmartFolders.upsert(sf1)
+        assert("smart folder persisted", SmartFolders.find(id: id1)?.name == "Reports",
+               "not found")
+        var sf1b = sf1; sf1b.name = "Reports v2"
+        SmartFolders.upsert(sf1b)
+        assert("smart folder upsert replaces by id",
+               SmartFolders.all().filter { $0.id == id1 }.count == 1 &&
+               SmartFolders.find(id: id1)?.name == "Reports v2", "duplicated or stale")
+        // sf1 (id "test-sf-reports") is still persisted, so re-deriving the
+        // same slug must disambiguate rather than collide.
+        let id2 = SmartFolders.makeId(for: "Test SF Reports")
+        assert("makeId disambiguates a taken slug", id2 != id1, "collision: \(id1) == \(id2)")
+        // An all-blank query matches nothing (guarded).
+        let emptySF = SmartFolder(id: "blank", name: "Blank", nameContains: "",
+                                  contentContains: "", rootPath: sandbox.path)
+        assert("blank smart folder reports empty query", emptySF.isEmptyQuery, "not flagged")
+        assert("runSync on blank query returns nothing", SmartFolders.runSync(emptySF).isEmpty, "got hits")
+        // runSync on a real query just must not crash (Spotlight may not index
+        // the temp sandbox, so we don't assert on count).
+        _ = SmartFolders.runSync(sf1, limit: 10)
+        SmartFolders.remove(id: id1)
+        assert("smart folder removed", SmartFolders.find(id: id1) == nil, "still present")
+
         // --- T42g: view/layout setting defaults ---
         for k in ["FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar"] {
             UserDefaults.standard.removeObject(forKey: k)
@@ -926,6 +964,8 @@ final class TestRunner {
                ActionRegistry.action(id: "file.copy-path") != nil, "missing")
         assert("action: file.open-in-terminal",
                ActionRegistry.action(id: "file.open-in-terminal") != nil, "missing")
+        assert("action: file.new-smart-folder",
+               ActionRegistry.action(id: "file.new-smart-folder") != nil, "missing")
 
         // ====== Audit pass: every product feature, in-process ======
 
@@ -940,6 +980,19 @@ final class TestRunner {
                pane.testCurrentItems.count == 0, "got=\(pane.testCurrentItems.count)")
         pane.navigate(to: sandbox)
         wait(0.05)
+
+        // --- T42z: navigating to a synthetic smart-folder URL is safe ---
+        let navSF = SmartFolder(id: "test-nav-sf", name: "NavSF", nameContains: "zzz-nope",
+                                contentContains: "", rootPath: sandbox.path)
+        SmartFolders.upsert(navSF)
+        let navURL = SidebarController.smartFolderURL(id: "test-nav-sf")
+        pane.navigate(to: navURL)
+        wait(0.2)
+        assert("pane navigated to smart-folder URL",
+               samePath(pane.currentURL, navURL), "url=\(pane.currentURL.path)")
+        pane.navigate(to: sandbox)
+        wait(0.05)
+        SmartFolders.remove(id: "test-nav-sf")
 
         // --- T43: filter no-match resolves to 0 items ---
         pane.testSetFilter("xyzzzznonexistent")
@@ -1396,6 +1449,13 @@ final class TestRunner {
         prog.cancelFlag.cancel()
         assert("TransferProgress cancel flag sets", prog.cancelFlag.value == true, "didn't set")
         prog.finish()
+
+        // Smart-folder creation sheet builds (no present() → stays off-screen).
+        var savedSF: SmartFolder?
+        let sfSheet = SmartFolderSheetController(existing: nil, defaultRoot: sandbox,
+                                                 onSave: { savedSF = $0 })
+        assert("SmartFolderSheetController builds", sfSheet.window?.contentView != nil, "nil")
+        _ = savedSF   // silence unused-write warning; onSave is exercised in UI only
 
         // App uninstaller sheet — point at a real .app so scan has data
         let someApp = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")

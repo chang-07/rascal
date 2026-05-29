@@ -89,6 +89,22 @@ final class DirectoryModel {
             }
             return
         }
+        if SidebarController.isSmartFolderURL(url) {
+            // Saved search: re-run the stored query via Spotlight, no watcher.
+            watcher?.stop()
+            watcher = nil
+            rawItems = []
+            recompute(forceSync: true)
+            if let id = SidebarController.smartFolderId(from: url),
+               let folder = SmartFolders.find(id: id) {
+                SmartFolders.run(folder) { [weak self] urls in
+                    guard let self, self.url == url else { return }
+                    self.rawItems = urls.compactMap { FileItem.load($0) }
+                    self.recompute(forceSync: true)
+                }
+            }
+            return
+        }
         reload(sync: true)
         startWatcher()
     }

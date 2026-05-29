@@ -242,6 +242,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         GetInfoSheetController.show(for: target, parent: window)
     }
 
+    @objc func newSmartFolder(_ sender: Any?) {
+        SmartFolderSheetController.show(for: self, defaultRoot: activePane?.currentURL)
+    }
+
+    /// Navigate the active pane to a saved search's synthetic listing.
+    func openSmartFolder(id: String) {
+        activePane?.navigate(to: SidebarController.smartFolderURL(id: id))
+    }
+
     @objc func viewAsIcons(_ sender: Any?) { activePane?.setViewMode(.icon) }
     @objc func arrangeBy(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let key = SortKey(rawValue: raw) else { return }

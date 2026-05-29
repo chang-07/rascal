@@ -190,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fileMenu.addItem(routed("file.new-folder"))
         fileMenu.addItem(routed("file.new-folder-selection"))
         fileMenu.addItem(routed("file.new-file"))
+        fileMenu.addItem(routed("file.new-smart-folder"))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("tab.close"))
         fileMenu.addItem(systemItem(title: "Close Window",
