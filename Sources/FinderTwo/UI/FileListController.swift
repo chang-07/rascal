@@ -800,6 +800,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         if selectedItems().contains(where: { !$0.isDirectory }) {
             m.addItem(checksumSubmenuItem())
         }
+        if selectedItems().filter({ !$0.isDirectory }).count == 2 {
+            m.addItem(NSMenuItem(title: "Compare Two Files…", action: #selector(menuCompareFiles), keyEquivalent: ""))
+        }
         if NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: nil) {
             m.addItem(NSMenuItem(title: "Paste", action: #selector(menuPaste), keyEquivalent: ""))
         }
@@ -1062,6 +1065,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         guard !urls.isEmpty else { return }
         FileOps.makeAliases(for: urls)
         model.reload()
+    }
+    @objc private func menuCompareFiles() {
+        guard let wc = view.window?.windowController as? BrowserWindowController else { return }
+        wc.compareFiles(nil)
     }
     @objc private func menuAddToShelf() {
         let urls = selectedItems().map { $0.url }
