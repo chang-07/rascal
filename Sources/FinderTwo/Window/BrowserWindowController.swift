@@ -190,6 +190,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         pane.reload()
         pane.select(url: url)
     }
+    @objc func newFile(_ sender: Any?) {
+        guard let pane = activePane, let url = FileOps.newFile(in: pane.currentURL) else { return }
+        pane.reload()
+        pane.select(url: url)
+    }
+    @objc func newFolderWithSelection(_ sender: Any?) {
+        guard let pane = activePane else { return }
+        let sel = pane.selectedURLs()
+        guard !sel.isEmpty, let folder = FileOps.newFolderWithItems(sel, in: pane.currentURL) else { return }
+        pane.reload()
+        pane.select(url: folder)
+    }
+    @objc func deleteImmediately(_ sender: Any?) {
+        guard let pane = activePane else { return }
+        let sel = pane.selectedURLs()
+        guard !sel.isEmpty else { return }
+        if FileOps.deleteImmediately(sel) { pane.reload() }
+    }
+    @objc func emptyTrash(_ sender: Any?) { FileOps.emptyTrash() }
 
     @objc func moveToTrash(_ sender: Any?) {
         guard let pane = activePane else { return }

@@ -314,20 +314,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             target = model.url
         }
         let isCopy = modifierIsOption(info)
-        let fm = FileManager.default
-        for src in urls {
-            guard src != target else { continue }
-            let dst = target.appendingPathComponent(src.lastPathComponent)
-            do {
-                if isCopy {
-                    try fm.copyItem(at: src, to: dst)
-                } else {
-                    try fm.moveItem(at: src, to: dst)
-                }
-            } catch {
-                NSSound.beep()
-            }
-        }
+        FileOps.transfer(urls, into: target, move: !isCopy)
         return true
     }
 
@@ -539,9 +526,13 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         m.addItem(NSMenuItem(title: "Get Info", action: #selector(menuGetInfo), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Copy", action: #selector(menuCopy), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Copy Path", action: #selector(menuCopyPath), keyEquivalent: ""))
+        if NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: nil) {
+            m.addItem(NSMenuItem(title: "Paste", action: #selector(menuPaste), keyEquivalent: ""))
+        }
         m.addItem(NSMenuItem(title: "Duplicate", action: #selector(menuDuplicate), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Rename", action: #selector(menuRename), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Make Alias", action: #selector(menuMakeAlias), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "New Folder with Selection", action: #selector(menuNewFolderWithSelection), keyEquivalent: ""))
         m.addItem(NSMenuItem.separator())
         let compressTitle = selectedItems().count == 1 ? "Compress “\(selectedItems()[0].name)”" : "Compress \(selectedItems().count) Items"
         m.addItem(NSMenuItem(title: compressTitle, action: #selector(menuCompress), keyEquivalent: ""))
@@ -691,6 +682,17 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     }
 
     /// Entry points usable from menus & the command palette.
+    @objc private func menuPaste() {
+        FileOps.paste(NSPasteboard.general, into: model.url, move: false)
+        model.reload()
+    }
+    @objc private func menuNewFolderWithSelection() {
+        let sel = selectedItems().map { $0.url }
+        guard !sel.isEmpty else { return }
+        _ = FileOps.newFolderWithItems(sel, in: model.url)
+        model.reload()
+    }
+
     func compressSelection() { menuCompress() }
     func extractSelection() { menuExtract() }
     func makeAliasSelection() { menuMakeAlias() }
