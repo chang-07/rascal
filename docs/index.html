@@ -3,17 +3,27 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Rascal — a fast, native macOS file manager</title>
-<meta name="description" content="Rascal is a keyboard-first, themeable file manager for macOS. Local-first, no AI, no account. Free and open source." />
+<title>Rascal — a keyboard-first macOS file manager</title>
+<meta name="description" content="Rascal is a fast, keyboard-first Finder replacement for macOS. Local-first, no account, no telemetry. Free and open source." />
 <link rel="icon" type="image/svg+xml" href="assets/rascal-logo.svg" />
-<meta property="og:title" content="Rascal — a fast, native macOS file manager" />
-<meta property="og:description" content="Keyboard-first, themeable, local-first. No AI, no account, no telemetry." />
+<meta property="og:title" content="Rascal — a keyboard-first macOS file manager" />
+<meta property="og:description" content="Quick, scriptable, and entirely yours. No cloud, no account, no telemetry." />
 <meta property="og:type" content="website" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<!-- ╭───────────────────────── header ─────────────────────────╮ -->
+<!-- icon sprite -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-key" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+  <symbol id="i-panes" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 11h10M13 3v18M13 13h8"/></symbol>
+  <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3.5 12.5V5.5a2 2 0 0 1 2-2h7l8 8-9 9z"/><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.8-3.4 8-8 9-4.6-1-8-4.2-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></symbol>
+</svg>
+
 <header class="nav">
   <a class="brand" href="#top" aria-label="Rascal home">
     <img src="assets/rascal-logo.svg" alt="" class="brand-mark" />
@@ -27,7 +37,6 @@
   </nav>
 </header>
 
-<!-- ╭────────────────────────── hero ──────────────────────────╮ -->
 <main id="top">
 <section class="hero">
   <div class="blob blob-a"></div>
@@ -35,142 +44,115 @@
 
   <div class="hero-inner">
     <img src="assets/rascal-logo.svg" alt="Rascal app icon" class="hero-logo" />
-    <p class="eyebrow">macOS file manager · keyboard-first</p>
+    <p class="eyebrow">a native macOS file manager</p>
     <h1 class="hero-title">Meet <span class="grad">Rascal</span>.</h1>
     <p class="hero-sub">
-      A fast, native Finder replacement that gets out of your way — vim keys,
-      a command palette, dual panes, live themes, and a treemap that finally
-      tells you where your disk went. <strong>Local-first. No AI. No account.</strong>
+      A keyboard-first Finder replacement for people who live in their files —
+      quick, scriptable, and entirely yours.
     </p>
 
     <div class="cta-row">
       <a class="btn btn-primary" href="#download">
-        <svg viewBox="0 0 24 24" class="btn-ico" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
         Download for macOS
       </a>
       <!-- Ko-fi: replace YOUR_KOFI with your Ko-fi username -->
-      <a class="btn btn-kofi" href="https://ko-fi.com/YOUR_KOFI" target="_blank" rel="noopener">
-        <span class="kofi-cup" aria-hidden="true">☕</span> Support on Ko-fi
-      </a>
+      <a class="btn btn-kofi" href="https://ko-fi.com/YOUR_KOFI" target="_blank" rel="noopener">Support on Ko-fi</a>
     </div>
-    <p class="hero-meta">Apple Silicon &amp; Intel · macOS 13+ · free &amp; open source</p>
+    <p class="hero-meta">Apple&nbsp;Silicon &amp; Intel · macOS&nbsp;13+ · free &amp; open source</p>
   </div>
 
-  <!-- hero: live theme-switching, captured from the app -->
-  <figure class="hero-demo frame">
-    <img src="assets/themes.gif" alt="Rascal switching between Light, Dark, Nord and Dracula themes" loading="lazy" />
+  <figure class="hero-shot frame">
+    <img src="assets/hero.png" alt="The Rascal main window in its warm Light theme" loading="lazy" />
   </figure>
 </section>
 
-<!-- ╭──────────────────────── principles ──────────────────────╮ -->
-<section class="strip">
-  <span>🔒 Local-first</span><i>·</i>
-  <span>🚫 No AI</span><i>·</i>
-  <span>👤 No account</span><i>·</i>
-  <span>📡 No telemetry</span><i>·</i>
-  <span>💸 Free forever</span>
-</section>
+<p class="creed">Local-first &nbsp;·&nbsp; no account &nbsp;·&nbsp; no telemetry &nbsp;·&nbsp; no AI &nbsp;·&nbsp; open source</p>
 
-<!-- ╭───────────────────────── features ───────────────────────╮ -->
+<!-- ── features ── -->
 <section id="features" class="section">
-  <p class="kicker">What's inside</p>
-  <h2 class="section-title">Everything you reach for, a keystroke away.</h2>
+  <p class="kicker">Under the hood</p>
+  <h2 class="section-title">Small, sharp, and out of your way.</h2>
 
   <div class="features">
-    <article class="card">
-      <div class="ic">⌨️</div>
+    <article class="feat">
+      <svg class="fic" aria-hidden="true"><use href="#i-key"/></svg>
       <h3>Keyboard-first</h3>
-      <p>A fuzzy command palette (⌘⇧P), full vim navigation (<code>hjkl</code>, <code>/</code>, <code>dd</code>, <code>gg</code>), and every shortcut remappable.</p>
+      <p>A fuzzy command palette (<code>⌘⇧P</code>) and real vim keys — <code>hjkl</code>, <code>/</code>, <code>dd</code>, <code>gg</code>. Drive the whole app without reaching for the mouse.</p>
     </article>
-    <article class="card">
-      <div class="ic">🗂️</div>
+    <article class="feat">
+      <svg class="fic" aria-hidden="true"><use href="#i-panes"/></svg>
       <h3>Panes &amp; views</h3>
-      <p>Dual panes with synchronized browsing, tabs, and List / Icon / Column / Gallery views — switch instantly.</p>
+      <p>Dual panes, tabs, and List / Icon / Column / Gallery. Lay files out the way you think, then switch in a keystroke.</p>
     </article>
-    <article class="card feature-wide">
-      <div class="ic">📊</div>
-      <h3>Disk-usage treemap</h3>
-      <p>A cinematic, color-by-type treemap shows exactly where your space went. Click to drill in, ← / → to retrace, hover for the read-out.</p>
+    <article class="feat">
+      <svg class="fic" aria-hidden="true"><use href="#i-map"/></svg>
+      <h3>Where the space went</h3>
+      <p>A live, colour-coded treemap of any folder. Click a tile to dive in; the map redraws as you go.</p>
     </article>
-    <article class="card">
-      <div class="ic">🎨</div>
-      <h3>Themeable</h3>
-      <p>Ten built-in themes and a portable JSON format — author your own and drop it in. Consistent across every panel.</p>
+    <article class="feat">
+      <svg class="fic" aria-hidden="true"><use href="#i-theme"/></svg>
+      <h3>Yours to theme</h3>
+      <p>Light, dark, and eight more — or write your own in a few lines of JSON. Every panel, down to the finders, obeys it.</p>
     </article>
-    <article class="card">
-      <div class="ic">🏷️</div>
+    <article class="feat">
+      <svg class="fic" aria-hidden="true"><use href="#i-tag"/></svg>
       <h3>Tags &amp; smart folders</h3>
-      <p>Read/write Finder tags and save searches as smart folders that live in your sidebar.</p>
+      <p>Read and write real Finder tags, and pin saved searches to the sidebar as folders that keep themselves current.</p>
     </article>
-    <article class="card">
-      <div class="ic">⏳</div>
-      <h3>Safe file ops</h3>
-      <p>A pausable transfer queue, conflict-aware merges, and undo/redo for moves, copies, and trashes.</p>
-    </article>
-    <article class="card">
-      <div class="ic">🗜️</div>
-      <h3>Archives &amp; sync</h3>
-      <p>Browse zip/tar without extracting, and run one- or two-way folder sync with a visual diff.</p>
-    </article>
-    <article class="card">
-      <div class="ic">🌐</div>
-      <h3>Network &amp; plugins</h3>
-      <p>Mount SFTP / SMB / FTP / WebDAV as sidebar volumes, and extend Rascal with JavaScript plugins.</p>
+    <article class="feat">
+      <svg class="fic" aria-hidden="true"><use href="#i-shield"/></svg>
+      <h3>Stays on your Mac</h3>
+      <p>No cloud, no account, no telemetry, no AI. Rascal opens instantly and your files never leave the machine.</p>
     </article>
   </div>
 </section>
 
-<!-- ╭────────────────────────── demos ─────────────────────────╮ -->
+<!-- ── demos ── -->
 <section id="demos" class="section section-tint">
-  <p class="kicker">See it in action</p>
-  <h2 class="section-title">Screens &amp; clips</h2>
-  <p class="section-lead">Real captures, straight from the app.</p>
+  <p class="kicker">A few seconds of Rascal</p>
+  <h2 class="section-title">See it move.</h2>
 
   <div class="shots">
-    <figure class="shot frame"><img src="assets/treemap.gif" alt="Disk-usage treemap drilling into folders" loading="lazy" /><figcaption>Disk-usage treemap — click to drill in</figcaption></figure>
-    <figure class="shot frame"><img src="assets/vim.gif" alt="Vim-style keyboard navigation moving the selection" loading="lazy" /><figcaption>Vim navigation — <code>j</code>/<code>k</code> to move</figcaption></figure>
-    <figure class="shot frame"><img src="assets/themes.png" alt="Rascal Light beside Rascal Dark" loading="lazy" /><figcaption>Light &amp; dark, built in</figcaption></figure>
-    <figure class="shot frame"><img src="assets/dualpane.png" alt="Two panes side by side" loading="lazy" /><figcaption>Dual-pane browsing</figcaption></figure>
-    <figure class="shot frame"><img src="assets/dark.png" alt="Rascal in its warm dark theme" loading="lazy" /><figcaption>Warm, native dark mode</figcaption></figure>
-    <figure class="shot frame"><img src="assets/hero.png" alt="The Rascal main window" loading="lazy" /><figcaption>The main window</figcaption></figure>
+    <figure class="shot frame"><img src="assets/palette.png" alt="The command palette filtering commands" loading="lazy" /><figcaption>Command palette — <code>⌘⇧P</code></figcaption></figure>
+    <figure class="shot frame"><img src="assets/fuzzyfind.png" alt="Fuzzy filename finder showing matches" loading="lazy" /><figcaption>Fuzzy file finder — <code>⌘F</code></figcaption></figure>
+    <figure class="shot frame"><img src="assets/nav.gif" alt="Browsing folders and switching view modes" loading="lazy" /><figcaption>Browse &amp; switch views</figcaption></figure>
+    <figure class="shot frame"><img src="assets/panels.gif" alt="Opening the preview panel and a second pane" loading="lazy" /><figcaption>Preview panel &amp; split pane</figcaption></figure>
+    <figure class="shot frame span-all"><img src="assets/treemap.gif" alt="Disk-usage treemap drilling into folders" loading="lazy" /><figcaption>Disk-usage treemap — click to drill in</figcaption></figure>
   </div>
 </section>
 
-<!-- ╭────────────────────────── donate ────────────────────────╮ -->
+<!-- ── donate ── -->
 <section id="donate" class="section donate">
   <div class="donate-card">
-    <div class="donate-cup">☕</div>
-    <h2>Rascal is free — fuel it with coffee.</h2>
-    <p>No paywalls, no subscriptions, no tracking. If Rascal saves you time,
-       a tip on Ko-fi keeps it caffeinated and improving.</p>
+    <h2>Free, and staying that way.</h2>
+    <p>No paywall, no upsell, no "pro" tier. If Rascal earns a spot in your dock,
+       buying me a coffee is the whole business model.</p>
     <!-- Ko-fi: replace YOUR_KOFI with your Ko-fi username -->
-    <a class="btn btn-kofi btn-lg" href="https://ko-fi.com/YOUR_KOFI" target="_blank" rel="noopener">
-      <span class="kofi-cup" aria-hidden="true">☕</span> Buy me a coffee
-    </a>
+    <a class="btn btn-primary btn-lg" href="https://ko-fi.com/YOUR_KOFI" target="_blank" rel="noopener">Buy me a coffee</a>
   </div>
 </section>
 
-<!-- ╭───────────────────────── download ───────────────────────╮ -->
+<!-- ── download ── -->
 <section id="download" class="section download">
   <p class="kicker">Get Rascal</p>
-  <h2 class="section-title">Download &amp; go.</h2>
-  <p class="section-lead">Universal build for Apple Silicon &amp; Intel. Requires macOS 13 Ventura or later.</p>
+  <h2 class="section-title">One file. Drag to Applications. Done.</h2>
+  <p class="section-lead">Universal build for Apple Silicon &amp; Intel. macOS 13 Ventura or later.</p>
 
-  <!-- Download: point this at your published release asset (see make-dmg.sh) -->
+  <!-- Download: point at your published release asset (see make-dmg.sh) -->
   <a class="btn btn-primary btn-lg" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal.dmg">
-    <svg viewBox="0 0 24 24" class="btn-ico" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
     Download Rascal.dmg
   </a>
 
-  <p class="or">or build it yourself</p>
+  <p class="or">or build from source</p>
   <pre class="code"><code>git clone https://github.com/chang-07/finder-2.git
 cd finder-2
-./setup-signing.sh   # one-time: stable signature so macOS remembers permissions
-./install.sh         # builds + installs to /Applications</code></pre>
+./setup-signing.sh   # once — so macOS remembers the permissions you grant
+./install.sh         # builds &amp; installs to /Applications</code></pre>
 </section>
 </main>
 
-<!-- ╭────────────────────────── footer ────────────────────────╮ -->
 <footer class="foot">
   <div class="foot-brand">
     <img src="assets/rascal-logo.svg" alt="" class="foot-mark" />
@@ -182,19 +164,8 @@ cd finder-2
     <a href="#download">Download</a>
     <a href="https://ko-fi.com/YOUR_KOFI" target="_blank" rel="noopener">Ko-fi</a>
   </nav>
-  <p class="foot-note">Built with ♥ on macOS · no AI, no cloud, no nonsense.</p>
+  <p class="foot-note">Made on a Mac, for Macs. No cloud, no account, no nonsense.</p>
 </footer>
 
-<!-- Optional: Ko-fi floating widget. Uncomment and set your username.
-<script src="https://storage.ko-fi.com/cdn/scripts/overlay-widget.js"></script>
-<script>
-  kofiWidgetOverlay.draw('YOUR_KOFI', {
-    'type': 'floating-chat',
-    'floating-chat.donateButton.text': 'Support',
-    'floating-chat.donateButton.background-color': '#FF6600',
-    'floating-chat.donateButton.text-color': '#fff'
-  });
-</script>
--->
 </body>
 </html>
