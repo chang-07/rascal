@@ -168,8 +168,22 @@ code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .92em;
 .card code { background: #FFF1E3; color: var(--orange-deep); padding: 1px 6px; border-radius: 6px; }
 
 /* ── shots grid ───────────────────────────────────────────── */
-.shots { margin-top: 44px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-.shot { aspect-ratio: 16 / 10; }
+.shots { margin-top: 44px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+
+/* real captured media in a soft "window" frame */
+.frame {
+  border-radius: 14px; overflow: hidden; background: #fff;
+  border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.frame img { width: 100%; height: auto; display: block; }
+.hero-demo.frame { aspect-ratio: auto; }       /* let the screenshot set height */
+.shot.frame { aspect-ratio: auto; min-height: 0; transition: transform .15s ease, box-shadow .25s ease; }
+.shot.frame:hover { transform: translateY(-4px); }
+.shot figcaption {
+  padding: 11px 15px; font-size: 13.5px; font-weight: 650; color: var(--ink);
+  border-top: 1px solid var(--line); background: #fff;
+}
+.shot figcaption code { background: #FFF1E3; color: var(--orange-deep); padding: 1px 6px; border-radius: 6px; }
 
 /* ── donate ───────────────────────────────────────────────── */
 .donate { text-align: center; }
