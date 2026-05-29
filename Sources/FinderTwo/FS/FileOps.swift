@@ -34,26 +34,30 @@ enum FileOps {
         }
     }
 
-    static func paste(_ pasteboard: NSPasteboard, into destination: URL, move: Bool) {
+    static func paste(_ pasteboard: NSPasteboard, into destination: URL, move: Bool, from window: NSWindow? = nil) {
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] else {
             NSSound.beep(); return
         }
-        transfer(urls, into: destination, move: move)
+        transfer(urls, into: destination, move: move, from: window)
     }
 
     enum Conflict { case keepBoth, replace, skip }
 
+    private static let transferQueue = DispatchQueue(label: "FinderTwo.transfer", qos: .userInitiated)
+
     /// Copy or move `urls` into `destination`, resolving name collisions with a
-    /// Finder-style prompt (Keep Both / Replace / Skip, with Apply to All).
-    /// Guards against dropping an item onto itself or into its own descendant.
-    static func transfer(_ urls: [URL], into destination: URL, move: Bool) {
+    /// Finder-style prompt (Keep Both / Replace / Skip, with Apply to All) up
+    /// front, then executing OFF the main thread so big copies never freeze the
+    /// UI. Multi-item / folder operations show a cancellable progress sheet.
+    static func transfer(_ urls: [URL], into destination: URL, move: Bool, from window: NSWindow? = nil) {
         let fm = FileManager.default
+        // Phase 1 (main thread): resolve conflicts, build the work plan.
         var applyAll: Conflict?
-        var failures = 0
+        var plan: [(src: URL, dst: URL)] = []
+        var hasDirectory = false
         for src in urls {
-            // No-op moving into the same directory; never copy/move into self.
             if move && src.deletingLastPathComponent().path == destination.path { continue }
-            if destination.path == src.path || destination.path.hasPrefix(src.path + "/") { failures += 1; continue }
+            if destination.path == src.path || destination.path.hasPrefix(src.path + "/") { continue }
             var dst = destination.appendingPathComponent(src.lastPathComponent)
             if fm.fileExists(atPath: dst.path) {
                 let res: Conflict
@@ -69,11 +73,32 @@ enum FileOps {
                 case .replace: try? fm.trashItem(at: dst, resultingItemURL: nil)
                 }
             }
-            do {
-                if move { try fm.moveItem(at: src, to: dst) } else { try fm.copyItem(at: src, to: dst) }
-            } catch { failures += 1 }
+            if (try? src.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { hasDirectory = true }
+            plan.append((src, dst))
         }
-        if failures > 0 { NSSound.beep() }
+        guard !plan.isEmpty else { return }
+
+        // Phase 2: execute off-main. Show a progress sheet for multi-item /
+        // folder work (where it may take a noticeable amount of time).
+        let progress: TransferProgressController? =
+            (plan.count > 1 || hasDirectory) ? TransferProgressController(total: plan.count, move: move, parent: window) : nil
+        progress?.present()
+        let cancel = progress?.cancelFlag
+        transferQueue.async {
+            var failures = 0
+            for (i, step) in plan.enumerated() {
+                if cancel?.value == true { break }
+                do {
+                    if move { try fm.moveItem(at: step.src, to: step.dst) }
+                    else { try fm.copyItem(at: step.src, to: step.dst) }
+                } catch { failures += 1 }
+                DispatchQueue.main.async { progress?.advance(to: i + 1, name: step.src.lastPathComponent) }
+            }
+            DispatchQueue.main.async {
+                progress?.finish()
+                if failures > 0 { NSSound.beep() }
+            }
+        }
     }
 
     /// "<base> 2.ext", "<base> 3.ext", … — first name that doesn't exist.

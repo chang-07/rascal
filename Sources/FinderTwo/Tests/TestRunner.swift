@@ -195,9 +195,16 @@ final class TestRunner {
         try? "hi".write(to: xSrc, atomically: true, encoding: .utf8)
         let xDst = sandbox.appendingPathComponent("xfer_dest")
         try? FileManager.default.createDirectory(at: xDst, withIntermediateDirectories: true)
+        // transfer now executes off the main thread; poll (spinning the run
+        // loop) until the copy lands, with a short timeout.
+        let xCopied = xDst.appendingPathComponent("src.txt")
         FileOps.transfer([xSrc], into: xDst, move: false)
+        let xferDeadline = Date(timeIntervalSinceNow: 2)
+        while !FileManager.default.fileExists(atPath: xCopied.path) && Date() < xferDeadline {
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
         assert("transfer copies into destination",
-               FileManager.default.fileExists(atPath: xDst.appendingPathComponent("src.txt").path), "not copied")
+               FileManager.default.fileExists(atPath: xCopied.path), "not copied")
         assert("transfer (copy) leaves the source in place",
                FileManager.default.fileExists(atPath: xSrc.path), "source vanished")
         // New Folder with Selection moves the items into a fresh folder.
@@ -248,6 +255,7 @@ final class TestRunner {
         pb.writeObjects([src as NSURL])
         FileOps.paste(pb, into: destDir, move: false)
         let copiedDst = destDir.appendingPathComponent("beta.txt")
+        waitUntil { FileManager.default.fileExists(atPath: copiedDst.path) }
         assert("paste-copy created destination",
                FileManager.default.fileExists(atPath: copiedDst.path), "no \(copiedDst.path)")
         assert("paste-copy preserved source",
@@ -261,6 +269,7 @@ final class TestRunner {
         pb.writeObjects([moveSrc as NSURL])
         FileOps.paste(pb, into: moveDestDir, move: true)
         let moveDst = moveDestDir.appendingPathComponent("beta.txt")
+        waitUntil { FileManager.default.fileExists(atPath: moveDst.path) }
         assert("paste-move created destination",
                FileManager.default.fileExists(atPath: moveDst.path), "no \(moveDst.path)")
         assert("paste-move removed source",
@@ -277,9 +286,10 @@ final class TestRunner {
         dragPb.clearContents()
         dragPb.writeObjects([dragSrc as NSURL])
         FileOps.paste(dragPb, into: dragDestDir, move: true)
+        let dragLanded = dragDestDir.appendingPathComponent("gamma.md")
+        waitUntil { FileManager.default.fileExists(atPath: dragLanded.path) }
         assert("dragged file landed in destination",
-               FileManager.default.fileExists(atPath:
-                  dragDestDir.appendingPathComponent("gamma.md").path), "no")
+               FileManager.default.fileExists(atPath: dragLanded.path), "no")
         assert("dragged file removed from source",
                !FileManager.default.fileExists(atPath: dragSrc.path), "still there")
 
@@ -296,8 +306,8 @@ final class TestRunner {
             pane.navigate(to: copyRoundtripDir)
             wait(0.05)
             pane.pasteHere()
-            wait(0.1)
             let dest = copyRoundtripDir.appendingPathComponent("for_copy.txt")
+            waitUntil { FileManager.default.fileExists(atPath: dest.path) }
             assert("copy+paste created destination",
                    FileManager.default.fileExists(atPath: dest.path), "no \(dest.path)")
             assert("copy+paste left source intact",
@@ -1360,6 +1370,17 @@ final class TestRunner {
         let info = GetInfoSheetController(url: sandbox)
         assert("GetInfoSheetController builds", info.window?.contentView != nil, "nil")
 
+        // Transfer progress sheet builds + drives without popping a window
+        // (no present() → stays off-screen, satisfies the headless constraint).
+        let prog = TransferProgressController(total: 3, move: false, parent: nil)
+        assert("TransferProgressController builds", prog.window?.contentView != nil, "nil")
+        prog.advance(to: 1, name: "a.txt")
+        prog.advance(to: 3, name: "c.txt")
+        assert("TransferProgress cancel flag starts clear", prog.cancelFlag.value == false, "already set")
+        prog.cancelFlag.cancel()
+        assert("TransferProgress cancel flag sets", prog.cancelFlag.value == true, "didn't set")
+        prog.finish()
+
         // App uninstaller sheet — point at a real .app so scan has data
         let someApp = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
         if FileManager.default.fileExists(atPath: someApp.path) {
@@ -1474,6 +1495,17 @@ final class TestRunner {
         while Date().timeIntervalSince(start) < seconds {
             RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
         }
+    }
+
+    /// Spin the run loop until `predicate` holds or `timeout` elapses. Used to
+    /// wait out the async (off-main) file-transfer queue in tests.
+    @discardableResult
+    private func waitUntil(_ timeout: TimeInterval = 3, _ predicate: () -> Bool) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !predicate() && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        return predicate()
     }
 
     private func samePath(_ a: URL, _ b: URL) -> Bool {

@@ -85,9 +85,7 @@ final class PanesContainerController: NSSplitViewController {
         let other = panes[(activeIndex + 1) % panes.count]
         let sel = active.selectedURLs()
         guard !sel.isEmpty else { return }
-        FileOps.transfer(sel, into: other.currentURL, move: move)
-        active.reload()
-        other.reload()
+        FileOps.transfer(sel, into: other.currentURL, move: move, from: view.window)
     }
 
     /// Move keyboard focus to the next/previous pane (wraps). No-op with one pane.
