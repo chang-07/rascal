@@ -232,6 +232,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         applyHotbarVisibility()
         applyChromeVisibility()
         applyTopInset()
+        fileList.reloadVisibleRows()   // pick up Calculate-Sizes / type-to-select changes
     }
 
     /// Show or hide the customizable hotbar per the user setting. Hidden by

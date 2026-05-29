@@ -211,6 +211,8 @@ final class TestRunner {
             assert("newFolderWithItems moved (not copied) the items",
                    !FileManager.default.fileExists(atPath: g1.path), "original still present")
         } else { assert("newFolderWithItems returns a folder", false, "nil") }
+        assert("recursiveSize > 0 for a populated folder",
+               FileListController.recursiveSize(foDir) > 0, "got \(FileListController.recursiveSize(foDir))")
 
         // --- T12: rename via FileListController.commitInlineRename ---
         // Sync reload so the file list picks up the new folder before we assert.
