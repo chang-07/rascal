@@ -284,6 +284,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                 return v
             }()
             view.textField?.stringValue = s.title.uppercased()
+            view.textField?.textColor = sidebarSecondaryColor
             return view
         }
         if let e = item as? Entry {
@@ -314,8 +315,19 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             }()
             view.imageView?.image = e.icon
             view.textField?.stringValue = e.title
+            view.textField?.textColor = sidebarPrimaryColor
             return view
         }
         return nil
+    }
+
+    /// Sidebar text colors: theme palette for custom themes, semantic for System.
+    private var sidebarPrimaryColor: NSColor {
+        let t = ThemeManager.shared.current
+        return t.id == "system" ? .labelColor : t.labelPrimary
+    }
+    private var sidebarSecondaryColor: NSColor {
+        let t = ThemeManager.shared.current
+        return t.id == "system" ? .secondaryLabelColor : t.labelSecondary
     }
 }

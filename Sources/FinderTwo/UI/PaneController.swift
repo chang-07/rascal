@@ -46,6 +46,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     /// Top inset applied when the window title bar is hidden (matches the
     /// sidebar inset in BrowserWindowController so both edges align).
     static let hiddenTitleBarInset: CGFloat = 28
+    /// Fixed chrome-row heights (named so the constraint and any toggle that
+    /// collapses/expands the row stay in lockstep).
+    static let toolbarHeight: CGFloat = 36
+    static let hotbarHeight: CGFloat = 32
 
     init(url: URL) {
         let initialTab = TabState(url: url)
@@ -146,14 +150,14 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         terminalHeightConstraint = terminalView.heightAnchor.constraint(equalToConstant: 0)
 
         tabStripHeightConstraint = tabStrip.heightAnchor.constraint(equalToConstant: 0)
-        hotbarHeightConstraint = hotbar.heightAnchor.constraint(equalToConstant: 32)
+        hotbarHeightConstraint = hotbar.heightAnchor.constraint(equalToConstant: PaneController.hotbarHeight)
         topInsetConstraint = toolbar.topAnchor.constraint(equalTo: root.topAnchor)
 
         NSLayoutConstraint.activate([
             topInsetConstraint,
             toolbar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 36),
+            toolbar.heightAnchor.constraint(equalToConstant: PaneController.toolbarHeight),
 
             tabStrip.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             tabStrip.leadingAnchor.constraint(equalTo: root.leadingAnchor),
@@ -205,6 +209,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         pathBar.onSelectSegment = { [weak self] url in self?.navigate(to: url) }
 
         self.view = root
+        subscribeToTheme(root)   // paints the chrome strip behind the inset toolbar
         updateAfterNavigate(announce: true)
         updateTabStripVisibility()
         applyHotbarVisibility()
@@ -227,7 +232,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     /// default; collapses to zero height so the file list reclaims the space.
     private func applyHotbarVisibility() {
         hotbar.isHidden = !Settings.showHotbar
-        hotbarHeightConstraint.constant = Settings.showHotbar ? 32 : 0
+        hotbarHeightConstraint.constant = Settings.showHotbar ? PaneController.hotbarHeight : 0
     }
 
     /// When the window title bar is hidden, inset the toolbar from the top so it
@@ -241,7 +246,12 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         view.layer?.borderColor = (active ? ThemeManager.shared.effectiveAccent.withAlphaComponent(0.45) : NSColor.clear).cgColor
         view.wantsLayer = true
         view.layer?.borderWidth = active ? 1 : 0
-        if active { view.window?.makeFirstResponder(fileList.tableView) }
+        // Focus the file list on activation — but don't yank focus away from the
+        // sidebar (so keyboard users can drive the source list), and don't focus
+        // the hidden list while in columns mode.
+        if active, viewMode == .list, !(view.window?.firstResponder is NSOutlineView) {
+            view.window?.makeFirstResponder(fileList.tableView)
+        }
     }
 
     func becomeActive() {
@@ -409,29 +419,28 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         let col = ColumnViewController(pane: self)
         addChild(col)
         col.view.translatesAutoresizingMaskIntoConstraints = false
-        fileList.view.removeFromSuperview()
+        // Hide the list rather than remove it — removing would deactivate the
+        // empty-state and notes-drawer constraints that are pinned to it.
+        fileList.view.isHidden = true
+        emptyState.isHidden = true
         host.addSubview(col.view)
         NSLayoutConstraint.activate([
             col.view.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
             col.view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            col.view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            // Stop at the notes drawer (when open) just like the list view does.
+            col.view.trailingAnchor.constraint(equalTo: notesView.leadingAnchor),
             col.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
         ])
         columnVC = col
     }
 
     private func installListView() {
-        guard let host = view as? PaneRootView else { return }
         columnVC?.view.removeFromSuperview()
         columnVC?.removeFromParent()
         columnVC = nil
-        host.addSubview(fileList.view)
-        NSLayoutConstraint.activate([
-            fileList.view.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
-            fileList.view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            fileList.view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            fileList.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
-        ])
+        fileList.view.isHidden = false
+        // Re-evaluate the empty-state placeholder for the current contents.
+        updateStatus()
     }
 
     func reload() {
@@ -577,9 +586,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         segments.append(.init("\(freeStr) free", isMuted: true))
         statusBar.setSegments(segments)
 
-        // Empty state placeholder
+        // Empty state placeholder (list view only — the column view fills the
+        // same region and manages its own emptiness).
         let filterIsActive = !activeTab.model.filterText.isEmpty
-        if total == 0 {
+        if total == 0 && viewMode == .list {
             if filterIsActive {
                 emptyState.configureNoMatches(query: activeTab.model.filterText)
             } else {
@@ -598,6 +608,13 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         if model === activeTab.model {
             fileList.reload()
             updateStatus()
+        }
+    }
+
+    func directoryModelDidUpdateGitStatus(_ model: DirectoryModel) {
+        // Items are unchanged — repaint badges in place, no full reload.
+        if model === activeTab.model {
+            fileList.refreshGitBadges()
         }
     }
 
@@ -653,7 +670,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 }
 
 /// Root view that reports mouse-down so we can mark a pane active on click.
-private final class PaneRootView: NSView {
+private final class PaneRootView: NSView, ThemeObserving {
     var onMouseDown: (() -> Void)?
     override func mouseDown(with event: NSEvent) {
         onMouseDown?()
@@ -661,4 +678,11 @@ private final class PaneRootView: NSView {
     }
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    @objc func applyTheme() {
+        wantsLayer = true
+        // Match the toolbar so the inset strip above it (title-bar-hidden mode)
+        // reads as one continuous top bar rather than a mismatched gap.
+        layer?.backgroundColor = ThemeManager.shared.current.toolbarBackground.cgColor
+    }
+    deinit { NotificationCenter.default.removeObserver(self) }
 }

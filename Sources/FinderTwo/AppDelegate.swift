@@ -1,10 +1,13 @@
 import AppKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var windowControllers: [BrowserWindowController] = []
     var testWindowControllers: [BrowserWindowController] { windowControllers }
     private weak var chromeHotbarItem: NSMenuItem?
     private weak var chromeTitleBarItem: NSMenuItem?
+    private weak var chromeAsListItem: NSMenuItem?
+    private weak var chromeAsColumnsItem: NSMenuItem?
+    private weak var chromeHiddenItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
@@ -228,10 +231,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // ---- View ----
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(routed("view.as-list"))
-        viewMenu.addItem(routed("view.as-columns"))
+        viewMenu.delegate = self   // refresh checkmarks just before the menu opens
+        let asListItem = routed("view.as-list")
+        viewMenu.addItem(asListItem); chromeAsListItem = asListItem
+        let asColumnsItem = routed("view.as-columns")
+        viewMenu.addItem(asColumnsItem); chromeAsColumnsItem = asColumnsItem
         viewMenu.addItem(NSMenuItem.separator())
-        viewMenu.addItem(routed("view.toggle-hidden", title: "Show Hidden Files"))
+        let hiddenItem = routed("view.toggle-hidden", title: "Show Hidden Files")
+        viewMenu.addItem(hiddenItem); chromeHiddenItem = hiddenItem
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(routed("pane.toggle-extra", title: "Open Extra Pane"))
         viewMenu.addItem(NSMenuItem.separator())
@@ -372,6 +379,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func refreshChromeChecks() {
         chromeHotbarItem?.state = Settings.showHotbar ? .on : .off
         chromeTitleBarItem?.state = Settings.showTitleBar ? .on : .off
+    }
+
+    /// Reflect the active pane's view mode + hidden-files state in the View menu.
+    private func refreshViewModeChecks() {
+        let pane = currentBrowserWC()?.testActivePane
+        let mode = pane?.viewMode
+        chromeAsListItem?.state = (mode == .list) ? .on : .off
+        chromeAsColumnsItem?.state = (mode == .columns) ? .on : .off
+        chromeHiddenItem?.state = (pane?.testModel.showHidden == true) ? .on : .off
+    }
+
+    // NSMenuDelegate — refresh the View menu's checkmarks right before it shows
+    // (autoenablesItems is off, so we set item state ourselves).
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        refreshChromeChecks()
+        refreshViewModeChecks()
     }
 
     // MARK: - CLI

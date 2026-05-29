@@ -23,8 +23,11 @@ enum PresentedControllers {
     private static var observers: [ObjectIdentifier: NSObjectProtocol] = [:]
 
     static func retain(_ controller: NSWindowController) {
-        retained.insert(controller)
+        // Only park the controller once we can observe its window closing —
+        // otherwise (window == nil) it would be inserted but never released,
+        // a permanent leak.
         guard let window = controller.window else { return }
+        retained.insert(controller)
         let id = ObjectIdentifier(controller)
         let token = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main

@@ -271,16 +271,17 @@ final class SFTPBrowserController: NSWindowController, NSTableViewDataSource, NS
         panel.nameFieldStringValue = entry.name
         panel.beginSheetModal(for: window!) { [weak self] resp in
             guard resp == .OK, let self, let url = panel.url else { return }
+            // Capture the connection/paths as values and self weakly, so closing
+            // the SFTP browser mid-transfer can't extend its lifetime (self is
+            // not retained during the blocking download).
             let remote = (self.path as NSString).appendingPathComponent(entry.name)
-            DispatchQueue.global(qos: .userInitiated).async {
-                let ok = SFTPClient.download(self.connection, remotePath: remote, to: url)
+            let connection = self.connection
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let ok = SFTPClient.download(connection, remotePath: remote, to: url)
                 DispatchQueue.main.async {
-                    if ok {
-                        self.target?.testActivePane?.navigate(to: url.deletingLastPathComponent())
-                        DispatchQueue.main.async { self.target?.testActivePane?.select(url: url) }
-                    } else {
-                        NSSound.beep()
-                    }
+                    guard ok else { NSSound.beep(); return }
+                    self?.target?.testActivePane?.navigate(to: url.deletingLastPathComponent())
+                    DispatchQueue.main.async { self?.target?.testActivePane?.select(url: url) }
                 }
             }
         }
