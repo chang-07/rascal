@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Builds FinderTwo and assembles a runnable .app bundle.
+# Builds Rascal and assembles a runnable .app bundle.
 # Usage: ./build.sh [debug|release]   (default: debug)
 set -euo pipefail
 
 CONFIG=${1:-debug}
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP_DIR="$ROOT/build/FinderTwo.app"
+APP_DIR="$ROOT/build/Rascal.app"
 SWIFT_BUILD_DIR="$ROOT/.build/$CONFIG"
 
 cd "$ROOT"

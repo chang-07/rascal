@@ -1,4 +1,4 @@
-# FinderTwo
+# Rascal
 
 A modern, performant file explorer for macOS — Finder muscle memory, with
 tabs, optional multi-pane, live filter, inline rename, async thumbnails,
@@ -23,12 +23,12 @@ ft ~/Downloads      # open at a path
 ft .                # open at $PWD
 ```
 
-…or Spotlight → "FinderTwo".
+…or Spotlight → "Rascal".
 
 ## Build (no install)
 
 ```bash
-./build.sh debug      # .build/debug + build/FinderTwo.app
+./build.sh debug      # .build/debug + build/Rascal.app
 ./build.sh release    # optimized
 ./run.sh              # build debug + launch (in place)
 ```
@@ -38,7 +38,7 @@ Tools are enough.
 
 ## Performance
 
-| Workload                                  | FinderTwo            | Stock FileManager  |
+| Workload                                  | Rascal            | Stock FileManager  |
 |-------------------------------------------|----------------------|--------------------|
 | Cold launch → window on screen            | **228–244 ms**       | —                  |
 | FastDirScan 5,000 files                   | **22 ms**            | ~110 ms            |
@@ -158,7 +158,7 @@ Text fields and dialogs always pass keys through.
 | Feature | Status | What it does |
 |---|---|---|
 | **Archive browsing** | ✅ | Double-click a `.zip` / `.tar` / `.tar.gz` / `.tar.bz2` — sheet shows the tree; extract single entries or the whole archive. Uses system `unzip`/`tar`, zero new deps. |
-| **Disk usage analyzer** | ✅ | File → *Analyze Disk Usage…* — background recursive walk, live squarified treemap, click-to-drill-down, "Reveal in FinderTwo". |
+| **Disk usage analyzer** | ✅ | File → *Analyze Disk Usage…* — background recursive walk, live squarified treemap, click-to-drill-down, "Reveal in Rascal". |
 | **App uninstaller** | ✅ | File → *Uninstall App…* on a selected `.app` — scans `~/Library/{Application Support,Caches,Preferences,LaunchAgents,Saved Application State,Containers,Group Containers,Logs,WebKit,HTTPStorages}` for files whose name contains the bundle id. Per-leftover checkboxes; one click moves all to Trash. |
 | **Per-folder notes drawer** | ✅ | Cmd+Shift+E — right-side drawer reads/writes `.ftnote.md` in the current folder. Plain text monospaced. Auto-saves on idle. Per-folder. |
 | **Tags as smart folders** | ✅ | Sidebar's *Tags* section is auto-populated via Spotlight `kMDItemUserTags`. Click a tag → file list shows every tagged file across the disk. Tag colour shown as a coloured dot. |
