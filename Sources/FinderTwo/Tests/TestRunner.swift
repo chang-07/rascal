@@ -1769,6 +1769,16 @@ final class TestRunner {
                                                b: sandbox.appendingPathComponent("y"))
         assert("FileDiffWindowController builds", diffWin.window?.contentView != nil, "nil")
 
+        // Shared overlay finder chrome builds + carries icon/title/subtitle.
+        let overlayRow = OverlayResultRow()
+        overlayRow.titleLabel.stringValue = "Title"
+        overlayRow.subtitleLabel.stringValue = "Subtitle"
+        overlayRow.monospacedSubtitle = true
+        assert("OverlayResultRow builds + holds text",
+               overlayRow.titleLabel.stringValue == "Title" && overlayRow.subtitleLabel.stringValue == "Subtitle", "nil")
+        assert("OverlayUI.makePanel is a floating HUD panel",
+               OverlayUI.makePanel().isFloatingPanel, "not floating")
+
         // Gallery view controller builds + reloads with items (no window).
         let gallery = GalleryViewController()
         _ = gallery.view

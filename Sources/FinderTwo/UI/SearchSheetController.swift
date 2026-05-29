@@ -35,23 +35,21 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
     private var currentTask: Process?
 
     static func show(for wc: BrowserWindowController, mode: Mode) {
-        guard let pane = wc.testActivePane, let win = wc.window else { return }
+        guard let pane = wc.testActivePane else { return }
         let s = SearchSheetController(target: wc, mode: mode, rootURL: pane.currentURL)
-        guard let sheet = s.window else { return }
         PresentedControllers.retain(s)
-        win.beginSheet(sheet) { _ in }
-        sheet.makeFirstResponder(s.searchField)
+        s.window?.center()
+        s.window?.makeKeyAndOrderFront(nil)
+        s.window?.makeFirstResponder(s.searchField)
     }
 
     init(target: BrowserWindowController, mode: Mode, rootURL: URL) {
         self.target = target
         self.mode = mode
         self.rootURL = rootURL
-        let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 460),
-            styleMask: [.titled, .resizable, .closable],
-            backing: .buffered, defer: false
-        )
+        // Same floating HUD panel as the Command Palette, so the three finders
+        // (palette, find, grep) feel like one control.
+        let win = OverlayUI.makePanel()
         win.title = mode == .fuzzyFilenames ? "Find Files" : "Search File Contents"
         super.init(window: win)
         layout()
@@ -62,60 +60,44 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
     private func layout() {
         guard let cv = window?.contentView else { return }
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.font = NSFont.systemFont(ofSize: 14)
+        searchField.font = .systemFont(ofSize: 16)
+        searchField.bezelStyle = .roundedBezel
+        searchField.focusRingType = .none
         searchField.placeholderString = mode == .fuzzyFilenames
             ? "Fuzzy filename… (within \(rootURL.lastPathComponent))"
             : "grep pattern… (within \(rootURL.lastPathComponent))"
         searchField.delegate = self
 
-        statusLabel.font = NSFont.systemFont(ofSize: 11)
+        statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.alignment = .right
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .lineBorder
-        tableView.style = .inset
-        tableView.rowHeight = 36
-        tableView.headerView = nil
         tableView.dataSource = self
         tableView.delegate = self
-        tableView.allowsMultipleSelection = false
         tableView.target = self
         tableView.doubleAction = #selector(activateSelection)
-        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("hit"))
-        col.resizingMask = .autoresizingMask
-        tableView.addTableColumn(col)
-        scrollView.documentView = tableView
-
-        let close = NSButton(title: "Close", target: self, action: #selector(closeSheet))
-        close.bezelStyle = .rounded
-        close.keyEquivalent = "\u{1b}" // Esc
-        close.translatesAutoresizingMaskIntoConstraints = false
+        OverlayUI.configureResultsTable(tableView)
+        OverlayUI.configureResultsScroll(scrollView, documentView: tableView)
 
         cv.addSubview(searchField)
-        cv.addSubview(statusLabel)
         cv.addSubview(scrollView)
-        cv.addSubview(close)
+        cv.addSubview(statusLabel)
 
         NSLayoutConstraint.activate([
-            searchField.topAnchor.constraint(equalTo: cv.topAnchor, constant: 14),
+            searchField.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12),
             searchField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 14),
-            searchField.trailingAnchor.constraint(equalTo: statusLabel.leadingAnchor, constant: -10),
-            searchField.heightAnchor.constraint(equalToConstant: 28),
-
-            statusLabel.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            statusLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -14),
-            statusLabel.widthAnchor.constraint(equalToConstant: 160),
+            searchField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -14),
+            searchField.heightAnchor.constraint(equalToConstant: 30),
 
             scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 14),
-            scrollView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -14),
-            scrollView.bottomAnchor.constraint(equalTo: close.topAnchor, constant: -10),
+            scrollView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 8),
+            scrollView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8),
+            scrollView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -4),
 
-            close.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -14),
-            close.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -14),
+            statusLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 14),
+            statusLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -14),
+            statusLabel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -8),
         ])
     }
 
@@ -374,44 +356,13 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let h = hits[row]
-        let id = NSUserInterfaceItemIdentifier("HitCell")
-        let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? HitCell) ?? HitCell()
+        let id = NSUserInterfaceItemIdentifier("OverlayRow")
+        let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? OverlayResultRow) ?? OverlayResultRow()
         cell.identifier = id
-        cell.icon.image = NSWorkspace.shared.icon(forFile: h.url.path)
-        cell.title.stringValue = h.title
-        cell.subtitle.stringValue = h.subtitle
+        cell.monospacedSubtitle = (mode == .contentGrep)   // grep snippets read better monospaced
+        cell.iconView.image = NSWorkspace.shared.icon(forFile: h.url.path)
+        cell.titleLabel.stringValue = h.title
+        cell.subtitleLabel.stringValue = h.subtitle
         return cell
-    }
-}
-
-private final class HitCell: NSTableCellView {
-    let icon = NSImageView()
-    let title = NSTextField(labelWithString: "")
-    let subtitle = NSTextField(labelWithString: "")
-
-    override init(frame frameRect: NSRect) { super.init(frame: frameRect); setup() }
-    required init?(coder: NSCoder) { super.init(coder: coder); setup() }
-    private func setup() {
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        title.translatesAutoresizingMaskIntoConstraints = false
-        subtitle.translatesAutoresizingMaskIntoConstraints = false
-        title.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        subtitle.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        subtitle.textColor = .secondaryLabelColor
-        title.lineBreakMode = .byTruncatingTail
-        subtitle.lineBreakMode = .byTruncatingTail
-        addSubview(icon); addSubview(title); addSubview(subtitle)
-        NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 20),
-            icon.heightAnchor.constraint(equalToConstant: 20),
-            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
-            title.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
-            subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 1),
-            subtitle.trailingAnchor.constraint(equalTo: title.trailingAnchor),
-        ])
     }
 }

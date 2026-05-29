@@ -78,20 +78,8 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
 
     init(target: BrowserWindowController) {
         self.target = target
-
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 420),
-            styleMask: [.titled, .closable, .nonactivatingPanel, .hudWindow, .resizable],
-            backing: .buffered, defer: false
-        )
+        let panel = OverlayUI.makePanel()
         panel.title = "Command Palette"
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isFloatingPanel = true
-        panel.level = .modalPanel
-        panel.becomesKeyOnlyIfNeeded = false
-        panel.hidesOnDeactivate = true
-
         super.init(window: panel)
 
         buildEntries()
@@ -104,32 +92,17 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.placeholderString = "Type a command, folder, or tab…"
-        searchField.font = NSFont.systemFont(ofSize: 16)
+        searchField.font = .systemFont(ofSize: 16)
         searchField.bezelStyle = .roundedBezel
         searchField.focusRingType = .none
         searchField.delegate = self
 
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.hasVerticalScroller = true
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-
-        tableView.style = .inset
-        tableView.rowHeight = 32
-        tableView.intercellSpacing = NSSize(width: 0, height: 2)
-        tableView.headerView = nil
-        tableView.allowsMultipleSelection = false
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
         tableView.doubleAction = #selector(performSelected)
-        tableView.backgroundColor = .clear
-
-        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
-        col.title = ""
-        col.resizingMask = .autoresizingMask
-        tableView.addTableColumn(col)
-        scrollView.documentView = tableView
+        OverlayUI.configureResultsTable(tableView)
+        OverlayUI.configureResultsScroll(scrollView, documentView: tableView)
 
         cv.addSubview(searchField)
         cv.addSubview(scrollView)
@@ -305,50 +278,12 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let entry = filtered[row]
-        let id = NSUserInterfaceItemIdentifier("PaletteCell")
-        let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? PaletteRowView) ?? PaletteRowView()
+        let id = NSUserInterfaceItemIdentifier("OverlayRow")
+        let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? OverlayResultRow) ?? OverlayResultRow()
         cell.identifier = id
-        cell.icon.image = entry.icon
-        cell.title.stringValue = entry.title
-        cell.subtitle.stringValue = entry.subtitle
+        cell.iconView.image = entry.icon
+        cell.titleLabel.stringValue = entry.title
+        cell.subtitleLabel.stringValue = entry.subtitle
         return cell
-    }
-}
-
-private final class PaletteRowView: NSTableCellView {
-    let icon = NSImageView()
-    let title = NSTextField(labelWithString: "")
-    let subtitle = NSTextField(labelWithString: "")
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setup()
-    }
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
-    }
-    private func setup() {
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        title.translatesAutoresizingMaskIntoConstraints = false
-        subtitle.translatesAutoresizingMaskIntoConstraints = false
-        title.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        subtitle.font = NSFont.systemFont(ofSize: 11)
-        subtitle.textColor = .secondaryLabelColor
-        title.lineBreakMode = .byTruncatingTail
-        subtitle.lineBreakMode = .byTruncatingTail
-        addSubview(icon); addSubview(title); addSubview(subtitle)
-        NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 18),
-            icon.heightAnchor.constraint(equalToConstant: 18),
-            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
-            title.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
-            subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 1),
-            subtitle.trailingAnchor.constraint(equalTo: title.trailingAnchor),
-        ])
     }
 }
