@@ -687,6 +687,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         m.addItem(NSMenuItem.separator())
         let compressTitle = selectedItems().count == 1 ? "Compress “\(selectedItems()[0].name)”" : "Compress \(selectedItems().count) Items"
         m.addItem(NSMenuItem(title: compressTitle, action: #selector(menuCompress), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Compress…", action: #selector(menuCompressAdvanced), keyEquivalent: ""))
         if selectedItems().contains(where: { Archive.isArchive($0.url) }) {
             m.addItem(NSMenuItem(title: "Extract", action: #selector(menuExtract), keyEquivalent: ""))
         }
@@ -950,6 +951,36 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             let ok = Archive.compress(urls) != nil
             DispatchQueue.main.async { if !ok { NSSound.beep() }; self?.model.reload() }
         }
+    }
+    /// "Compress…" → choose format (Zip / Tar.gz) and an optional Zip password.
+    @objc private func menuCompressAdvanced() {
+        let urls = selectedItems().map { $0.url }
+        guard !urls.isEmpty else { NSSound.beep(); return }
+        let alert = NSAlert()
+        alert.messageText = urls.count == 1 ? "Compress “\(urls[0].lastPathComponent)”" : "Compress \(urls.count) Items"
+        alert.informativeText = "Choose a format. A password encrypts a Zip archive."
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 240, height: 26))
+        for f in Archive.CompressFormat.allCases { popup.addItem(withTitle: f.rawValue) }
+        let pwLabel = NSTextField(labelWithString: "Password (Zip only):")
+        pwLabel.font = .systemFont(ofSize: 11); pwLabel.textColor = .secondaryLabelColor
+        let pw = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        pw.placeholderString = "Optional"
+        let stack = NSStackView(views: [popup, pwLabel, pw])
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
+        stack.frame = NSRect(x: 0, y: 0, width: 240, height: 88)
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "Compress"); alert.addButton(withTitle: "Cancel")
+        let go: (NSApplication.ModalResponse) -> Void = { [weak self] resp in
+            guard resp == .alertFirstButtonReturn, let self else { return }
+            let fmt = Archive.CompressFormat.allCases[max(0, popup.indexOfSelectedItem)]
+            let password = fmt.supportsPassword ? pw.stringValue : ""
+            DispatchQueue.global(qos: .userInitiated).async {
+                let ok = Archive.compress(urls, format: fmt, password: password.isEmpty ? nil : password) != nil
+                DispatchQueue.main.async { if !ok { NSSound.beep() }; self.model.reload() }
+            }
+        }
+        if let w = view.window { alert.beginSheetModal(for: w, completionHandler: go) }
+        else { go(alert.runModal()) }
     }
     @objc private func menuExtract() {
         let archives = selectedItems().map { $0.url }.filter { Archive.isArchive($0) }

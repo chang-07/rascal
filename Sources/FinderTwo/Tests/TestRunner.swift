@@ -754,6 +754,26 @@ final class TestRunner {
             assert("Archive.compress returns a URL", false, "got nil")
         }
 
+        // --- T42d2: tar.gz round-trip + encrypted-zip creation ---
+        if let madeTgz = Archive.compress(cmpItems, format: .tarGz) {
+            assert("compress(.tarGz) names it .tar.gz", madeTgz.lastPathComponent.hasSuffix(".tar.gz"),
+                   "got \(madeTgz.lastPathComponent)")
+            assert("tar.gz is detected as an archive", Archive.Kind.detect(madeTgz) != nil, "not detected")
+            let tgzNames = Set(Archive.list(madeTgz).map { ($0.path as NSString).lastPathComponent })
+            assert("tar.gz lists both files", tgzNames.contains("c1.txt") && tgzNames.contains("c2.txt"), "got=\(tgzNames)")
+            if let out = Archive.extractInPlace(madeTgz) {
+                let names = Set((try? FileManager.default.contentsOfDirectory(atPath: out.path)) ?? [])
+                assert("tar.gz extracts both files", names.contains("c1.txt") && names.contains("c2.txt"), "got=\(names)")
+            } else { assert("tar.gz extractInPlace returns a folder", false, "nil") }
+        } else { assert("compress(.tarGz) returns a URL", false, "nil") }
+        // Encrypted zip is created (don't extract — unzip would prompt for the pw).
+        if let enc = Archive.compress(cmpItems, format: .zip, password: "s3cr3t") {
+            assert("encrypted zip is created", FileManager.default.fileExists(atPath: enc.path), "no file")
+            assert("encrypted zip still lists entry names", !Archive.list(enc).isEmpty, "no entries")
+        } else { assert("encrypted compress returns a URL", false, "nil") }
+        assert("CompressFormat: zip supports password", Archive.CompressFormat.zip.supportsPassword, "no")
+        assert("CompressFormat: tar.gz has no password", !Archive.CompressFormat.tarGz.supportsPassword, "yes")
+
         // --- T42e: tag write/read with color round-trips ---
         let colorTagFile = sandbox.appendingPathComponent("tagme.txt")
         try? "x".write(to: colorTagFile, atomically: true, encoding: .utf8)
