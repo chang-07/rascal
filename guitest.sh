@@ -19,7 +19,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP="$ROOT/build/FinderTwo.app"
+APP="$ROOT/build/Rascal.app"
 BIN="$APP/Contents/MacOS/FinderTwo"
 LOG="/tmp/finder2-gui.log"
 
@@ -48,7 +48,7 @@ osa() { osascript -e "$1" 2>&1; }
 # -- Phase 1: top-level menus -----------------------------------------------
 
 echo "=== Phase 1: top-level menus ==="
-for m in FinderTwo File Edit View Go Window; do
+for m in Rascal File Edit View Go Window; do
     out=$(osa "tell application \"System Events\" to tell ($PROC) to exists menu bar item \"$m\" of menu bar 1")
     [[ "$out" == "true" ]] && pass "menu '$m' present" || fail "menu '$m' missing"
 done
@@ -57,10 +57,10 @@ done
 
 echo "=== Phase 2: menu items ==="
 declare -a EXPECT=(
-    "FinderTwo|Settings…"
-    "FinderTwo|Full Disk Access…"
-    "FinderTwo|About FinderTwo"
-    "FinderTwo|Quit FinderTwo"
+    "Rascal|Settings…"
+    "Rascal|Full Disk Access…"
+    "Rascal|About Rascal"
+    "Rascal|Quit Rascal"
     "File|New Window"
     "File|New Tab"
     "File|New Folder"
@@ -163,7 +163,7 @@ check_shortcut "File" "Open in Terminal" "t" "2"
 check_shortcut "View" "Open Extra Pane" "\\" "0"
 check_shortcut "Go" "Go to Folder…" "g" "1"
 check_shortcut "Go" "Home" "h" "1"
-check_shortcut "FinderTwo" "Settings…" "," "0"
+check_shortcut "Rascal" "Settings…" "," "0"
 check_shortcut "File" "New Window" "n" "0"
 check_shortcut "File" "New Smart Folder…" "n" "2"
 check_shortcut "View" "Drop Stack" "d" "4"
@@ -201,7 +201,7 @@ tell application \"System Events\"
     return titles as string
   end tell
 end tell")
-echo "$all_titles" | grep -q "FinderTwo" && pass "menu bar exposes FinderTwo" || fail "FinderTwo missing"
+echo "$all_titles" | grep -q "Rascal" && pass "menu bar exposes Rascal" || fail "Rascal missing"
 echo "$all_titles" | grep -q "File" && pass "menu bar exposes File" || fail "File missing"
 echo "$all_titles" | grep -q "Window" && pass "menu bar exposes Window" || fail "Window missing"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs FinderTwo's in-process test runner. The app is launched with
+# Runs Rascal's in-process test runner. The app is launched with
 # FT_RUN_TESTS=1 (which makes it skip opening the default window and
 # instead execute the TestRunner harness) and FT_HEADLESS_TESTING=1
 # (which keeps any windows the harness creates far off-screen, so this
@@ -9,7 +9,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP="$ROOT/build/FinderTwo.app"
+APP="$ROOT/build/Rascal.app"
 BIN="$APP/Contents/MacOS/FinderTwo"
 
 if [[ ! -x "$BIN" ]]; then
