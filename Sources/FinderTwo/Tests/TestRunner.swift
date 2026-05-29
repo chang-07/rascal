@@ -696,6 +696,19 @@ final class TestRunner {
         Tags.write([], to: colorTagFile)
         assert("clearing tags leaves none", Tags.read(colorTagFile).isEmpty, "tags remain")
 
+        // --- T42f: sidebar bookmarks add / contains / remove ---
+        let bmURL = sandbox.appendingPathComponent("bookmarkme")
+        try? FileManager.default.createDirectory(at: bmURL, withIntermediateDirectories: true)
+        SidebarBookmarks.remove(bmURL)   // ensure clean
+        SidebarBookmarks.add(bmURL)
+        assert("sidebar bookmark added + persisted", SidebarBookmarks.contains(bmURL), "not added")
+        SidebarBookmarks.add(bmURL)
+        assert("sidebar bookmark de-duplicates",
+               SidebarBookmarks.all().filter { $0.path == bmURL.path }.count == 1,
+               "duplicated")
+        SidebarBookmarks.remove(bmURL)
+        assert("sidebar bookmark removed", !SidebarBookmarks.contains(bmURL), "still present")
+
         // --- T43: AppUninstaller bundle-id read ---
         // We can't test scanLeftovers in a hermetic way (it reads real
         // ~/Library); verify the bundle-id reader works against a known app.

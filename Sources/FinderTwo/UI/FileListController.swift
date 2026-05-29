@@ -82,7 +82,8 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         tableView.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: false)
         tableView.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: true)
         tableView.draggingDestinationFeedbackStyle = .gap
-        tableView.menu = makeContextMenu()
+        // Context menu is built fresh per right-click (see FileListTableView.menu(for:))
+        // so it reflects the current selection, clipboard, and clicked row.
         tableView.autosaveName = "FinderTwo.FileList"
         tableView.autosaveTableColumns = true
 
@@ -495,8 +496,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         return items[index].url as NSURL
     }
 
-    // Context menu
-    private func makeContextMenu() -> NSMenu {
+    // Context menu — built fresh on each right-click so it reflects the current
+    // selection / clipboard / clicked row.
+    func contextMenu() -> NSMenu {
         let m = NSMenu()
         m.addItem(NSMenuItem(title: "Open", action: #selector(menuOpen), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Open With…", action: #selector(menuOpenWith), keyEquivalent: ""))
@@ -540,6 +542,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             m.addItem(NSMenuItem(title: "Extract", action: #selector(menuExtract), keyEquivalent: ""))
         }
         m.addItem(tagsSubmenuItem())
+        if selectedItems().count == 1,
+           (try? selectedItems()[0].url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            m.addItem(NSMenuItem(title: "Add to Sidebar", action: #selector(menuAddToSidebar), keyEquivalent: ""))
+        }
         m.addItem(NSMenuItem.separator())
         m.addItem(NSMenuItem(title: "Move to Trash", action: #selector(menuTrash), keyEquivalent: ""))
         for it in m.items { it.target = self }
@@ -573,6 +579,30 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         menu.addItem(clear)
         item.submenu = menu
         return item
+    }
+
+    /// Menu shown when right-clicking empty space in the list (no row).
+    func backgroundContextMenu() -> NSMenu {
+        let m = NSMenu()
+        m.addItem(NSMenuItem(title: "New Folder", action: #selector(menuBgNewFolder), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "New File", action: #selector(menuBgNewFile), keyEquivalent: ""))
+        if NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: nil) {
+            m.addItem(NSMenuItem(title: "Paste", action: #selector(menuPaste), keyEquivalent: ""))
+        }
+        m.addItem(NSMenuItem.separator())
+        m.addItem(NSMenuItem(title: "Get Info", action: #selector(menuBgGetInfo), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Add to Sidebar", action: #selector(menuBgAddToSidebar), keyEquivalent: ""))
+        for it in m.items { it.target = self }
+        return m
+    }
+    @objc private func menuBgNewFolder() { _ = FileOps.newFolder(in: model.url); model.reload() }
+    @objc private func menuBgNewFile() { _ = FileOps.newFile(in: model.url); model.reload() }
+    @objc private func menuBgGetInfo() { FileOps.getInfo([model.url]) }
+    @objc private func menuBgAddToSidebar() { SidebarBookmarks.add(model.url) }
+    @objc private func menuAddToSidebar() {
+        for u in selectedItems().map({ $0.url }) where (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            SidebarBookmarks.add(u)
+        }
     }
 
     /// Re-render visible rows (cheap, preserves selection/scroll) — used after a
@@ -709,6 +739,22 @@ final class FileListTableView: NSTableView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    /// Build the context menu fresh per right-click. On a row: select it first
+    /// (if not already selected) and show the item menu. On empty space: the
+    /// background menu (New Folder / New File / Paste / …).
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let pt = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: pt)
+        if row >= 0 {
+            if !selectedRowIndexes.contains(row) {
+                selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            }
+            return listController?.contextMenu()
+        }
+        deselectAll(nil)
+        return listController?.backgroundContextMenu()
     }
 
     private var lastPrefetchAt: TimeInterval = 0

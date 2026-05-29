@@ -288,6 +288,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         goMenu.addItem(routed("nav.home", title: "Home"))
         goMenu.addItem(routed("project.jump-root", title: "Jump to Project Root"))
         goMenu.addItem(routed("net.connect-server", title: "Connect to Server…"))
+        goMenu.addItem(NSMenuItem.separator())
+        let goHome = FileManager.default.homeDirectoryForCurrentUser.path
+        func goItem(_ title: String, _ path: String, _ key: String = "", _ mods: NSEvent.ModifierFlags = []) {
+            let it = NSMenuItem(title: title, action: #selector(goStandardFolder(_:)), keyEquivalent: key)
+            it.keyEquivalentModifierMask = mods
+            it.representedObject = path
+            goMenu.addItem(it)
+        }
+        goItem("Computer", "/", "c", [.command, .shift])
+        goItem("Applications", "/Applications", "a", [.command, .shift])
+        goItem("Desktop", goHome + "/Desktop", "d", [.command, .shift])
+        goItem("Documents", goHome + "/Documents")
+        goItem("Downloads", goHome + "/Downloads", "l", [.command, .option])
+        goItem("Library", goHome + "/Library")
+        goItem("Utilities", "/Applications/Utilities", "u", [.command, .shift])
         attach(goMenu, to: mainMenu)
 
         // ---- Window ----
@@ -388,6 +403,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         SettingsController.show()
+    }
+
+    @objc func goStandardFolder(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        currentBrowserWC()?.testActivePane?.navigate(to: URL(fileURLWithPath: path))
     }
 
     @objc func toggleHotbarMenu(_ sender: Any?) { Settings.showHotbar.toggle() }
