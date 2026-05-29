@@ -49,6 +49,10 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
         backBtn.target = self; backBtn.action = #selector(handleBack)
         fwdBtn.target = self; fwdBtn.action = #selector(handleForward)
         upBtn.target = self; upBtn.action = #selector(handleUp)
+        // Explicit AX labels so VoiceOver announces the icon-only nav buttons.
+        backBtn.setAccessibilityLabel("Back")
+        fwdBtn.setAccessibilityLabel("Forward")
+        upBtn.setAccessibilityLabel("Enclosing Folder")
 
         let backImg = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Back")
         let fwdImg = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Forward")

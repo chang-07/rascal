@@ -170,13 +170,16 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
         }
         history.append(cmd)
         historyCursor = history.count
-        DispatchQueue.global().async {
+        // Capture the process (to keep it alive for the wait) but NOT self —
+        // otherwise a long/hung command pins the whole pane/view tree and
+        // defeats deinit's terminate() until the command exits.
+        DispatchQueue.global().async { [weak self] in
             p.waitUntilExit()
             DispatchQueue.main.async {
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 errPipe.fileHandleForReading.readabilityHandler = nil
                 if p.terminationStatus != 0 {
-                    self.append("exit \(p.terminationStatus)\n", color: .secondaryLabelColor)
+                    self?.append("exit \(p.terminationStatus)\n", color: .secondaryLabelColor)
                 }
             }
         }

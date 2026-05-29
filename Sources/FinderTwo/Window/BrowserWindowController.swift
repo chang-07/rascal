@@ -6,6 +6,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private let sidebarVC: SidebarController
     private let panesContainer: PanesContainerController
     private var vimKeyMonitor: Any?
+    /// Off-main branch lookups for the window subtitle (reads .git/HEAD).
+    private static let gitInfoQueue = DispatchQueue(label: "FinderTwo.windowGitInfo", qos: .utility)
 
     init(rootURL: URL) {
         self.sidebarVC = SidebarController()
@@ -76,17 +78,22 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             self.window?.title = name
             let abbreviated = (url.deletingLastPathComponent().path as NSString)
                 .abbreviatingWithTildeInPath
-            // Prefix the branch when inside a git repo (synchronous HEAD read).
-            if let root = GitBranchWorkspaces.repoRoot(for: url),
-               let branch = GitBranchWorkspaces.currentBranch(in: root) {
-                self.window?.subtitle = "⎇ \(branch)  ·  \(abbreviated)"
-            } else {
-                self.window?.subtitle = abbreviated
-            }
+            self.window?.subtitle = abbreviated
             self.sidebarVC.highlight(url: url)
             // Git-bound workspaces: register this WC against the new path's
             // repo so branch changes restore the right tabs.
             GitBranchWorkspaces.shared.register(self, withCurrentURL: url)
+            // Prefix the branch when inside a git repo. Reading .git/HEAD is disk
+            // I/O, so do it off-main and fold it into the subtitle when it lands
+            // (skip if the user has already navigated elsewhere).
+            BrowserWindowController.gitInfoQueue.async { [weak self] in
+                guard let root = GitBranchWorkspaces.repoRoot(for: url),
+                      let branch = GitBranchWorkspaces.currentBranch(in: root) else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.panesContainer.activePane?.currentURL == url else { return }
+                    self.window?.subtitle = "⎇ \(branch)  ·  \(abbreviated)"
+                }
+            }
         }
 
         installVimKeyMonitor()
@@ -167,11 +174,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     @objc func newTab(_ sender: Any?) { panesContainer.activePane?.newTab(at: nil) }
     @objc func closeTab(_ sender: Any?) { panesContainer.activePane?.closeActiveTab() }
-    @objc func selectTabByShortcut(_ sender: NSMenuItem) {
-        let idx = sender.tag - 1
-        panesContainer.activePane?.selectTab(at: idx)
-    }
-
     @objc func newFolder(_ sender: Any?) {
         guard let pane = activePane,
               let url = FileOps.newFolder(in: pane.currentURL) else { return }
@@ -239,10 +241,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: Theme
 
-    @objc func cycleTheme(_ sender: Any?) {
-        ThemeManager.shared.cycle()
-    }
-
     // MARK: QoL actions
 
     @objc func copyPath(_ sender: Any?) {
@@ -264,8 +262,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             }
             return pane.currentURL
         }()
-        // Try iTerm2, then default Terminal.
-        let path = dir.path.replacingOccurrences(of: "\"", with: "\\\"")
+        // Try iTerm2, then default Terminal. Escape backslash FIRST, then the
+        // quote — otherwise a directory name containing a backslash or quote can
+        // break out of the AppleScript string and inject shell via `do script`.
+        let path = dir.path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
         let iterm = """
         if application "iTerm" is running then
             tell application "iTerm"
@@ -289,8 +291,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         NSAppleScript(source: terminal)?.executeAndReturnError(&err)
         if err != nil { NSSound.beep() }
     }
-
-    @objc func newFolderHere(_ sender: Any?) { newFolder(nil) }
 
     @objc func analyzeDiskUsage(_ sender: Any?) {
         guard let pane = activePane else { return }

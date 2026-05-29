@@ -79,7 +79,7 @@ final class PathBarView: NSView, ThemeObserving {
             btn.bezelStyle = .recessed
             btn.isBordered = false
             btn.setButtonType(.momentaryChange)
-            btn.contentTintColor = .labelColor
+            btn.contentTintColor = segmentColor
             btn.font = NSFont.systemFont(ofSize: 12, weight: .medium)
             btn.tag = idx
             btn.translatesAutoresizingMaskIntoConstraints = false
@@ -94,7 +94,7 @@ final class PathBarView: NSView, ThemeObserving {
 
             if idx < segments.count - 1 {
                 let chev = NSImageView(image: NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil) ?? NSImage())
-                chev.contentTintColor = .tertiaryLabelColor
+                chev.contentTintColor = chevronColor
                 chev.translatesAutoresizingMaskIntoConstraints = false
                 chev.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .medium)
                 stack.addArrangedSubview(chev)
@@ -111,9 +111,19 @@ final class PathBarView: NSView, ThemeObserving {
         onSelectSegment?(segments[idx])
     }
 
+    private var segmentColor: NSColor {
+        let t = ThemeManager.shared.current
+        return t.id == "system" ? .labelColor : t.labelPrimary
+    }
+    private var chevronColor: NSColor {
+        let t = ThemeManager.shared.current
+        return t.id == "system" ? .tertiaryLabelColor : t.labelTertiary
+    }
+
     @objc func applyTheme() {
         let t = ThemeManager.shared.current
         layer?.backgroundColor = t.pathBarBackground.cgColor
+        rebuild()   // recolor existing segments for the new theme
     }
 
     /// Pure helper — used by tests to verify segment computation without
