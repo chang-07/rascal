@@ -193,6 +193,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func focusPrevPane(_ sender: Any?) { panesContainer.focusPane(by: -1) }
     @objc func toggleSidebarItem(_ sender: Any?) { splitVC.toggleSidebar(sender) }
     @objc func toggleStatusBarItem(_ sender: Any?) { Settings.showStatusBar.toggle() }
+    @objc func togglePreview(_ sender: Any?) { activePane?.togglePreviewDrawer() }
     @objc func togglePathBarItem(_ sender: Any?) { Settings.showPathBar.toggle() }
     @objc func copyToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: false) }
     @objc func moveToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: true) }

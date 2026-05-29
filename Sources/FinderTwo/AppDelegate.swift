@@ -275,6 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(routed("view.calculate-sizes"))
         viewMenu.addItem(routed("view.type-to-select"))
         viewMenu.addItem(NSMenuItem.separator())
+        viewMenu.addItem(routed("panel.preview"))
         viewMenu.addItem(routed("panel.terminal"))
         viewMenu.addItem(routed("panel.notes"))
         viewMenu.addItem(NSMenuItem.separator())
