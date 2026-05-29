@@ -1,5 +1,6 @@
 import AppKit
 import QuickLookUI
+import Darwin   // fnmatch / FNM_CASEFOLD for "Select by Pattern"
 
 protocol FileListDelegate: AnyObject {
     func fileListSelectionChanged()
@@ -194,6 +195,45 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         if let idx = model.items.firstIndex(of: item) {
             tableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
             if scroll { tableView.scrollRowToVisible(idx) }
+        }
+    }
+
+    /// Shell-glob match (case-insensitive), e.g. "*.png", "report-?.txt".
+    static func matchesGlob(_ name: String, _ glob: String) -> Bool {
+        fnmatch(glob, name, FNM_CASEFOLD) == 0
+    }
+
+    /// Select every visible item whose name matches `glob`. Returns the count.
+    @discardableResult
+    func selectMatching(glob: String) -> Int {
+        let trimmed = glob.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+        var idx = IndexSet()
+        for (i, item) in model.items.enumerated() where Self.matchesGlob(item.name, trimmed) {
+            idx.insert(i)
+        }
+        tableView.selectRowIndexes(idx, byExtendingSelection: false)
+        if let first = idx.first { tableView.scrollRowToVisible(first) }
+        delegate?.fileListSelectionChanged()
+        return idx.count
+    }
+
+    /// Prompt for a wildcard and select matching items ("Select by mask").
+    func selectByPatternPrompt() {
+        let alert = NSAlert()
+        alert.messageText = "Select Items Matching Pattern"
+        alert.informativeText = "Use shell wildcards — e.g. *.png, report-?.txt, IMG_*"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.stringValue = "*"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Select")
+        alert.addButton(withTitle: "Cancel")
+        if let w = view.window {
+            alert.beginSheetModal(for: w) { [weak self] resp in
+                if resp == .alertFirstButtonReturn { self?.selectMatching(glob: field.stringValue) }
+            }
+        } else if alert.runModal() == .alertFirstButtonReturn {
+            selectMatching(glob: field.stringValue)
         }
     }
 

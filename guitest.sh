@@ -84,6 +84,7 @@ declare -a EXPECT=(
     "Edit|Move Items Here"
     "Edit|Duplicate"
     "Edit|Select All"
+    "Edit|Select by Pattern…"
     "Edit|Undo"
     "Edit|Redo"
     "View|as Icons"

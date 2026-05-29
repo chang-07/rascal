@@ -196,6 +196,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func togglePreview(_ sender: Any?) { activePane?.togglePreviewDrawer() }
     @objc func showTransferActivity(_ sender: Any?) { TransferActivityController.shared.present() }
     @objc func toggleDropStack(_ sender: Any?) { DropStackController.shared.toggle() }
+    @objc func selectByPattern(_ sender: Any?) { activePane?.selectByPattern() }
     @objc func addToDropStack(_ sender: Any?) {
         let sel = activePane?.selectedURLs() ?? []
         if DropStack.add(sel) > 0 { DropStackController.shared.present() } else { NSSound.beep() }

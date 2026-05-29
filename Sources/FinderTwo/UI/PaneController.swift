@@ -454,6 +454,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func compressSelection() { fileList.compressSelection() }
     func extractSelection() { fileList.extractSelection() }
     func makeAliasSelection() { fileList.makeAliasSelection() }
+    func selectByPattern() { fileList.selectByPatternPrompt() }
+    /// Test hook: select by glob without the prompt; returns the match count.
+    func testSelectMatching(_ glob: String) -> Int { fileList.selectMatching(glob: glob) }
     func arrangeBy(_ key: SortKey) { fileList.setSortKey(key) }
 
     private func switchToActiveTabModel() {
