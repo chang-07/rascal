@@ -105,6 +105,8 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
 
         NotificationCenter.default.addObserver(self, selector: #selector(bookmarksChanged),
                                                name: SidebarBookmarks.didChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(bookmarksChanged),
+                                               name: SmartFolders.didChange, object: nil)
     }
 
     @objc private func bookmarksChanged() {
@@ -125,6 +127,12 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         let openTab = NSMenuItem(title: "Open in New Tab", action: #selector(ctxOpenNewTab(_:)), keyEquivalent: "")
         let openWin = NSMenuItem(title: "Open in New Window", action: #selector(ctxOpenNewWindow(_:)), keyEquivalent: "")
         for it in [openTab, openWin] { it.target = self; it.representedObject = entry.url; menu.addItem(it) }
+        if SidebarController.isSmartFolderURL(entry.url) {
+            menu.addItem(.separator())
+            let del = NSMenuItem(title: "Delete Smart Folder", action: #selector(ctxDeleteSmartFolder(_:)), keyEquivalent: "")
+            del.target = self; del.representedObject = entry.url; menu.addItem(del)
+            return
+        }
         if let rv = try? entry.url.resourceValues(forKeys: [.volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsRootFileSystemKey]),
            (rv.volumeIsEjectable == true || rv.volumeIsRemovable == true), rv.volumeIsRootFileSystem != true {
             menu.addItem(.separator())
@@ -140,6 +148,11 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     @objc private func ctxOpenNewTab(_ s: NSMenuItem) { if let u = s.representedObject as? URL { onOpenInNewTab?(u) } }
     @objc private func ctxOpenNewWindow(_ s: NSMenuItem) { if let u = s.representedObject as? URL { onOpenInNewWindow?(u) } }
     @objc private func ctxRemoveBookmark(_ s: NSMenuItem) { if let u = s.representedObject as? URL { SidebarBookmarks.remove(u) } }
+    @objc private func ctxDeleteSmartFolder(_ s: NSMenuItem) {
+        if let u = s.representedObject as? URL, let id = SidebarController.smartFolderId(from: u) {
+            SmartFolders.remove(id: id)
+        }
+    }
     @objc private func ctxEject(_ s: NSMenuItem) {
         guard let u = s.representedObject as? URL else { return }
         do { try NSWorkspace.shared.unmountAndEjectDevice(at: u) } catch { NSSound.beep() }
@@ -235,9 +248,17 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                 locations.append(Entry(title: name, url: v, icon: icon))
             }
         }
+        // Saved searches (smart folders) — synthetic `/smart/<id>` entries.
+        let gear = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil) ?? NSImage()
+        gear.size = NSSize(width: 14, height: 14)
+        let smartItems = SmartFolders.all().map { f in
+            Entry(title: f.name, url: SidebarController.smartFolderURL(id: f.id), icon: gear)
+        }
+
         sections = [
             Section(title: "Favorites", items: favs),
             Section(title: "Locations", items: locations),
+            Section(title: "Smart Folders", items: smartItems),
         ].filter { !$0.items.isEmpty }
 
         // Populate Tags section asynchronously — Spotlight call.
@@ -266,6 +287,14 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     static func tagName(from url: URL) -> String? {
         guard url.path.hasPrefix("/tag/") else { return nil }
         return String(url.path.dropFirst("/tag/".count))
+    }
+
+    /// Synthetic `/smart/<id>` URL for a saved search (smart folder).
+    static func smartFolderURL(id: String) -> URL { URL(fileURLWithPath: "/smart/\(id)") }
+    static func isSmartFolderURL(_ url: URL) -> Bool { url.path.hasPrefix("/smart/") }
+    static func smartFolderId(from url: URL) -> String? {
+        guard url.path.hasPrefix("/smart/") else { return nil }
+        return String(url.path.dropFirst("/smart/".count))
     }
 
     // MARK: NSOutlineViewDataSource autosave

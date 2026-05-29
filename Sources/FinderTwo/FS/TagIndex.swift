@@ -66,7 +66,8 @@ enum TagIndex {
 
     /// Run `mdfind` for a Spotlight query string and return matched URLs,
     /// capped at `limit`. Optionally scoped to a directory subtree.
-    private static func runMDFind(query: String, limit: Int, onlyIn: String? = nil) -> [URL] {
+    /// Internal so SmartFolders can reuse the same Spotlight runner.
+    static func runMDFind(query: String, limit: Int, onlyIn: String? = nil) -> [URL] {
         let p = Process()
         p.launchPath = "/usr/bin/mdfind"
         p.arguments = (onlyIn.map { ["-onlyin", $0] } ?? []) + [query]
