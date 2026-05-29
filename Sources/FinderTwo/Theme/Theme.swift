@@ -43,64 +43,9 @@ struct Theme: Equatable {
         monospaced: false
     )
 
-    static let midnight = Theme(
-        id: "midnight",
-        name: "Midnight",
-        appearance: .dark,
-        background: NSColor(red: 0.08, green: 0.09, blue: 0.13, alpha: 1),
-        sidebarBackground: NSColor(red: 0.06, green: 0.07, blue: 0.11, alpha: 1),
-        toolbarBackground: NSColor(red: 0.10, green: 0.11, blue: 0.15, alpha: 1),
-        pathBarBackground: NSColor(red: 0.09, green: 0.10, blue: 0.14, alpha: 1),
-        rowAlternate: NSColor(red: 0.11, green: 0.12, blue: 0.16, alpha: 1),
-        labelPrimary: NSColor(white: 0.92, alpha: 1),
-        labelSecondary: NSColor(white: 0.62, alpha: 1),
-        labelTertiary: NSColor(white: 0.42, alpha: 1),
-        accent: NSColor(red: 0.55, green: 0.78, blue: 1.0, alpha: 1),
-        selectionBackground: NSColor(red: 0.20, green: 0.40, blue: 0.85, alpha: 0.35),
-        baseFontPointSize: 13,
-        rowHeight: 22,
-        monospaced: false
-    )
-
-    static let sepia = Theme(
-        id: "sepia",
-        name: "Sepia",
-        appearance: .light,
-        background: NSColor(red: 0.97, green: 0.94, blue: 0.88, alpha: 1),
-        sidebarBackground: NSColor(red: 0.94, green: 0.90, blue: 0.83, alpha: 1),
-        toolbarBackground: NSColor(red: 0.95, green: 0.92, blue: 0.85, alpha: 1),
-        pathBarBackground: NSColor(red: 0.94, green: 0.91, blue: 0.84, alpha: 1),
-        rowAlternate: NSColor(red: 0.94, green: 0.91, blue: 0.84, alpha: 1),
-        labelPrimary: NSColor(red: 0.25, green: 0.20, blue: 0.10, alpha: 1),
-        labelSecondary: NSColor(red: 0.45, green: 0.38, blue: 0.25, alpha: 1),
-        labelTertiary: NSColor(red: 0.65, green: 0.58, blue: 0.45, alpha: 1),
-        accent: NSColor(red: 0.50, green: 0.30, blue: 0.10, alpha: 1),
-        selectionBackground: NSColor(red: 0.85, green: 0.65, blue: 0.30, alpha: 0.40),
-        baseFontPointSize: 14,
-        rowHeight: 24,
-        monospaced: false
-    )
-
-    static let hacker = Theme(
-        id: "hacker",
-        name: "Hacker (monospaced)",
-        appearance: .dark,
-        background: NSColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1),
-        sidebarBackground: NSColor(red: 0.03, green: 0.03, blue: 0.03, alpha: 1),
-        toolbarBackground: NSColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 1),
-        pathBarBackground: NSColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 1),
-        rowAlternate: NSColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 1),
-        labelPrimary: NSColor(red: 0.30, green: 1.00, blue: 0.55, alpha: 1),
-        labelSecondary: NSColor(red: 0.25, green: 0.75, blue: 0.40, alpha: 1),
-        labelTertiary: NSColor(red: 0.20, green: 0.55, blue: 0.30, alpha: 1),
-        accent: NSColor(red: 0.35, green: 1.0, blue: 0.65, alpha: 1),
-        selectionBackground: NSColor(red: 0.15, green: 0.40, blue: 0.22, alpha: 0.55),
-        baseFontPointSize: 13,
-        rowHeight: 22,
-        monospaced: true
-    )
-
-    static let all: [Theme] = [.system, .midnight, .sepia, .hacker]
+    /// All available themes (built-ins + user JSON themes). Resolved by
+    /// ThemeStore so themes are data-driven and user-extensible.
+    static var all: [Theme] { ThemeStore.all() }
 }
 
 /// Singleton observable theme controller. Views observe `themeDidChange`
@@ -112,16 +57,19 @@ final class ThemeManager {
     static let themeDidChangeNotification = Notification.Name("FinderTwo.themeDidChange")
 
     private(set) var current: Theme = Theme.system
+    /// Cached so views don't hit the Themes folder on every access. Refreshed
+    /// by `reloadThemes()`.
+    private(set) var available: [Theme] = ThemeStore.all()
 
     init() {
         if let id = UserDefaults.standard.string(forKey: "FinderTwo.theme"),
-           let t = Theme.all.first(where: { $0.id == id }) {
+           let t = available.first(where: { $0.id == id }) {
             self.current = t
         }
     }
 
     func setTheme(id: String) {
-        guard let t = Theme.all.first(where: { $0.id == id }) else { return }
+        guard let t = available.first(where: { $0.id == id }) else { return }
         guard current.id != t.id else { return }    // skip redundant repaint
         current = t
         UserDefaults.standard.set(id, forKey: "FinderTwo.theme")
@@ -129,8 +77,20 @@ final class ThemeManager {
         NotificationCenter.default.post(name: ThemeManager.themeDidChangeNotification, object: nil)
     }
 
+    /// Re-scan the Themes folder (picks up newly added/edited JSON themes) and
+    /// re-apply the active theme in case its definition changed.
+    func reloadThemes() {
+        available = ThemeStore.all()
+        if let refreshed = available.first(where: { $0.id == current.id }) {
+            current = refreshed
+        }
+        applyAppearance()
+        NotificationCenter.default.post(name: ThemeManager.themeDidChangeNotification, object: nil)
+    }
+
     func cycle() {
-        let order = Theme.all
+        let order = available
+        guard !order.isEmpty else { return }
         let idx = order.firstIndex(where: { $0.id == current.id }) ?? 0
         let next = order[(idx + 1) % order.count]
         setTheme(id: next.id)
