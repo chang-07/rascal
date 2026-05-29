@@ -315,6 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         goMenu.addItem(routed("nav.home", title: "Home"))
         goMenu.addItem(routed("project.jump-root", title: "Jump to Project Root"))
         goMenu.addItem(routed("net.connect-server", title: "Connect to Server…"))
+        goMenu.addItem(routed("net.mount-volume", title: "Mount Network Volume…"))
         goMenu.addItem(NSMenuItem.separator())
         let goHome = FileManager.default.homeDirectoryForCurrentUser.path
         func goItem(_ title: String, _ path: String, _ key: String = "", _ mods: NSEvent.ModifierFlags = []) {
