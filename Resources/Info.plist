@@ -48,5 +48,7 @@
     </array>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 chang</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
 </dict>
 </plist>
