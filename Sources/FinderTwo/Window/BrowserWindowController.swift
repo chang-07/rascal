@@ -222,6 +222,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }.first
     }
     @objc func togglePathBarItem(_ sender: Any?) { Settings.showPathBar.toggle() }
+    @objc func toggleSyncBrowsing(_ sender: Any?) { panesContainer.toggleSyncBrowsing() }
+    var syncBrowsingOn: Bool { panesContainer.syncBrowsing }
     @objc func copyToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: false) }
     @objc func moveToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: true) }
     @objc func newFolder(_ sender: Any?) {

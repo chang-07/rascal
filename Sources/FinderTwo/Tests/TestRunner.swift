@@ -820,6 +820,28 @@ final class TestRunner {
         assert("ungrouped still lists items", pane.testCurrentItems.count == 3, "got \(pane.testCurrentItems.count)")
         pane.navigate(to: sandbox); pane.testReloadSync()
 
+        // --- T42d5: synchronized browsing (relative-path mirroring) ---
+        let syncRoot = sandbox.appendingPathComponent("syncbrowse")
+        let sideA = syncRoot.appendingPathComponent("A")
+        let sideB = syncRoot.appendingPathComponent("B")
+        try? FileManager.default.createDirectory(at: sideA.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: sideB.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        let container = PanesContainerController(initialURL: sideA)
+        _ = container.view                  // force loadView → first pane
+        container.toggleExtraPane()         // second pane (at A)
+        let sp = container.allPanes
+        if sp.count == 2 {
+            sp[1].navigate(to: sideB)
+            waitUntil { samePath(sp[1].currentURL, sideB) }
+            container.toggleSyncBrowsing()
+            assert("sync browsing toggles on", container.testSyncBrowsing, "off")
+            container.mirrorNavigation(from: sideA, to: sideA.appendingPathComponent("sub"), sourcePane: sp[0])
+            waitUntil { sp[1].currentURL.lastPathComponent == "sub" }
+            assert("sync mirrors relative descent onto the other pane",
+                   samePath(sp[1].currentURL, sideB.appendingPathComponent("sub")),
+                   "url=\(sp[1].currentURL.path)")
+        } else { assert("sync: two panes", false, "got \(sp.count)") }
+
         // --- T42e: tag write/read with color round-trips ---
         let colorTagFile = sandbox.appendingPathComponent("tagme.txt")
         try? "x".write(to: colorTagFile, atomically: true, encoding: .utf8)
