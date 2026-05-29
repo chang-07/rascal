@@ -62,10 +62,20 @@ Drag files between panes to copy/move them.
 | `⌘⌥V` | Move Items Here | Paste with move semantics |
 | `⌘D` | Duplicate | Adds " copy", " copy 2", … |
 | `⌘⌫` | Move to Trash | Recoverable |
+| `⌘⌥⌫` | Delete Immediately… | Bypasses the Trash (confirmation required) |
+| `⌘⇧⌫` | Empty Trash… | |
 | `⌘⇧N` | New Folder | |
-| `⌘I` | Get Info | Opens Finder's inspector for the selection |
+| `⌃⌘N` | New Folder with Selection | Groups the selected items into a new folder |
+| `⌥⌘N` | New Smart Folder… | Save a search as a sidebar entry (see Sidebar) |
+| `⌘I` | Get Info | Native inspector: size, kind, dates, owner, permissions |
 | `⌘⌥C` | Copy Path | Full POSIX path(s), one per line |
 | `⌘⌥T` | Open in Terminal | iTerm if running, else Terminal.app, at the folder |
+
+Also available from the File / context menus: **Compress** (zip the
+selection), **Extract** (unarchive in place), **Make Alias** (symlink),
+and **New File**. Drag a file onto a folder and pause to **spring-load** it
+open (toggle in Settings ▸ General ▸ Dragging). Multi-item and folder
+copies/moves show a cancellable **progress sheet**.
 
 ## Search & filter
 
@@ -82,11 +92,16 @@ In the palette / search sheets: `↑`/`↓` move, `Return` activates, `Esc` clos
 
 | Shortcut | Action |
 |---|---|
-| `⌥⌘1` | List view |
-| `⌥⌘2` | Column (Miller) view |
+| `⌥⌘1` | Icon view |
+| `⌥⌘2` | List view |
+| `⌥⌘3` | Column (Miller) view |
+| `⌥⌘P` | Toggle the preview / inspector drawer |
+| `⌥⌘S` | Show/Hide the sidebar |
 | `⌘⇧.` | Toggle hidden files |
 | `⌥⌘B` | Show/Hide the hotbar (the quick-action button row) |
-| *(View menu)* | Show/Hide the window title bar |
+| *(View menu)* | Show/Hide the window title bar, status bar, path bar |
+| *(View menu)* | Arrange By… (name, kind, date, size) |
+| *(View menu)* | Calculate all folder sizes · Type-to-select |
 | *(palette)* | Cycle Theme |
 
 > **Window chrome.** FinderTwo ships chromeless by default: the **hotbar** and
@@ -162,13 +177,18 @@ list so the selection is visible.
 
 ## Sidebar
 
-- **Favorites** — Home, Desktop, Documents, Downloads, Movies, Music, Pictures,
-  Applications (only those that exist).
+- **Favorites** — Recents (recently-modified files via Spotlight), Home,
+  Desktop, Documents, Downloads, Movies, Music, Pictures, Applications (only
+  those that exist), plus any folders you've added.
 - **Locations** — mounted local volumes (`Macintosh HD`, external drives).
+- **Smart Folders** — your saved searches (File ▸ New Smart Folder…, `⌥⌘N`).
+  Each re-runs its query (filename and/or content, optionally scoped to a
+  folder) on click. Right-click ▸ Delete Smart Folder to remove one.
 - **Tags** — every macOS tag in use (via Spotlight). Click a tag to see every
   file with it, anywhere on disk. The coloured dot matches the Finder tag color.
 
-Click any entry to navigate the active pane there.
+Click any entry to navigate the active pane there; right-click for Open in New
+Tab / New Window, Eject, or Remove from Sidebar.
 
 ---
 
