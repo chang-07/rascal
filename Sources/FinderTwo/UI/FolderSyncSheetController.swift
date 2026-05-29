@@ -8,6 +8,8 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
     private let destField = NSTextField()
     private let mirrorPruneCheck = NSButton(checkboxWithTitle: "Also delete files missing from source (prune)",
                                             target: nil, action: nil)
+    private let twoWayCheck = NSButton(checkboxWithTitle: "Two-way sync (newer file wins; nothing deleted)",
+                                       target: nil, action: nil)
     private let scroll = NSScrollView()
     private let table = NSTableView()
     private let summary = NSTextField(labelWithString: "")
@@ -42,7 +44,7 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
         let dLbl = NSTextField(labelWithString: "To:")
         let pickS = NSButton(title: "Choose…", target: self, action: #selector(pickSource))
         let pickD = NSButton(title: "Choose…", target: self, action: #selector(pickDest))
-        let allViews: [NSView] = [sLbl, dLbl, sourceField, destField, pickS, pickD, mirrorPruneCheck]
+        let allViews: [NSView] = [sLbl, dLbl, sourceField, destField, pickS, pickD, mirrorPruneCheck, twoWayCheck]
         for v in allViews {
             v.translatesAutoresizingMaskIntoConstraints = false
             cv.addSubview(v)
@@ -114,7 +116,10 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
             mirrorPruneCheck.topAnchor.constraint(equalTo: dLbl.bottomAnchor, constant: 10),
             mirrorPruneCheck.leadingAnchor.constraint(equalTo: sourceField.leadingAnchor),
 
-            scroll.topAnchor.constraint(equalTo: mirrorPruneCheck.bottomAnchor, constant: 10),
+            twoWayCheck.topAnchor.constraint(equalTo: mirrorPruneCheck.bottomAnchor, constant: 6),
+            twoWayCheck.leadingAnchor.constraint(equalTo: sourceField.leadingAnchor),
+
+            scroll.topAnchor.constraint(equalTo: twoWayCheck.bottomAnchor, constant: 10),
             scroll.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 14),
             scroll.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -14),
             scroll.bottomAnchor.constraint(equalTo: summary.topAnchor, constant: -8),
@@ -171,6 +176,33 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
     @objc private func doApply() {
         let src = URL(fileURLWithPath: sourceField.stringValue)
         let dst = URL(fileURLWithPath: destField.stringValue)
+
+        // Two-way: union both sides, newer wins, nothing deleted.
+        if twoWayCheck.state == .on {
+            let pending = entries.filter { $0.status != .identical }.count
+            guard pending > 0 else { summary.stringValue = "Nothing to apply."; return }
+            let alert = NSAlert()
+            alert.messageText = "Two-way sync these folders?"
+            alert.informativeText = "Each side gains the other's files; where both changed, the newer file wins. Nothing is deleted."
+            alert.addButton(withTitle: "Sync"); alert.addButton(withTitle: "Cancel")
+            let proceed: () -> Void = { [weak self] in
+                guard let self else { return }
+                self.summary.stringValue = "Syncing…"
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let ops = FolderSync.syncBothWays(source: src, destination: dst)
+                    DispatchQueue.main.async {
+                        self.summary.stringValue = "Synced \(ops) file\(ops == 1 ? "" : "s") both ways."
+                        self.target?.testActivePane?.reload()
+                        self.doCompare()
+                    }
+                }
+            }
+            if let w = window {
+                alert.beginSheetModal(for: w) { if $0 == .alertFirstButtonReturn { proceed() } }
+            } else if alert.runModal() == .alertFirstButtonReturn { proceed() }
+            return
+        }
+
         let prune = mirrorPruneCheck.state == .on
         let copyCount = entries.filter { $0.status == .onlySource }.count
         let overwriteCount = entries.filter { $0.status == .differs }.count

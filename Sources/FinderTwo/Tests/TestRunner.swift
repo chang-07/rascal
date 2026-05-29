@@ -774,6 +774,28 @@ final class TestRunner {
         assert("CompressFormat: zip supports password", Archive.CompressFormat.zip.supportsPassword, "no")
         assert("CompressFormat: tar.gz has no password", !Archive.CompressFormat.tarGz.supportsPassword, "yes")
 
+        // --- T42d3: 2-way folder sync (union, newer wins, nothing deleted) ---
+        let twA = sandbox.appendingPathComponent("twoway/A")
+        let twB = sandbox.appendingPathComponent("twoway/B")
+        try? FileManager.default.createDirectory(at: twA, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: twB, withIntermediateDirectories: true)
+        func tw(_ u: URL, _ s: String) { try? s.write(to: u, atomically: true, encoding: .utf8) }
+        tw(twA.appendingPathComponent("onlyA.txt"), "A")
+        tw(twB.appendingPathComponent("onlyB.txt"), "B")
+        tw(twA.appendingPathComponent("both.txt"), "old")
+        tw(twB.appendingPathComponent("both.txt"), "new")
+        // Make B/both.txt clearly newer so it wins.
+        try? FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(10)],
+            ofItemAtPath: twB.appendingPathComponent("both.txt").path)
+        let twOps = FolderSync.syncBothWays(source: twA, destination: twB)
+        func twrd(_ u: URL) -> String { (try? String(contentsOf: u, encoding: .utf8)) ?? "<none>" }
+        assert("2-way: A's unique file lands in B", twrd(twB.appendingPathComponent("onlyA.txt")) == "A", "missing")
+        assert("2-way: B's unique file lands in A", twrd(twA.appendingPathComponent("onlyB.txt")) == "B", "missing")
+        assert("2-way: newer copy wins on the older side", twrd(twA.appendingPathComponent("both.txt")) == "new",
+               "got \(twrd(twA.appendingPathComponent("both.txt")))")
+        assert("2-way: nothing deleted (A keeps onlyA)", FileManager.default.fileExists(atPath: twA.appendingPathComponent("onlyA.txt").path), "deleted")
+        assert("2-way: did >=3 writes", twOps >= 3, "ops=\(twOps)")
+
         // --- T42e: tag write/read with color round-trips ---
         let colorTagFile = sandbox.appendingPathComponent("tagme.txt")
         try? "x".write(to: colorTagFile, atomically: true, encoding: .utf8)
