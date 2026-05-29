@@ -793,7 +793,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     func fileListSelectionChanged() { updateStatus() }
     func fileListOpenItem(_ item: FileItem) {
-        if item.isDirectory {
+        if item.isPackage {
+            NSWorkspace.shared.open(item.url)   // launch the app/bundle
+        } else if item.isDirectory {
             navigate(to: item.url)
         } else if Archive.isArchive(item.url) {
             if let wc = view.window?.windowController as? BrowserWindowController {
@@ -804,6 +806,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         }
     }
     func fileListEnterParent() { goUp() }
+    /// Browse inside a bundle (Show Package Contents) — navigate in, treating
+    /// the package as an ordinary folder.
+    func fileListShowPackageContents(_ url: URL) { navigate(to: url) }
     func fileListBecameActive() { becomeActive() }
     func fileListBeginTypeAhead(initial: String) {
         toolbar.focusSearchField(insert: initial)

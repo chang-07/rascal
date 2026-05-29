@@ -8,6 +8,7 @@ protocol FileListDelegate: AnyObject {
     func fileListEnterParent()
     func fileListBecameActive()
     func fileListBeginTypeAhead(initial: String)
+    func fileListShowPackageContents(_ url: URL)
 }
 
 final class FileListController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate, NameCellDelegate, ThemeObserving {
@@ -795,6 +796,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         }
         editorItem.submenu = editorMenu
         m.addItem(editorItem)
+        if selectedItems().count == 1, selectedItems()[0].isPackage {
+            m.addItem(NSMenuItem(title: "Show Package Contents", action: #selector(menuShowPackageContents), keyEquivalent: ""))
+        }
         m.addItem(NSMenuItem.separator())
         m.addItem(NSMenuItem(title: "Get Info", action: #selector(menuGetInfo), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Copy", action: #selector(menuCopy), keyEquivalent: ""))
@@ -1154,6 +1158,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     @objc private func menuCompareFiles() {
         guard let wc = view.window?.windowController as? BrowserWindowController else { return }
         wc.compareFiles(nil)
+    }
+    @objc private func menuShowPackageContents() {
+        guard let pkg = selectedItems().first(where: { $0.isPackage }) else { return }
+        delegate?.fileListShowPackageContents(pkg.url)
     }
     @objc private func menuAddToShelf() {
         let urls = selectedItems().map { $0.url }
