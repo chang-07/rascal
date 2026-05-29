@@ -52,6 +52,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Headless treemap screenshot generator (no window shown) — for demos and
+        // off-screen visual verification. FT_TREEMAP_SHOT=<out.png> [FT_TREEMAP_ROOT=<dir>].
+        if let shot = ProcessInfo.processInfo.environment["FT_TREEMAP_SHOT"] {
+            DispatchQueue.main.async {
+                let root = ProcessInfo.processInfo.environment["FT_TREEMAP_ROOT"] ?? NSHomeDirectory()
+                TreemapShot.render(rootPath: root, size: NSSize(width: 1000, height: 680), to: shot)
+                NSApp.terminate(nil)
+            }
+            return
+        }
         if let cliPath = AppDelegate.cliPath() {
             openNewBrowserWindow(at: URL(fileURLWithPath: cliPath))
         } else if !(Settings.restoreSession && restoreSession()) {

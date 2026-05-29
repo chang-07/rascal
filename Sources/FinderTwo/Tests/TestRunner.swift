@@ -1895,6 +1895,42 @@ final class TestRunner {
         _ = disk.window?.contentView
         assert("DiskAnalyzerWindowController builds", disk.window?.contentView != nil, "nil")
 
+        // --- Cinematic treemap: type palette + squarified layout + view tiles ---
+        func mkNode(_ path: String, dir: Bool, size: Int64 = 0) -> DiskScan.Node {
+            let n = DiskScan.Node(url: URL(fileURLWithPath: path), name: (path as NSString).lastPathComponent, isDirectory: dir)
+            n.size = size; return n
+        }
+        assert("file-type palette maps extensions to categories",
+               FileTypePalette.category(for: mkNode("/x/a.swift", dir: false)) == .code &&
+               FileTypePalette.category(for: mkNode("/x/a.png", dir: false)) == .image &&
+               FileTypePalette.category(for: mkNode("/x/a.mp4", dir: false)) == .video &&
+               FileTypePalette.category(for: mkNode("/x/dir", dir: true)) == .folder,
+               "miscategorized")
+
+        let synth = mkNode("/syn", dir: true)
+        for (i, s) in [500, 300, 120, 50, 30].enumerated() {
+            synth.children.append(mkNode("/syn/\(i)", dir: false, size: Int64(s))); synth.size += Int64(s)
+        }
+        let area = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let packed = TreemapLayout.squarify(synth.children, total: synth.size, in: area)
+        assert("squarify places every non-empty child", packed.count == 5, "got \(packed.count)")
+        let coverage = packed.reduce(0.0) { $0 + Double($1.1.width * $1.1.height) }
+        let fullArea = Double(area.width * area.height)
+        assert("squarify tiles fill ~the whole rect (no gaps/overlap)",
+               abs(coverage - fullArea) < fullArea * 0.01, "coverage \(coverage) of \(fullArea)")
+        assert("squarify rects are finite and within bounds",
+               packed.allSatisfy { $0.1.width.isFinite && $0.1.height.isFinite && area.insetBy(dx: -0.5, dy: -0.5).contains($0.1) },
+               "bad rect")
+        let big = packed.first { $0.0.name == "0" }!.1
+        let small = packed.first { $0.0.name == "4" }!.1
+        assert("squarify area tracks size (biggest child gets the most area)",
+               big.width * big.height > small.width * small.height, "ordering off")
+
+        let tmRoot = DiskScan(root: sandbox).runSync()
+        let tmView = TreemapView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        tmView.setRoot(tmRoot)
+        assert("treemap lays out tiles for a scanned folder", tmView.testTileCount > 0, "no tiles")
+
         // Native Get Info panel builds for a real path (incl. its NSGridView).
         let info = GetInfoSheetController(url: sandbox)
         assert("GetInfoSheetController builds", info.window?.contentView != nil, "nil")
