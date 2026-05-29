@@ -759,6 +759,23 @@ final class TestRunner {
         SmartFolders.remove(id: id1)
         assert("smart folder removed", SmartFolders.find(id: id1) == nil, "still present")
 
+        // --- T42f3: checksums (MD5 / SHA-256) against known vectors ---
+        let hashFile = sandbox.appendingPathComponent("hash_me.txt")
+        try? "hello".write(to: hashFile, atomically: true, encoding: .utf8)
+        assert("MD5 matches known vector",
+               Checksum.compute(hashFile, kind: .md5) == "5d41402abc4b2a76b9719d911017c592",
+               "got \(Checksum.compute(hashFile, kind: .md5) ?? "nil")")
+        assert("SHA-256 matches known vector",
+               Checksum.compute(hashFile, kind: .sha256) == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+               "got \(Checksum.compute(hashFile, kind: .sha256) ?? "nil")")
+        let twoHashes = Checksum.report([hashFile, hashFile], kind: .md5)
+        assert("checksum report emits one line per file",
+               twoHashes.split(separator: "\n").count == 2, "got \(twoHashes)")
+        assert("checksum on a missing file returns nil",
+               Checksum.compute(sandbox.appendingPathComponent("nope.bin"), kind: .md5) == nil, "non-nil")
+        // appCandidates must not crash for a real file (count is env-dependent).
+        _ = FileListController.appCandidates(for: hashFile)
+
         // --- T42g: view/layout setting defaults ---
         for k in ["FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar"] {
             UserDefaults.standard.removeObject(forKey: k)

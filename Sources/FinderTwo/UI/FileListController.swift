@@ -606,7 +606,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     func contextMenu() -> NSMenu {
         let m = NSMenu()
         m.addItem(NSMenuItem(title: "Open", action: #selector(menuOpen), keyEquivalent: ""))
-        m.addItem(NSMenuItem(title: "Open With…", action: #selector(menuOpenWith), keyEquivalent: ""))
+        m.addItem(openWithSubmenuItem())
         m.addItem(NSMenuItem(title: "Quick Look", action: #selector(menuQuickLook), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Reveal in Finder", action: #selector(menuReveal), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Open in Terminal", action: #selector(menuOpenTerm), keyEquivalent: ""))
@@ -633,6 +633,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         m.addItem(NSMenuItem(title: "Get Info", action: #selector(menuGetInfo), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Copy", action: #selector(menuCopy), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Copy Path", action: #selector(menuCopyPath), keyEquivalent: ""))
+        if selectedItems().contains(where: { !$0.isDirectory }) {
+            m.addItem(checksumSubmenuItem())
+        }
         if NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: nil) {
             m.addItem(NSMenuItem(title: "Paste", action: #selector(menuPaste), keyEquivalent: ""))
         }
@@ -688,6 +691,113 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         menu.addItem(clear)
         item.submenu = menu
         return item
+    }
+
+    /// "Open With" ▸ submenu: apps that can open the selection (default marked),
+    /// "Other…", and — for a single file — "Always Open With" to set the default.
+    private func openWithSubmenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
+        let menu = NSMenu()
+        let sel = selectedItems().map { $0.url }
+        let candidates = sel.count == 1 ? Self.appCandidates(for: sel[0]) : []
+        if candidates.isEmpty {
+            let none = NSMenuItem(title: "Other…", action: #selector(menuOpenWith), keyEquivalent: "")
+            none.target = self
+            menu.addItem(none)
+        } else {
+            let defaultApp = NSWorkspace.shared.urlForApplication(toOpen: sel[0])
+            for app in candidates {
+                let name = FileManager.default.displayName(atPath: app.path)
+                    .replacingOccurrences(of: ".app", with: "")
+                let isDefault = defaultApp?.standardizedFileURL == app.standardizedFileURL
+                let it = NSMenuItem(title: isDefault ? "\(name) (default)" : name,
+                                    action: #selector(menuOpenWithApp(_:)), keyEquivalent: "")
+                it.representedObject = app
+                it.target = self
+                let icon = NSWorkspace.shared.icon(forFile: app.path)
+                icon.size = NSSize(width: 16, height: 16); it.image = icon
+                menu.addItem(it)
+            }
+            menu.addItem(.separator())
+            let other = NSMenuItem(title: "Other…", action: #selector(menuOpenWith), keyEquivalent: "")
+            other.target = self
+            menu.addItem(other)
+            // "Always Open With" → set the default app for this file's type.
+            menu.addItem(.separator())
+            let always = NSMenuItem(title: "Always Open With", action: nil, keyEquivalent: "")
+            let alwaysMenu = NSMenu()
+            for app in candidates {
+                let name = FileManager.default.displayName(atPath: app.path)
+                    .replacingOccurrences(of: ".app", with: "")
+                let it = NSMenuItem(title: name, action: #selector(menuSetDefaultApp(_:)), keyEquivalent: "")
+                it.representedObject = app
+                it.target = self
+                alwaysMenu.addItem(it)
+            }
+            always.submenu = alwaysMenu
+            menu.addItem(always)
+        }
+        item.submenu = menu
+        return item
+    }
+
+    /// Ordered, de-duplicated apps that can open `url` (default first), capped.
+    static func appCandidates(for url: URL) -> [URL] {
+        var seen = Set<String>()
+        var out: [URL] = []
+        for app in NSWorkspace.shared.urlsForApplications(toOpen: url) where seen.insert(app.path).inserted {
+            out.append(app)
+            if out.count >= 10 { break }
+        }
+        return out
+    }
+
+    /// "Copy Checksum" ▸ MD5 / SHA-256 for the selected file(s).
+    private func checksumSubmenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Copy Checksum", action: nil, keyEquivalent: "")
+        let menu = NSMenu()
+        for kind in Checksum.Kind.allCases {
+            let it = NSMenuItem(title: kind.rawValue, action: #selector(menuCopyChecksum(_:)), keyEquivalent: "")
+            it.representedObject = kind.rawValue
+            it.target = self
+            menu.addItem(it)
+        }
+        item.submenu = menu
+        return item
+    }
+
+    @objc private func menuOpenWithApp(_ sender: NSMenuItem) {
+        guard let app = sender.representedObject as? URL else { return }
+        let urls = selectedItems().map { $0.url }
+        guard !urls.isEmpty else { return }
+        NSWorkspace.shared.open(urls, withApplicationAt: app,
+                                configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+    }
+
+    @objc private func menuSetDefaultApp(_ sender: NSMenuItem) {
+        guard let app = sender.representedObject as? URL,
+              let url = selectedItems().first?.url,
+              let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType else { return }
+        NSWorkspace.shared.setDefaultApplication(at: app, toOpen: type) { err in
+            if err != nil { DispatchQueue.main.async { NSSound.beep() } }
+        }
+    }
+
+    @objc private func menuCopyChecksum(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let kind = Checksum.Kind(rawValue: raw) else { return }
+        let urls = selectedItems().map { $0.url }.filter { !((try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false) }
+        guard !urls.isEmpty else { NSSound.beep(); return }
+        // Hashing can be slow for big files — do it off-main, then copy.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let text = Checksum.report(urls, kind: kind)
+            DispatchQueue.main.async {
+                guard !text.isEmpty else { NSSound.beep(); return }
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(text, forType: .string)
+            }
+        }
     }
 
     /// Menu shown when right-clicking empty space in the list (no row).
