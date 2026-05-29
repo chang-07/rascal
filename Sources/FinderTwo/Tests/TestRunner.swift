@@ -277,6 +277,55 @@ final class TestRunner {
         TransferQueue.shared.clearFinished()
         assert("clearFinished empties the op list", TransferQueue.shared.snapshot.isEmpty, "remaining=\(TransferQueue.shared.snapshot.count)")
 
+        // --- T11e: file-operation undo / redo ---
+        let fm0 = FileManager.default
+        let unDir = sandbox.appendingPathComponent("undo")
+        try? fm0.createDirectory(at: unDir, withIntermediateDirectories: true)
+        // New Folder → undo removes it.
+        FileActionLog.shared.clear()
+        let unNF = FileOps.newFolder(in: unDir, baseName: "nf")
+        assert("newFolder records an undo", FileActionLog.shared.canUndo, "no undo")
+        assert("newFolder created the folder", unNF != nil && fm0.fileExists(atPath: unNF!.path), "missing")
+        _ = FileActionLog.shared.performUndo()
+        assert("undo New Folder removes it", !(unNF.map { fm0.fileExists(atPath: $0.path) } ?? true), "still present")
+        // Move to Trash → undo restores.
+        FileActionLog.shared.clear()
+        let unTrash = unDir.appendingPathComponent("trashme.txt")
+        try? "x".write(to: unTrash, atomically: true, encoding: .utf8)
+        FileOps.moveToTrash([unTrash])
+        assert("trash removed the file", !fm0.fileExists(atPath: unTrash.path), "still there")
+        _ = FileActionLog.shared.performUndo()
+        assert("undo Move-to-Trash restores", fm0.fileExists(atPath: unTrash.path), "not restored")
+        // Rename → undo/redo round-trip (via the same recordMove the UI uses).
+        FileActionLog.shared.clear()
+        let unR1 = unDir.appendingPathComponent("r1.txt"); let unR2 = unDir.appendingPathComponent("r2.txt")
+        try? "y".write(to: unR1, atomically: true, encoding: .utf8)
+        try? fm0.moveItem(at: unR1, to: unR2)
+        FileActionLog.shared.recordMove(from: unR1, to: unR2, name: "Rename")
+        _ = FileActionLog.shared.performUndo()
+        assert("undo Rename moves back", fm0.fileExists(atPath: unR1.path) && !fm0.fileExists(atPath: unR2.path), "wrong state")
+        _ = FileActionLog.shared.performRedo()
+        assert("redo Rename re-applies", fm0.fileExists(atPath: unR2.path) && !fm0.fileExists(atPath: unR1.path), "wrong state")
+        // Transfer (move) → undo restores source. Drive the queue op directly
+        // and wait on its state so the test isn't sensitive to queue latency.
+        FileActionLog.shared.clear()
+        let unMv = unDir.appendingPathComponent("mv.txt")
+        try? "z".write(to: unMv, atomically: true, encoding: .utf8)
+        let unMvDstDir = unDir.appendingPathComponent("mvdst")
+        try? fm0.createDirectory(at: unMvDstDir, withIntermediateDirectories: true)
+        let unMvDst = unMvDstDir.appendingPathComponent("mv.txt")
+        let mvOp = TransferQueue.shared.enqueue(plan: [(unMv, unMvDst, false)], move: true)
+        waitUntil(5) { mvOp.state == .done }
+        assert("queued move completed", mvOp.state == .done, "state=\(mvOp.state)")
+        assert("queued move relocated the file", fm0.fileExists(atPath: unMvDst.path) && !fm0.fileExists(atPath: unMv.path), "not moved")
+        waitUntil(2) { FileActionLog.shared.canUndo }   // record is posted on main after .done
+        assert("transfer move records an undo", FileActionLog.shared.canUndo, "no undo")
+        _ = FileActionLog.shared.performUndo()
+        waitUntil { fm0.fileExists(atPath: unMv.path) }
+        assert("undo Move restores the source", fm0.fileExists(atPath: unMv.path) && !fm0.fileExists(atPath: unMvDst.path), "wrong state")
+        FileActionLog.shared.clear()
+        TransferQueue.shared.clearFinished()
+
         // --- T12: rename via FileListController.commitInlineRename ---
         // Sync reload so the file list picks up the new folder before we assert.
         pane.testReloadSync()

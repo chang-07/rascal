@@ -213,6 +213,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func showTransferActivity(_ sender: Any?) { TransferActivityController.shared.present() }
     @objc func toggleDropStack(_ sender: Any?) { DropStackController.shared.toggle() }
     @objc func selectByPattern(_ sender: Any?) { activePane?.selectByPattern() }
+
+    /// ⌘Z — undo the last file operation. While a text field is being edited
+    /// (rename, search, path bar), forward to its own undo instead.
+    @objc func fileUndo(_ sender: Any?) {
+        if let text = window?.firstResponder as? NSText, text.undoManager?.canUndo == true {
+            text.undoManager?.undo(); return
+        }
+        if FileActionLog.shared.performUndo() { activePane?.reload() }
+    }
+    @objc func fileRedo(_ sender: Any?) {
+        if let text = window?.firstResponder as? NSText, text.undoManager?.canRedo == true {
+            text.undoManager?.redo(); return
+        }
+        if FileActionLog.shared.performRedo() { activePane?.reload() }
+    }
     @objc func addToDropStack(_ sender: Any?) {
         let sel = activePane?.selectedURLs() ?? []
         if DropStack.add(sel) > 0 { DropStackController.shared.present() } else { NSSound.beep() }

@@ -705,6 +705,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         if FileManager.default.fileExists(atPath: newURL.path) { NSSound.beep(); return }
         do {
             try FileManager.default.moveItem(at: item.url, to: newURL)
+            FileActionLog.shared.recordMove(from: item.url, to: newURL, name: "Rename")
         } catch {
             NSSound.beep()
         }
@@ -729,6 +730,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         }
         do {
             try FileManager.default.moveItem(at: item.url, to: newURL)
+            FileActionLog.shared.recordMove(from: item.url, to: newURL, name: "Rename")
             // The FSEvents watcher will pick up the change and trigger a reload.
         } catch {
             NSSound.beep()

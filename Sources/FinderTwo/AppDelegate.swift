@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private weak var chromeHiddenItem: NSMenuItem?
     private weak var chromeUseGroupsItem: NSMenuItem?
     private weak var chromeSyncBrowsingItem: NSMenuItem?
+    private weak var undoMenuItem: NSMenuItem?
+    private weak var redoMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
@@ -30,6 +32,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             forName: Settings.didChange, object: nil, queue: .main
         ) { [weak self] _ in
             self?.refreshChromeChecks()
+        }
+        // Keep the Edit ▸ Undo/Redo titles in step with the file-action stack.
+        NotificationCenter.default.addObserver(
+            forName: FileActionLog.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.refreshUndoTitles()
         }
         if ProcessInfo.processInfo.environment["FT_RUN_TESTS"] == "1" {
             DispatchQueue.main.async {
@@ -236,8 +244,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // ---- Edit ----
         let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(systemItem(title: "Undo", action: Selector(("undo:")), key: "z"))
-        editMenu.addItem(systemItem(title: "Redo", action: Selector(("redo:")), key: "Z"))
+        let undoItem = systemItem(title: "Undo", action: #selector(BrowserWindowController.fileUndo(_:)), key: "z")
+        let redoItem = systemItem(title: "Redo", action: #selector(BrowserWindowController.fileRedo(_:)), key: "Z")
+        editMenu.addItem(undoItem); editMenu.addItem(redoItem)
+        undoMenuItem = undoItem; redoMenuItem = redoItem
         editMenu.addItem(NSMenuItem.separator())
         editMenu.addItem(systemItem(title: "Cut", action: #selector(NSText.cut(_:)), key: "x"))
         editMenu.addItem(routed("edit.copy"))
@@ -462,6 +472,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func refreshChromeChecks() {
         chromeHotbarItem?.state = Settings.showHotbar ? .on : .off
         chromeTitleBarItem?.state = Settings.showTitleBar ? .on : .off
+    }
+
+    /// Reflect the file-action stack in the Edit ▸ Undo/Redo item titles.
+    private func refreshUndoTitles() {
+        let log = FileActionLog.shared
+        undoMenuItem?.title = log.undoName.map { "Undo \($0)" } ?? "Undo"
+        redoMenuItem?.title = log.redoName.map { "Redo \($0)" } ?? "Redo"
     }
 
     /// Reflect the active pane's view mode + hidden-files state in the View menu.

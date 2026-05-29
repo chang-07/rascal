@@ -4,20 +4,36 @@ enum FileOps {
     @discardableResult
     static func moveToTrash(_ urls: [URL]) -> Bool {
         let fm = FileManager.default
-        var anySucceeded = false
+        var trashed: [(original: URL, inTrash: URL)] = []
         for u in urls {
+            var out: NSURL?
             do {
-                try fm.trashItem(at: u, resultingItemURL: nil)
-                anySucceeded = true
+                try fm.trashItem(at: u, resultingItemURL: &out)
+                if let t = out as URL? { trashed.append((u, t)) }
             } catch {
                 NSSound.beep()
             }
         }
-        return anySucceeded
+        guard !trashed.isEmpty else { return false }
+        let name = trashed.count == 1 ? "Move to Trash" : "Move \(trashed.count) Items to Trash"
+        FileActionLog.shared.record(name,
+            undo: {
+                var ok = true
+                for t in trashed {
+                    if fm.fileExists(atPath: t.original.path) { continue }
+                    if (try? fm.moveItem(at: t.inTrash, to: t.original)) == nil { ok = false }
+                }
+                return ok
+            },
+            redo: {
+                trashed.forEach { try? fm.trashItem(at: $0.original, resultingItemURL: nil) }
+                return true
+            })
+        return true
     }
 
     @discardableResult
-    static func newFolder(in parent: URL, baseName: String = "untitled folder") -> URL? {
+    static func newFolder(in parent: URL, baseName: String = "untitled folder", recordUndo: Bool = true) -> URL? {
         let fm = FileManager.default
         var candidate = parent.appendingPathComponent(baseName)
         var i = 2
@@ -27,6 +43,7 @@ enum FileOps {
         }
         do {
             try fm.createDirectory(at: candidate, withIntermediateDirectories: false)
+            if recordUndo { FileActionLog.shared.recordCreate(candidate, name: "New Folder") }
             return candidate
         } catch {
             NSSound.beep()
@@ -176,18 +193,35 @@ enum FileOps {
     @discardableResult
     static func newFile(in parent: URL, baseName: String = "untitled") -> URL? {
         let dest = uniqueDestination(parent.appendingPathComponent(baseName))
-        return FileManager.default.createFile(atPath: dest.path, contents: Data()) ? dest : nil
+        guard FileManager.default.createFile(atPath: dest.path, contents: Data()) else { return nil }
+        FileActionLog.shared.recordCreate(dest, name: "New File")
+        return dest
     }
 
     /// Group `items` into a new folder in `parent` (Finder's "New Folder with
     /// Selection"). Returns the new folder, or nil on failure.
     @discardableResult
     static func newFolderWithItems(_ items: [URL], in parent: URL) -> URL? {
-        guard !items.isEmpty, let folder = newFolder(in: parent, baseName: "New Folder With Items") else { return nil }
+        guard !items.isEmpty,
+              let folder = newFolder(in: parent, baseName: "New Folder With Items", recordUndo: false) else { return nil }
         let fm = FileManager.default
+        var moved: [(from: URL, to: URL)] = []
         for src in items {
-            try? fm.moveItem(at: src, to: folder.appendingPathComponent(src.lastPathComponent))
+            let dst = folder.appendingPathComponent(src.lastPathComponent)
+            if (try? fm.moveItem(at: src, to: dst)) != nil { moved.append((src, dst)) }
         }
+        // Undo: move the items back to where they came from, then drop the folder.
+        FileActionLog.shared.record("New Folder with Selection",
+            undo: {
+                moved.forEach { try? fm.moveItem(at: $0.to, to: $0.from) }
+                try? fm.trashItem(at: folder, resultingItemURL: nil)
+                return true
+            },
+            redo: {
+                _ = try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+                moved.forEach { try? fm.moveItem(at: $0.from, to: $0.to) }
+                return true
+            })
         return folder
     }
 
