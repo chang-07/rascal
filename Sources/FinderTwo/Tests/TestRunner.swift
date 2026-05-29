@@ -958,6 +958,10 @@ final class TestRunner {
         assert("setViewMode(.icon) honored", pane.viewMode == .icon, "got=\(pane.viewMode)")
         pane.setViewMode(.list)
         assert("setViewMode(.list) honored", pane.viewMode == .list, "got=\(pane.viewMode)")
+        pane.arrangeBy(.kind)
+        assert("arrangeBy(.kind) sets the sort key", pane.testModel.sort.key == .kind,
+               "got=\(pane.testModel.sort.key)")
+        pane.arrangeBy(.name)
 
         // --- T48: toggleHidden affects what filterless reload returns ---
         let dottedFile = sandbox.appendingPathComponent(".hidden_audit_marker")

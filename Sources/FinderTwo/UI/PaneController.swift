@@ -419,6 +419,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func compressSelection() { fileList.compressSelection() }
     func extractSelection() { fileList.extractSelection() }
     func makeAliasSelection() { fileList.makeAliasSelection() }
+    func arrangeBy(_ key: SortKey) { fileList.setSortKey(key) }
 
     private func switchToActiveTabModel() {
         fileList.setModel(activeTab.model)

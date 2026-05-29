@@ -240,6 +240,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc func viewAsIcons(_ sender: Any?) { activePane?.setViewMode(.icon) }
+    @objc func arrangeBy(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let key = SortKey(rawValue: raw) else { return }
+        activePane?.arrangeBy(key)
+    }
     @objc func viewAsList(_ sender: Any?) { activePane?.setViewMode(.list) }
     @objc func viewAsColumns(_ sender: Any?) { activePane?.setViewMode(.columns) }
 

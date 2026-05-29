@@ -791,6 +791,13 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     func compressSelection() { menuCompress() }
     func extractSelection() { menuExtract() }
     func makeAliasSelection() { menuMakeAlias() }
+
+    /// Arrange By <key>: set the sort, updating both the model and the column
+    /// header's sort indicator. The model's recompute cascades to the icon view.
+    func setSortKey(_ key: SortKey) {
+        tableView.sortDescriptors = [NSSortDescriptor(key: key.rawValue, ascending: true)]
+        model.sort = SortDescriptor(key: key, ascending: true, foldersFirst: model.sort.foldersFirst)
+    }
 }
 
 /// NSTableView subclass that routes alphanumeric keys to type-ahead filtering and
