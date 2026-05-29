@@ -63,6 +63,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Headless landing-page media generator (renders off-screen, nothing on
+        // any display). FT_HEADLESS_TESTING=1 FT_DEMO=<outdir>.
+        if let demoDir = ProcessInfo.processInfo.environment["FT_DEMO"] {
+            DispatchQueue.main.async {
+                DemoShot.renderAll(to: demoDir)
+                NSApp.terminate(nil)
+            }
+            return
+        }
         // Headless treemap screenshot generator (no window shown) — for demos and
         // off-screen visual verification. FT_TREEMAP_SHOT=<out.png> [FT_TREEMAP_ROOT=<dir>].
         if let shot = ProcessInfo.processInfo.environment["FT_TREEMAP_SHOT"] {
