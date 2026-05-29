@@ -248,6 +248,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(asListItem); chromeAsListItem = asListItem
         let asColumnsItem = routed("view.as-columns")
         viewMenu.addItem(asColumnsItem); chromeAsColumnsItem = asColumnsItem
+        let arrangeItem = NSMenuItem(title: "Arrange By", action: nil, keyEquivalent: "")
+        let arrangeMenu = NSMenu()
+        for (title, key) in [("Name", "name"), ("Kind", "kind"),
+                             ("Date Modified", "dateModified"), ("Size", "size")] {
+            let it = NSMenuItem(title: title,
+                                action: #selector(BrowserWindowController.arrangeBy(_:)), keyEquivalent: "")
+            it.representedObject = key
+            arrangeMenu.addItem(it)
+        }
+        arrangeItem.submenu = arrangeMenu
+        viewMenu.addItem(arrangeItem)
         viewMenu.addItem(NSMenuItem.separator())
         let hiddenItem = routed("view.toggle-hidden", title: "Show Hidden Files")
         viewMenu.addItem(hiddenItem); chromeHiddenItem = hiddenItem
