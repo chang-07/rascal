@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private weak var chromeAsColumnsItem: NSMenuItem?
     private weak var chromeHiddenItem: NSMenuItem?
     private weak var chromeUseGroupsItem: NSMenuItem?
+    private weak var chromeSyncBrowsingItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
@@ -275,6 +276,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(routed("pane.focus-prev"))
         viewMenu.addItem(routed("pane.copy-to-other"))
         viewMenu.addItem(routed("pane.move-to-other"))
+        let syncItem = routed("pane.sync-browsing")
+        viewMenu.addItem(syncItem); chromeSyncBrowsingItem = syncItem
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(routed("view.toggle-sidebar"))
         viewMenu.addItem(routed("view.toggle-statusbar"))
@@ -463,6 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         chromeAsColumnsItem?.state = (mode == .columns) ? .on : .off
         chromeHiddenItem?.state = (pane?.testModel.showHidden == true) ? .on : .off
         chromeUseGroupsItem?.state = Settings.useGroups ? .on : .off
+        chromeSyncBrowsingItem?.state = (currentBrowserWC()?.syncBrowsingOn == true) ? .on : .off
     }
 
     // NSMenuDelegate — refresh the View menu's checkmarks right before it shows

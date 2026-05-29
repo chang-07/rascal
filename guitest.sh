@@ -104,6 +104,7 @@ declare -a EXPECT=(
     "Go|Jump to Project Root"
     "View|Focus Next Pane"
     "View|Focus Previous Pane"
+    "View|Synchronized Browsing"
     "View|Use Groups"
     "View|Transfer Activity"
     "View|Drop Stack"
