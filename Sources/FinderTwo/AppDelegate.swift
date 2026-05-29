@@ -342,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         windowMenu.addItem(routed("tab.next"))
         windowMenu.addItem(routed("tab.move-left"))
         windowMenu.addItem(routed("tab.move-right"))
+        windowMenu.addItem(routed("tab.move-to-new-window"))
         windowMenu.addItem(NSMenuItem.separator())
         // Jump to tab N with ⌘1–⌘9 (⌘9 = last tab, browser convention).
         for i in 1...9 {

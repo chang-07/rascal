@@ -154,6 +154,15 @@ enum FileOps {
         return ok
     }
 
+    static let imageExtensions: Set<String> =
+        ["jpg", "jpeg", "png", "heic", "heif", "gif", "tiff", "tif", "bmp", "webp"]
+
+    /// Set the given image as the desktop picture on the main screen.
+    static func setDesktopPicture(_ url: URL) {
+        guard let screen = NSScreen.main else { return }
+        try? NSWorkspace.shared.setDesktopImageURL(url, for: screen, options: [:])
+    }
+
     /// Empty the Trash via Finder (matches the system behavior + its warning).
     static func emptyTrash() {
         let src = "tell application \"Finder\" to empty trash"

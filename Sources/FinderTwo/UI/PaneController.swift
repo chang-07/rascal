@@ -401,6 +401,14 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     /// Jump to the last tab (⌘9, browser convention).
     func selectLastTab() { selectTab(at: tabs.count - 1) }
 
+    /// Move the active tab out into its own new window, then close it here.
+    func moveActiveTabToNewWindow() {
+        guard tabs.count > 1 else { return }
+        let url = activeTab.currentURL
+        (NSApp.delegate as? AppDelegate)?.openNewBrowserWindow(at: url)
+        closeActiveTab()
+    }
+
     /// Reorder the active tab left/right (no wrap); it stays active.
     func moveActiveTab(by delta: Int) {
         let dest = activeTabIndex + delta

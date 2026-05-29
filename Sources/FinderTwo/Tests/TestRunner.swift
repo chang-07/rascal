@@ -1351,6 +1351,10 @@ final class TestRunner {
         _ = disk.window?.contentView
         assert("DiskAnalyzerWindowController builds", disk.window?.contentView != nil, "nil")
 
+        // Native Get Info panel builds for a real path (incl. its NSGridView).
+        let info = GetInfoSheetController(url: sandbox)
+        assert("GetInfoSheetController builds", info.window?.contentView != nil, "nil")
+
         // App uninstaller sheet — point at a real .app so scan has data
         let someApp = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
         if FileManager.default.fileExists(atPath: someApp.path) {

@@ -186,6 +186,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func nextTab(_ sender: Any?) { activePane?.nextTab() }
     @objc func prevTab(_ sender: Any?) { activePane?.prevTab() }
     @objc func selectLastTab(_ sender: Any?) { activePane?.selectLastTab() }
+    @objc func moveTabToNewWindow(_ sender: Any?) { activePane?.moveActiveTabToNewWindow() }
     @objc func moveTabLeft(_ sender: Any?) { activePane?.moveActiveTab(by: -1) }
     @objc func moveTabRight(_ sender: Any?) { activePane?.moveActiveTab(by: 1) }
     @objc func focusNextPane(_ sender: Any?) { panesContainer.focusPane(by: 1) }
@@ -236,7 +237,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func getInfo(_ sender: Any?) {
         guard let pane = activePane else { return }
         let sel = pane.selectedURLs()
-        FileOps.getInfo(sel.isEmpty ? [pane.currentURL] : sel)
+        let target = sel.first ?? pane.currentURL
+        GetInfoSheetController.show(for: target, parent: window)
     }
 
     @objc func viewAsIcons(_ sender: Any?) { activePane?.setViewMode(.icon) }
