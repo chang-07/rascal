@@ -221,6 +221,34 @@ final class TestRunner {
         assert("recursiveSize > 0 for a populated folder",
                FileListController.recursiveSize(foDir) > 0, "got \(FileListController.recursiveSize(foDir))")
 
+        // --- T11c: recursive folder merge (union; file collisions recover) ---
+        func mk(_ url: URL, _ s: String) { try? s.write(to: url, atomically: true, encoding: .utf8) }
+        let mRoot = sandbox.appendingPathComponent("merge"); let mSrc = mRoot.appendingPathComponent("src"); let mDst = mRoot.appendingPathComponent("dst")
+        try? FileManager.default.createDirectory(at: mSrc.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: mDst.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        mk(mDst.appendingPathComponent("a.txt"), "dst-a")          // collides → replaced
+        mk(mDst.appendingPathComponent("keep.txt"), "dst-keep")    // only in dst → stays
+        mk(mDst.appendingPathComponent("sub/x.txt"), "dst-x")      // only in dst/sub → stays
+        mk(mSrc.appendingPathComponent("a.txt"), "src-a")          // wins the collision
+        mk(mSrc.appendingPathComponent("new.txt"), "src-new")      // only in src → added
+        mk(mSrc.appendingPathComponent("sub/y.txt"), "src-y")      // merges into sub
+        let mfail = FileOps.mergeDirectory(src: mSrc, into: mDst, move: false)
+        func read(_ url: URL) -> String { (try? String(contentsOf: url, encoding: .utf8)) ?? "<none>" }
+        assert("merge: no failures", mfail == 0, "failures=\(mfail)")
+        assert("merge: collision file replaced by source", read(mDst.appendingPathComponent("a.txt")) == "src-a", "got \(read(mDst.appendingPathComponent("a.txt")))")
+        assert("merge: dst-only file kept", read(mDst.appendingPathComponent("keep.txt")) == "dst-keep", "lost")
+        assert("merge: src-only file added", read(mDst.appendingPathComponent("new.txt")) == "src-new", "missing")
+        assert("merge: nested dst file kept", read(mDst.appendingPathComponent("sub/x.txt")) == "dst-x", "lost")
+        assert("merge: nested src file added", read(mDst.appendingPathComponent("sub/y.txt")) == "src-y", "missing")
+        // Move-merge empties + removes the source tree.
+        let mSrc2 = mRoot.appendingPathComponent("src2"); let mDst2 = mRoot.appendingPathComponent("dst2")
+        try? FileManager.default.createDirectory(at: mSrc2, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: mDst2, withIntermediateDirectories: true)
+        mk(mSrc2.appendingPathComponent("z.txt"), "z")
+        _ = FileOps.mergeDirectory(src: mSrc2, into: mDst2, move: true)
+        assert("merge(move): file moved into dst", read(mDst2.appendingPathComponent("z.txt")) == "z", "missing")
+        assert("merge(move): emptied source dir removed", !FileManager.default.fileExists(atPath: mSrc2.path), "src2 remains")
+
         // --- T12: rename via FileListController.commitInlineRename ---
         // Sync reload so the file list picks up the new folder before we assert.
         pane.testReloadSync()

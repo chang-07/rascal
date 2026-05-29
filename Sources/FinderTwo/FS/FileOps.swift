@@ -41,40 +41,51 @@ enum FileOps {
         transfer(urls, into: destination, move: move, from: window)
     }
 
-    enum Conflict { case keepBoth, replace, skip }
+    enum Conflict { case keepBoth, replace, skip, merge }
 
     private static let transferQueue = DispatchQueue(label: "FinderTwo.transfer", qos: .userInitiated)
 
+    private static func isDir(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
     /// Copy or move `urls` into `destination`, resolving name collisions with a
-    /// Finder-style prompt (Keep Both / Replace / Skip, with Apply to All) up
-    /// front, then executing OFF the main thread so big copies never freeze the
-    /// UI. Multi-item / folder operations show a cancellable progress sheet.
+    /// Finder-style prompt (Merge / Keep Both / Replace / Skip, with Apply to
+    /// All) up front, then executing OFF the main thread so big copies never
+    /// freeze the UI. Multi-item / folder operations show a cancellable progress
+    /// sheet. "Merge" (offered only folder-into-folder) recursively unions the
+    /// two trees; colliding files are replaced into the Trash (recoverable).
     static func transfer(_ urls: [URL], into destination: URL, move: Bool, from window: NSWindow? = nil) {
         let fm = FileManager.default
         // Phase 1 (main thread): resolve conflicts, build the work plan.
         var applyAll: Conflict?
-        var plan: [(src: URL, dst: URL)] = []
+        var plan: [(src: URL, dst: URL, merge: Bool)] = []
         var hasDirectory = false
         for src in urls {
             if move && src.deletingLastPathComponent().path == destination.path { continue }
             if destination.path == src.path || destination.path.hasPrefix(src.path + "/") { continue }
             var dst = destination.appendingPathComponent(src.lastPathComponent)
+            var merge = false
             if fm.fileExists(atPath: dst.path) {
-                let res: Conflict
+                let canMerge = isDir(src) && isDir(dst)
+                var res: Conflict
                 if let a = applyAll { res = a }
                 else {
-                    let (r, all) = promptConflict(name: src.lastPathComponent, multiple: urls.count > 1)
+                    let (r, all) = promptConflict(name: src.lastPathComponent, multiple: urls.count > 1, canMerge: canMerge)
                     if all { applyAll = r }
                     res = r
                 }
+                // "Merge" only makes sense folder-into-folder; otherwise keep both.
+                if res == .merge && !canMerge { res = .keepBoth }
                 switch res {
                 case .skip: continue
                 case .keepBoth: dst = uniqueDestination(dst)
                 case .replace: try? fm.trashItem(at: dst, resultingItemURL: nil)
+                case .merge: merge = true
                 }
             }
-            if (try? src.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { hasDirectory = true }
-            plan.append((src, dst))
+            if isDir(src) { hasDirectory = true }
+            plan.append((src, dst, merge))
         }
         guard !plan.isEmpty else { return }
 
@@ -88,10 +99,14 @@ enum FileOps {
             var failures = 0
             for (i, step) in plan.enumerated() {
                 if cancel?.value == true { break }
-                do {
-                    if move { try fm.moveItem(at: step.src, to: step.dst) }
-                    else { try fm.copyItem(at: step.src, to: step.dst) }
-                } catch { failures += 1 }
+                if step.merge {
+                    failures += mergeDirectory(src: step.src, into: step.dst, move: move, fm: fm)
+                } else {
+                    do {
+                        if move { try fm.moveItem(at: step.src, to: step.dst) }
+                        else { try fm.copyItem(at: step.src, to: step.dst) }
+                    } catch { failures += 1 }
+                }
                 DispatchQueue.main.async { progress?.advance(to: i + 1, name: step.src.lastPathComponent) }
             }
             DispatchQueue.main.async {
@@ -99,6 +114,38 @@ enum FileOps {
                 if failures > 0 { NSSound.beep() }
             }
         }
+    }
+
+    /// Recursively union `src` into the existing directory `dst`. Entries absent
+    /// in `dst` are copied/moved in; two directories recurse; a file collision
+    /// sends the destination file to the Trash and brings the source in
+    /// (recoverable). Returns the number of failed leaf operations. Exposed for
+    /// tests.
+    @discardableResult
+    static func mergeDirectory(src: URL, into dst: URL, move: Bool, fm: FileManager = .default) -> Int {
+        var failures = 0
+        let children = (try? fm.contentsOfDirectory(at: src,
+            includingPropertiesForKeys: [.isDirectoryKey], options: [])) ?? []
+        for child in children {
+            let target = dst.appendingPathComponent(child.lastPathComponent)
+            if fm.fileExists(atPath: target.path) {
+                if isDir(child) && isDir(target) {
+                    failures += mergeDirectory(src: child, into: target, move: move, fm: fm)
+                    continue
+                }
+                try? fm.trashItem(at: target, resultingItemURL: nil)
+            }
+            do {
+                if move { try fm.moveItem(at: child, to: target) }
+                else { try fm.copyItem(at: child, to: target) }
+            } catch { failures += 1 }
+        }
+        // When moving, drop the source dir only if we emptied it (never nuke
+        // files that failed to move).
+        if move, ((try? fm.contentsOfDirectory(atPath: src.path))?.isEmpty ?? false) {
+            try? fm.removeItem(at: src)
+        }
+        return failures
     }
 
     /// "<base> 2.ext", "<base> 3.ext", … — first name that doesn't exist.
@@ -117,14 +164,19 @@ enum FileOps {
         return candidate
     }
 
-    private static func promptConflict(name: String, multiple: Bool) -> (Conflict, Bool) {
+    private static func promptConflict(name: String, multiple: Bool, canMerge: Bool) -> (Conflict, Bool) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "An item named “\(name)” already exists here."
-        alert.informativeText = "Keep both, replace the existing item, or skip it?"
-        alert.addButton(withTitle: "Keep Both")
-        alert.addButton(withTitle: "Replace")
-        alert.addButton(withTitle: "Skip")
+        alert.informativeText = canMerge
+            ? "Merge the folders, keep both, replace the existing item, or skip it?"
+            : "Keep both, replace the existing item, or skip it?"
+        // Buttons map to `actions` by order (alertFirstButtonReturn = index 0).
+        var actions: [Conflict] = []
+        if canMerge { alert.addButton(withTitle: "Merge"); actions.append(.merge) }
+        alert.addButton(withTitle: "Keep Both"); actions.append(.keepBoth)
+        alert.addButton(withTitle: "Replace");   actions.append(.replace)
+        alert.addButton(withTitle: "Skip");      actions.append(.skip)
         var box: NSButton?
         if multiple {
             let cb = NSButton(checkboxWithTitle: "Apply to all", target: nil, action: nil)
@@ -132,12 +184,8 @@ enum FileOps {
             box = cb
         }
         let resp = alert.runModal()
-        let conflict: Conflict
-        switch resp {
-        case .alertFirstButtonReturn: conflict = .keepBoth
-        case .alertSecondButtonReturn: conflict = .replace
-        default: conflict = .skip
-        }
+        let idx = resp.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        let conflict = actions.indices.contains(idx) ? actions[idx] : .skip
         return (conflict, box?.state == .on)
     }
 
