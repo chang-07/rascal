@@ -370,6 +370,32 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         updateTabStripVisibility()
     }
 
+    /// Cycle to the next/previous tab (wraps around).
+    func nextTab() { cycleTab(by: 1) }
+    func prevTab() { cycleTab(by: -1) }
+    private func cycleTab(by delta: Int) {
+        guard tabs.count > 1 else { return }
+        selectTab(at: (activeTabIndex + delta + tabs.count) % tabs.count)
+    }
+
+    /// Jump to the last tab (⌘9, browser convention).
+    func selectLastTab() { selectTab(at: tabs.count - 1) }
+
+    /// Reorder the active tab left/right (no wrap); it stays active.
+    func moveActiveTab(by delta: Int) {
+        let dest = activeTabIndex + delta
+        guard tabs.count > 1, tabs.indices.contains(dest) else { return }
+        let t = tabs.remove(at: activeTabIndex)
+        tabs.insert(t, at: dest)
+        activeTabIndex = dest
+        updateTabStripVisibility()
+    }
+
+    /// Put keyboard focus on this pane's file list (used by pane-switching).
+    func focusFileList() {
+        view.window?.makeFirstResponder(fileList.tableView)
+    }
+
     private func switchToActiveTabModel() {
         fileList.setModel(activeTab.model)
     }
