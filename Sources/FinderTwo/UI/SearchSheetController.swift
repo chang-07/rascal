@@ -297,6 +297,25 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         return nil
     }
 
+    /// Demo/screenshot hook: synchronously index + fuzzy-filter so a capture
+    /// shows real matches without waiting on the async search pipeline.
+    func demoPopulate(query q: String) {
+        _ = window?.contentView
+        let fm = FileManager.default
+        var list: [URL] = []
+        if let en = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil,
+                                  options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
+            for case let u as URL in en { list.append(u); if list.count > 5000 { break } }
+        }
+        indexCache = list
+        searchField.stringValue = q
+        let results = SearchSheetController.fuzzyFilter(list, needle: q, limit: 30)
+        hits = results.map { Hit(url: $0, title: $0.lastPathComponent, subtitle: $0.deletingLastPathComponent().path) }
+        statusLabel.stringValue = "\(hits.count) match\(hits.count == 1 ? "" : "es") · \(list.count) files"
+        tableView.reloadData()
+        if !hits.isEmpty { tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
+    }
+
     // MARK: NSTextFieldDelegate
 
     func controlTextDidChange(_ obj: Notification) {
@@ -353,6 +372,10 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
     // MARK: NSTableViewDataSource
 
     func numberOfRows(in tableView: NSTableView) -> Int { hits.count }
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        OverlayUI.makeRowView()
+    }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let h = hits[row]
