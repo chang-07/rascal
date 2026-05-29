@@ -25,11 +25,13 @@ enum Archive {
             if p.hasSuffix(".tbz2")     { return .tarBz2 }
             return nil
         }
+        /// List flags WITHOUT the `f` (the filename flag must come last so its
+        /// argument is the archive path, not the trailing `v`).
         var tarFlags: String {
             switch self {
-            case .tar: return "tf"
-            case .tarGz: return "tzf"
-            case .tarBz2: return "tjf"
+            case .tar: return "t"
+            case .tarGz: return "tz"
+            case .tarBz2: return "tj"
             case .zip: return ""
             }
         }
@@ -150,25 +152,43 @@ enum Archive {
         return proc.terminationStatus == 0
     }
 
+    /// Output formats for "Compress". Zip is Finder-compatible; Zip can be
+    /// password-encrypted; tar.gz is the cross-platform UNIX default.
+    enum CompressFormat: String, CaseIterable {
+        case zip = "Zip"
+        case tarGz = "Tar.gz"
+        var ext: String { self == .zip ? "zip" : "tar.gz" }
+        /// Encryption is only meaningful for zip.
+        var supportsPassword: Bool { self == .zip }
+    }
+
     /// Compress the given items (which must share a parent directory) into a new
-    /// `.zip` beside them. Returns the created archive URL, or nil on failure.
-    /// Names like Finder: "<name>.zip" for one item, "Archive.zip" for several.
-    static func compress(_ items: [URL]) -> URL? {
+    /// archive beside them. Returns the created archive URL, or nil on failure.
+    /// Names like Finder: "<name>.<ext>" for one item, "Archive.<ext>" for many.
+    /// A non-empty `password` (zip only) produces an encrypted zip.
+    static func compress(_ items: [URL], format: CompressFormat = .zip, password: String? = nil) -> URL? {
         guard let first = items.first else { return nil }
         let parent = first.deletingLastPathComponent()
         let fm = FileManager.default
         let base = items.count == 1 ? first.deletingPathExtension().lastPathComponent : "Archive"
-        var dest = parent.appendingPathComponent("\(base).zip")
+        var dest = parent.appendingPathComponent("\(base).\(format.ext)")
         var i = 2
         while fm.fileExists(atPath: dest.path) {
-            dest = parent.appendingPathComponent("\(base) \(i).zip"); i += 1
+            dest = parent.appendingPathComponent("\(base) \(i).\(format.ext)"); i += 1
         }
+        let names = items.map { $0.lastPathComponent }   // basenames safe: shared parent
         let p = Process()
-        p.launchPath = "/usr/bin/zip"
         p.currentDirectoryURL = parent
-        // -r recurse, -q quiet, -X drop extra Finder attrs; basenames are safe
-        // because everything shares `parent` (single-directory selection).
-        p.arguments = ["-r", "-q", "-X", dest.path] + items.map { $0.lastPathComponent }
+        switch format {
+        case .zip:
+            p.launchPath = "/usr/bin/zip"
+            var args = ["-r", "-q", "-X"]
+            if let pw = password, !pw.isEmpty { args += ["-P", pw] }   // -P → encrypt
+            p.arguments = args + [dest.path] + names
+        case .tarGz:
+            p.launchPath = "/usr/bin/tar"
+            p.arguments = ["-czf", dest.path, "-C", parent.path] + names
+        }
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         do { try p.run() } catch { return nil }
@@ -234,7 +254,8 @@ enum Archive {
     private static func listTar(_ url: URL, flags: String) -> [Entry] {
         // `tar -tvf` gives a `ls -l`-like listing; we use simpler `-tf` for
         // names only and `-tvf` to grab sizes.
-        guard let raw = runForOutput("/usr/bin/tar", ["-" + flags + "v", url.path]) else { return [] }
+        // `f` must be the LAST flag so the next argv is the archive path.
+        guard let raw = runForOutput("/usr/bin/tar", ["-" + flags + "vf", url.path]) else { return [] }
         var entries: [Entry] = []
         for line in raw.split(separator: "\n") {
             // Format: perms hard links owner group size MM DD time name
