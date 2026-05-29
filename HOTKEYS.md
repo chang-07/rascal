@@ -17,6 +17,7 @@ keyboard. Every shortcut below is also discoverable in the menu bar and the
 | `⌘⇧G` | Go to Folder… | Type any path, `~` expands |
 | `⌘⇧H` | Home | Jump to your home folder |
 | `⌘K` | Connect to Server… | SFTP (uses your existing SSH keys/agent) |
+| `⇧⌘K` | Mount Network Volume… | SMB / FTP / AFP / WebDAV via the system (NetFS) |
 | `⌘⌃R` | Jump to Project Root | walks up to `.git`/`package.json`/`Cargo.toml`/… |
 | `⌘⇧O` | Open in Editor | opens the project root in Cursor / VS Code / Zed / Sublime |
 | double-click | Open | Same as `⌘↓` |
@@ -70,12 +71,18 @@ Drag files between panes to copy/move them.
 | `⌘I` | Get Info | Native inspector: size, kind, dates, owner, permissions |
 | `⌘⌥C` | Copy Path | Full POSIX path(s), one per line |
 | `⌘⌥T` | Open in Terminal | iTerm if running, else Terminal.app, at the folder |
+| `⌃⌘A` | Select by Pattern… | Select items matching a shell glob (`*.png`) |
+| `⌃⌘D` | Drop Stack | Toggle the shelf; "Add to Drop Stack" in the context menu |
+| `F5` / `F6` / `F8` | Copy / Move to other pane · Move to Trash | Orthodox-commander keys |
 
-Also available from the File / context menus: **Compress** (zip the
-selection), **Extract** (unarchive in place), **Make Alias** (symlink),
-and **New File**. Drag a file onto a folder and pause to **spring-load** it
-open (toggle in Settings ▸ General ▸ Dragging). Multi-item and folder
-copies/moves show a cancellable **progress sheet**.
+Also from the File / context menus: **Compress** (Zip, or **Compress…** for
+Tar.gz / password-protected Zip), **Extract**, **Make Alias**, **New File**,
+**Open With ▸** (any app + "Always Open With" to set the default),
+**Copy Checksum ▸** (MD5 / SHA-256), **Compare Two Files…**, and
+**Find Duplicate Files…**. Conflicts on a folder offer **Merge** (recursive
+union). Transfers run in a cancellable, pausable queue — **View ▸ Transfer
+Activity**. Drag a file onto a folder and pause to **spring-load** it open
+(Settings ▸ General ▸ Dragging).
 
 ## Search & filter
 
@@ -95,12 +102,14 @@ In the palette / search sheets: `↑`/`↓` move, `Return` activates, `Esc` clos
 | `⌥⌘1` | Icon view |
 | `⌥⌘2` | List view |
 | `⌥⌘3` | Column (Miller) view |
+| `⌥⌘4` | Gallery view (big preview + filmstrip) |
 | `⌥⌘P` | Toggle the preview / inspector drawer |
 | `⌥⌘S` | Show/Hide the sidebar |
+| `⌃⌘G` | Use Groups (section the list by the Arrange-By key) |
 | `⌘⇧.` | Toggle hidden files |
 | `⌥⌘B` | Show/Hide the hotbar (the quick-action button row) |
 | *(View menu)* | Show/Hide the window title bar, status bar, path bar |
-| *(View menu)* | Arrange By… (name, kind, date, size) |
+| *(View menu)* | Arrange By… (name, kind, date, size) · Synchronized Browsing |
 | *(View menu)* | Calculate all folder sizes · Type-to-select |
 | *(palette)* | Cycle Theme |
 
