@@ -57,30 +57,44 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
 
     func reload() {
         guard let pane = pane else { return }
+        entryCache.removeAll()
         columnURLs = [pane.currentURL]
         browser.loadColumnZero()
     }
 
-    private func entries(in url: URL) -> [URL] {
+    private struct ColEntry { let url: URL; let isDir: Bool }
+    /// Per-directory listing cache. NSBrowser calls `entries(in:)` once per
+    /// visible cell *and* per row count, so without this the whole directory is
+    /// re-read and re-stat-ed on every redraw — and resolving `isDir` once per
+    /// entry (not twice per sort comparison) removes an O(n log n) stat storm.
+    private var entryCache: [URL: [ColEntry]] = [:]
+
+    private func entries(in url: URL) -> [ColEntry] {
+        if let cached = entryCache[url] { return cached }
         guard let kids = try? FileManager.default.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey, .nameKey],
             options: []
-        ) else { return [] }
+        ) else { entryCache[url] = []; return [] }
         let showHidden = pane?.testModel.showHidden ?? false
-        let filtered = kids.filter { showHidden || !$0.lastPathComponent.hasPrefix(".") }
-        return filtered.sorted { a, b in
-            let aDir = (try? a.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            let bDir = (try? b.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            if aDir != bDir { return aDir }
-            return a.lastPathComponent.localizedStandardCompare(b.lastPathComponent) == .orderedAscending
+        let resolved: [ColEntry] = kids.compactMap { u in
+            if !showHidden && u.lastPathComponent.hasPrefix(".") { return nil }
+            let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            return ColEntry(url: u, isDir: isDir)
         }
+        let sorted = resolved.sorted { a, b in
+            if a.isDir != b.isDir { return a.isDir }
+            return a.url.lastPathComponent.localizedStandardCompare(b.url.lastPathComponent) == .orderedAscending
+        }
+        entryCache[url] = sorted
+        return sorted
     }
 
     // MARK: NSBrowserDelegate
 
     func browser(_ sender: NSBrowser, numberOfRowsInColumn column: Int) -> Int {
-        let url = columnURLs.indices.contains(column) ? columnURLs[column] : columnURLs.last!
+        guard let url = columnURLs.indices.contains(column) ? columnURLs[column] : columnURLs.last
+        else { return 0 }
         return entries(in: url).count
     }
 
@@ -90,9 +104,8 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
         let kids = entries(in: url)
         guard kids.indices.contains(row) else { return }
         let kid = kids[row]
-        cell.title = kid.lastPathComponent
-        let isDir = (try? kid.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        cell.isLeaf = !isDir
+        cell.title = kid.url.lastPathComponent
+        cell.isLeaf = !kid.isDir
     }
 
     @objc private func handleSelection() {
@@ -101,17 +114,15 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
         let row = browser.selectedRow(inColumn: col)
         guard col >= 0, row >= 0,
               columnURLs.indices.contains(col) else { return }
-        let parent = columnURLs[col]
-        let kids = entries(in: parent)
+        let kids = entries(in: columnURLs[col])
         guard kids.indices.contains(row) else { return }
         let sel = kids[row]
-        let isDir = (try? sel.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         // Trim deeper columns
         if columnURLs.count > col + 1 {
             columnURLs = Array(columnURLs.prefix(col + 1))
         }
-        if isDir {
-            columnURLs.append(sel)
+        if sel.isDir {
+            columnURLs.append(sel.url)
             browser.addColumn()
             browser.scrollColumnToVisible(col + 1)
         }
@@ -122,15 +133,13 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
         let row = browser.selectedRow(inColumn: col)
         guard col >= 0, row >= 0,
               columnURLs.indices.contains(col) else { return }
-        let parent = columnURLs[col]
-        let kids = entries(in: parent)
+        let kids = entries(in: columnURLs[col])
         guard kids.indices.contains(row) else { return }
         let sel = kids[row]
-        let isDir = (try? sel.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        if isDir {
-            pane?.navigate(to: sel)
+        if sel.isDir {
+            pane?.navigate(to: sel.url)
         } else {
-            NSWorkspace.shared.open(sel)
+            NSWorkspace.shared.open(sel.url)
         }
     }
 }

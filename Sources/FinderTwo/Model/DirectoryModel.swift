@@ -2,6 +2,15 @@ import AppKit
 
 protocol DirectoryModelDelegate: AnyObject {
     func directoryModelDidUpdate(_ model: DirectoryModel)
+    /// Git state (badges/branch) changed but the item list did not — lets the
+    /// pane refresh badges cheaply instead of doing a full table reload.
+    func directoryModelDidUpdateGitStatus(_ model: DirectoryModel)
+}
+
+extension DirectoryModelDelegate {
+    func directoryModelDidUpdateGitStatus(_ model: DirectoryModel) {
+        directoryModelDidUpdate(model)
+    }
 }
 
 /// Loads + watches one directory. Holds the filtered/sorted item list shown in a pane.
@@ -42,7 +51,9 @@ final class DirectoryModel {
     private static let ioQueue = DispatchQueue(label: "FinderTwo.DirectoryModel.IO", qos: .userInitiated)
     private var loadGeneration: UInt64 = 0
     private var pendingReload = false
-    private var lastReloadFinishedAt = Date.distantPast
+    /// Set when a watcher event arrives while a reload is already in flight, so
+    /// we run exactly one trailing reload afterward (no lost filesystem changes).
+    private var reloadAgain = false
     private var recomputeGeneration: UInt64 = 0
 
     init(url: URL) {
@@ -82,7 +93,7 @@ final class DirectoryModel {
         // Debounce: if a reload finished < 200ms ago and another is pending,
         // delay this one. If one is already pending, drop it (the pending one
         // will pick up the latest filesystem state).
-        if pendingReload { return }
+        if pendingReload { reloadAgain = true; return }
         pendingReload = true
         let gen = bumpGeneration()
         let target = url
@@ -114,8 +125,13 @@ final class DirectoryModel {
             // If this came from the sync path (applyOnMain == false), keep the
             // recompute synchronous so the items are visible when caller returns.
             self.recompute(forceSync: !applyOnMain)
-            self.lastReloadFinishedAt = Date()
             self.pendingReload = false
+            // A watcher event that arrived mid-reload → run one trailing reload
+            // so late filesystem changes aren't dropped.
+            if self.reloadAgain {
+                self.reloadAgain = false
+                self.reload(sync: false)
+            }
             self.computeGitStatus()
             let t3 = Date()
             if raw.count > 1000 {
@@ -143,7 +159,9 @@ final class DirectoryModel {
                 let changed = self.gitStates != states || self.gitRepoInfo != info
                 self.gitStates = states
                 self.gitRepoInfo = info
-                if changed { self.delegate?.directoryModelDidUpdate(self) }
+                // Items are unchanged here — only badges/branch. Use the light
+                // path so we don't trigger a full table reload + map rebuild.
+                if changed { self.delegate?.directoryModelDidUpdateGitStatus(self) }
             }
         }
     }

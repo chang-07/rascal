@@ -159,6 +159,16 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         }
     }
 
+    /// Repaint rows in place when only git badges changed — no map rebuild, no
+    /// selection/scroll reset (unlike full `reload()`). AppKit clips the redraw
+    /// to visible rows.
+    func refreshGitBadges() {
+        let n = tableView.numberOfRows
+        guard n > 0, tableView.numberOfColumns > 0 else { return }
+        tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<n),
+                             columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+    }
+
     func select(item: FileItem, scroll: Bool) {
         if let idx = model.items.firstIndex(of: item) {
             tableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
@@ -184,6 +194,13 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
 
     // MARK: NSTableViewDelegate
 
+    /// Secondary-column text color: theme label for custom themes, semantic
+    /// (light/dark-adapting) for System.
+    private var secondaryTextColor: NSColor {
+        let t = ThemeManager.shared.current
+        return t.id == "system" ? .secondaryLabelColor : t.labelSecondary
+    }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let col = tableColumn, model.items.indices.contains(row) else { return nil }
         let item = model.items[row]
@@ -199,11 +216,11 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             cell.imageView?.image = thumbnail(for: item, indexPath: row)
             return cell
         case "modified":
-            return makeTextCell(text: DateFormatterCache.string(item.modified), color: .secondaryLabelColor)
+            return makeTextCell(text: DateFormatterCache.string(item.modified), color: secondaryTextColor)
         case "size":
-            return makeTextCell(text: SizeFormatter.string(item.size), color: .secondaryLabelColor, alignment: .right)
+            return makeTextCell(text: SizeFormatter.string(item.size), color: secondaryTextColor, alignment: .right)
         case "kind":
-            return makeTextCell(text: item.kindDescription, color: .secondaryLabelColor)
+            return makeTextCell(text: item.kindDescription, color: secondaryTextColor)
         default:
             return nil
         }
@@ -597,6 +614,10 @@ final class FileListTableView: NSTableView {
     private var lastPrefetchAt: TimeInterval = 0
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Drop any prior registration before re-adding so re-parenting (e.g.
+        // list↔columns toggles, which move this view in/out of a window) can't
+        // stack duplicate observers that fire boundsChanged N× per scroll.
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
         guard let cv = enclosingScrollView?.contentView else { return }
         NotificationCenter.default.addObserver(
             self, selector: #selector(boundsChanged),
@@ -604,6 +625,8 @@ final class FileListTableView: NSTableView {
         )
         cv.postsBoundsChangedNotifications = true
     }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     @objc private func boundsChanged() {
         guard let lc = listController else { return }
@@ -701,7 +724,14 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
         if !isEditing {
             name.stringValue = item.name
         }
-        name.textColor = item.isHidden ? .tertiaryLabelColor : .labelColor
+        // Honor the active theme's label palette for custom themes; the System
+        // theme keeps the semantic colors so it adapts to light/dark.
+        let t = ThemeManager.shared.current
+        if t.id == "system" {
+            name.textColor = item.isHidden ? .tertiaryLabelColor : .labelColor
+        } else {
+            name.textColor = item.isHidden ? t.labelTertiary : t.labelPrimary
+        }
         name.font = ThemeManager.shared.font()   // live font size + monospaced themes
         applyGitState(gitState)
     }

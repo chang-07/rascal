@@ -158,16 +158,20 @@ private final class TabButton: NSView {
     @objc private func handleClose() { onClose?(index) }
 
     private func applyAppearance() {
+        let t = ThemeManager.shared.current
         let accent = ThemeManager.shared.effectiveAccent
+        let custom = t.id != "system"
+        let primary: NSColor = custom ? t.labelPrimary : .labelColor
+        let secondary: NSColor = custom ? t.labelSecondary : .secondaryLabelColor
         if isActive {
             layer?.backgroundColor = accent.withAlphaComponent(0.20).cgColor
-            label.textColor = .labelColor
+            label.textColor = primary
         } else if isHovering {
             layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
-            label.textColor = .labelColor
+            label.textColor = primary
         } else {
             layer?.backgroundColor = .clear
-            label.textColor = .secondaryLabelColor
+            label.textColor = secondary
         }
     }
 }
