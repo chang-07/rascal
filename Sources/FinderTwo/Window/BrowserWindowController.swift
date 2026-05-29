@@ -90,6 +90,29 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         }
 
         installVimKeyMonitor()
+        applyTitleBarVisibility()
+        NotificationCenter.default.addObserver(self, selector: #selector(chromeSettingsChanged),
+                                               name: Settings.didChange, object: nil)
+    }
+
+    @objc private func chromeSettingsChanged() { applyTitleBarVisibility() }
+
+    /// Show/hide the window title bar. Hidden = full-size content under a
+    /// transparent, title-less bar (traffic lights remain). The sidebar gets a
+    /// top inset so its rows clear the traffic lights.
+    private func applyTitleBarVisibility() {
+        guard let window = window else { return }
+        if Settings.showTitleBar {
+            window.styleMask.remove(.fullSizeContentView)
+            window.titlebarAppearsTransparent = false
+            window.titleVisibility = .visible
+            sidebarVC.setTopInset(0)
+        } else {
+            window.styleMask.insert(.fullSizeContentView)
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            sidebarVC.setTopInset(PaneController.hiddenTitleBarInset)
+        }
     }
 
     /// Window-level key interception for vim mode. This makes hjkl etc. work no

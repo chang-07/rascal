@@ -119,6 +119,24 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.typeAhead"); notify() }
     }
 
+    // MARK: Window chrome
+
+    /// Show the customizable hotbar — the quick-action button row below the
+    /// path bar. Off by default to keep the window clean; toggle from the View
+    /// menu (the per-pane toolbar with nav arrows + path field + search always
+    /// stays visible).
+    static var showHotbar: Bool {
+        get { d.object(forKey: "FinderTwo.showHotbar") as? Bool ?? false }
+        set { d.set(newValue, forKey: "FinderTwo.showHotbar"); notify() }
+    }
+
+    /// Show the window title bar. Off by default for a chromeless look; the
+    /// traffic-light buttons remain and the window stays draggable by its top.
+    static var showTitleBar: Bool {
+        get { d.object(forKey: "FinderTwo.showTitleBar") as? Bool ?? false }
+        set { d.set(newValue, forKey: "FinderTwo.showTitleBar"); notify() }
+    }
+
     // MARK: Notifications
 
     private static func notify() {
@@ -135,7 +153,7 @@ enum Settings {
         for key in ["FinderTwo.defaultLocation", "FinderTwo.restoreSession",
                     "FinderTwo.showHiddenByDefault", "FinderTwo.defaultView",
                     "FinderTwo.density", "FinderTwo.fontSizeDelta", "FinderTwo.accent",
-                    "FinderTwo.typeAhead"] {
+                    "FinderTwo.typeAhead", "FinderTwo.showHotbar", "FinderTwo.showTitleBar"] {
             d.removeObject(forKey: key)
         }
         notifyAppearance()

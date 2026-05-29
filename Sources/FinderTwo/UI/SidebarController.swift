@@ -31,6 +31,14 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     /// Themed tint that covers the vibrancy for non-System themes so the
     /// sidebar background matches the rest of the window.
     private let tintView = NSView()
+    private var scrollTopConstraint: NSLayoutConstraint!
+
+    /// Inset the source-list rows from the top (used to clear the traffic
+    /// lights when the window title bar is hidden).
+    func setTopInset(_ inset: CGFloat) {
+        scrollTopConstraint?.constant = inset
+    }
+    var testTopInset: CGFloat { scrollTopConstraint?.constant ?? -1 }
 
     override func loadView() {
         // Sidebar-style NSVisualEffectView gives the native translucency for the
@@ -49,12 +57,13 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(scrollView)
+        scrollTopConstraint = scrollView.topAnchor.constraint(equalTo: v.topAnchor)
         NSLayoutConstraint.activate([
             tintView.topAnchor.constraint(equalTo: v.topAnchor),
             tintView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             tintView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
             tintView.bottomAnchor.constraint(equalTo: v.bottomAnchor),
-            scrollView.topAnchor.constraint(equalTo: v.topAnchor),
+            scrollTopConstraint,
             scrollView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: v.bottomAnchor),
