@@ -87,8 +87,9 @@ final class PanesContainerController: NSSplitViewController {
     }
 
     private func updateAfterActiveChange() {
+        let multiPane = panes.count > 1
         for (i, p) in panes.enumerated() {
-            p.setActive(i == activeIndex)
+            p.setActive(i == activeIndex, showBorder: multiPane)
         }
         if let url = activePane?.currentURL {
             onActivePathChange?(url)
