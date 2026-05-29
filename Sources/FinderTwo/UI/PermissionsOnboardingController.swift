@@ -1,6 +1,6 @@
 import AppKit
 
-/// One-time, on-brand window that asks for Full Disk Access so FinderTwo can
+/// One-time, on-brand window that asks for Full Disk Access so Rascal can
 /// reach every file with no per-folder prompts — and, with a stable signature,
 /// never has to ask again. Presented at most once (see PermissionsManager).
 final class PermissionsOnboardingController: NSWindowController, ThemeObserving {
@@ -8,7 +8,7 @@ final class PermissionsOnboardingController: NSWindowController, ThemeObserving 
     private let card = NSView()
     private let iconView = NSImageView()
     private let eyebrow = NSTextField(labelWithString: "ONE-TIME SETUP")
-    private let titleLabel = NSTextField(labelWithString: "Give FinderTwo full access")
+    private let titleLabel = NSTextField(labelWithString: "Give Rascal full access")
     private let bodyLabel = NSTextField(wrappingLabelWithString: "")
     private let bulletStack = NSStackView()
     private let warningLabel = NSTextField(wrappingLabelWithString: "")
@@ -52,7 +52,7 @@ final class PermissionsOnboardingController: NSWindowController, ThemeObserving 
         titleLabel.font = .systemFont(ofSize: 22, weight: .bold)
         titleLabel.alignment = .center
 
-        bodyLabel.stringValue = "FinderTwo is a file manager — it works best when it can see all your files. Grant Full Disk Access once and macOS will remember it. No per-folder pop-ups, ever again."
+        bodyLabel.stringValue = "Rascal is a file manager — it works best when it can see all your files. Grant Full Disk Access once and macOS will remember it. No per-folder pop-ups, ever again."
         bodyLabel.font = .systemFont(ofSize: 13)
         bodyLabel.alignment = .center
         bodyLabel.translatesAutoresizingMaskIntoConstraints = false

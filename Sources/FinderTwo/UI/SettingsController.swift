@@ -45,7 +45,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate {
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered, defer: false
         )
-        win.title = "FinderTwo Settings"
+        win.title = "Rascal Settings"
         super.init(window: win)
         let toolbar = NSToolbar(identifier: "FinderTwo.Settings")
         toolbar.delegate = self
@@ -62,7 +62,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate {
         let vc = section.makeController()
         window?.contentViewController = vc
         window?.toolbar?.selectedItemIdentifier = NSToolbarItem.Identifier(section.rawValue)
-        window?.title = "FinderTwo Settings — \(section.label)"
+        window?.title = "Rascal Settings — \(section.label)"
     }
 
     @objc private func toolbarItemClicked(_ sender: NSToolbarItem) {

@@ -14,7 +14,7 @@ final class TestRunner {
     private var passed: [String] = []
 
     func runAll(appDelegate: AppDelegate) {
-        print("=== FinderTwo in-process tests ===")
+        print("=== Rascal in-process tests ===")
 
         // Sandbox for filesystem mutations
         let sandbox = makeSandbox()

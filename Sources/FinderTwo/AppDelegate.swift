@@ -213,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // ---- FinderTwo (App menu) ----
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About FinderTwo",
+        appMenu.addItem(withTitle: "About Rascal",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                         keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
@@ -225,10 +225,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                   keyEquivalent: "")
         fda.target = self
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(systemItem(title: "Hide FinderTwo",
+        appMenu.addItem(systemItem(title: "Hide Rascal",
                                    action: #selector(NSApplication.hide(_:)),
                                    key: "h"))
-        appMenu.addItem(systemItem(title: "Quit FinderTwo",
+        appMenu.addItem(systemItem(title: "Quit Rascal",
                                    action: #selector(NSApplication.terminate(_:)),
                                    key: "q"))
         attach(appMenu, to: mainMenu)
