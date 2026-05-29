@@ -150,6 +150,51 @@ enum Archive {
         return proc.terminationStatus == 0
     }
 
+    /// Compress the given items (which must share a parent directory) into a new
+    /// `.zip` beside them. Returns the created archive URL, or nil on failure.
+    /// Names like Finder: "<name>.zip" for one item, "Archive.zip" for several.
+    static func compress(_ items: [URL]) -> URL? {
+        guard let first = items.first else { return nil }
+        let parent = first.deletingLastPathComponent()
+        let fm = FileManager.default
+        let base = items.count == 1 ? first.deletingPathExtension().lastPathComponent : "Archive"
+        var dest = parent.appendingPathComponent("\(base).zip")
+        var i = 2
+        while fm.fileExists(atPath: dest.path) {
+            dest = parent.appendingPathComponent("\(base) \(i).zip"); i += 1
+        }
+        let p = Process()
+        p.launchPath = "/usr/bin/zip"
+        p.currentDirectoryURL = parent
+        // -r recurse, -q quiet, -X drop extra Finder attrs; basenames are safe
+        // because everything shares `parent` (single-directory selection).
+        p.arguments = ["-r", "-q", "-X", dest.path] + items.map { $0.lastPathComponent }
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        p.waitUntilExit()
+        return p.terminationStatus == 0 ? dest : nil
+    }
+
+    /// Extract an archive into a new sibling folder named after it (Finder-style).
+    /// Returns the destination folder, or nil on failure / zip-slip refusal.
+    static func extractInPlace(_ archive: URL) -> URL? {
+        guard Kind.detect(archive) != nil else { return nil }
+        let parent = archive.deletingLastPathComponent()
+        let fm = FileManager.default
+        var base = archive.lastPathComponent
+        for ext in [".tar.gz", ".tar.bz2", ".tgz", ".tbz2", ".tar", ".zip"]
+        where base.lowercased().hasSuffix(ext) { base = String(base.dropLast(ext.count)); break }
+        var dest = parent.appendingPathComponent(base)
+        var i = 2
+        while fm.fileExists(atPath: dest.path) {
+            dest = parent.appendingPathComponent("\(base) \(i)"); i += 1
+        }
+        try? fm.createDirectory(at: dest, withIntermediateDirectories: true)
+        guard extractAll(archive, to: dest) else { try? fm.removeItem(at: dest); return nil }
+        return dest
+    }
+
     // MARK: - Tools
 
     /// Reference-type wrapper so NSCache (which requires class values) stores

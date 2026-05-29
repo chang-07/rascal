@@ -172,6 +172,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: Menu actions
 
+    @objc func compressSelection(_ sender: Any?) { activePane?.compressSelection() }
+    @objc func extractSelection(_ sender: Any?) { activePane?.extractSelection() }
+    @objc func makeAliasSelection(_ sender: Any?) { activePane?.makeAliasSelection() }
     @objc func newTab(_ sender: Any?) { panesContainer.activePane?.newTab(at: nil) }
     @objc func closeTab(_ sender: Any?) { panesContainer.activePane?.closeActiveTab() }
     @objc func nextTab(_ sender: Any?) { activePane?.nextTab() }

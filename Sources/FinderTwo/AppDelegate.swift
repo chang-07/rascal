@@ -197,6 +197,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fileMenu.addItem(item(title: "Batch Rename…",
                               action: #selector(showBatchRename(_:)),
                               key: "r", mods: [.command, .shift]))
+        fileMenu.addItem(routed("file.compress"))
+        fileMenu.addItem(routed("file.make-alias"))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("workspace.save", key: "s", mods: [.command, .control]))
         fileMenu.addItem(routed("workspace.open", key: "o", mods: [.command, .control]))
