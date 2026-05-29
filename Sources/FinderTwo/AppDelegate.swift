@@ -280,6 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(routed("panel.terminal"))
         viewMenu.addItem(routed("panel.notes"))
         viewMenu.addItem(routed("panel.transfers"))
+        viewMenu.addItem(routed("panel.shelf"))
         viewMenu.addItem(NSMenuItem.separator())
         let showHotbar = NSMenuItem(title: "Show Hotbar",
                                     action: #selector(toggleHotbarMenu(_:)), keyEquivalent: "b")

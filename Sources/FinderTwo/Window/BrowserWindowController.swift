@@ -195,6 +195,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func toggleStatusBarItem(_ sender: Any?) { Settings.showStatusBar.toggle() }
     @objc func togglePreview(_ sender: Any?) { activePane?.togglePreviewDrawer() }
     @objc func showTransferActivity(_ sender: Any?) { TransferActivityController.shared.present() }
+    @objc func toggleDropStack(_ sender: Any?) { DropStackController.shared.toggle() }
+    @objc func addToDropStack(_ sender: Any?) {
+        let sel = activePane?.selectedURLs() ?? []
+        if DropStack.add(sel) > 0 { DropStackController.shared.present() } else { NSSound.beep() }
+    }
+
+    /// The frontmost browser window's active folder — used by the Drop Stack
+    /// to know where "Copy/Move Here" should land.
+    var activePaneURL: URL? { activePane?.currentURL }
+    static var frontmost: BrowserWindowController? {
+        NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }.first
+    }
     @objc func togglePathBarItem(_ sender: Any?) { Settings.showPathBar.toggle() }
     @objc func copyToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: false) }
     @objc func moveToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: true) }
