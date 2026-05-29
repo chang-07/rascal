@@ -245,7 +245,7 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
             return
         }
         task.standardOutput = pipe
-        task.standardError = Pipe()
+        task.standardError = FileHandle.nullDevice  // unused; nullDevice avoids a full-pipe deadlock
 
         currentTask = task
         SearchSheetController.bgQueue.async { [weak self] in

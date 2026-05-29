@@ -96,8 +96,27 @@ enum FolderSync {
             case .onlySource, .differs:
                 try? fm.createDirectory(at: to.deletingLastPathComponent(),
                                         withIntermediateDirectories: true)
-                if fm.fileExists(atPath: to.path) { try? fm.removeItem(at: to) }
-                if (try? fm.copyItem(at: from, to: to)) != nil { ops += 1 }
+                do {
+                    if fm.fileExists(atPath: to.path) {
+                        // Never delete-then-copy (a failed copy would lose the
+                        // original). Copy to a temp sibling, then swap it in
+                        // atomically so the existing file survives any failure.
+                        let tmp = to.deletingLastPathComponent()
+                            .appendingPathComponent(".ftsync-" + UUID().uuidString)
+                        do {
+                            try fm.copyItem(at: from, to: tmp)
+                            _ = try fm.replaceItemAt(to, withItemAt: tmp)
+                        } catch {
+                            try? fm.removeItem(at: tmp)
+                            throw error
+                        }
+                    } else {
+                        try fm.copyItem(at: from, to: to)
+                    }
+                    ops += 1
+                } catch {
+                    // Leave the existing destination intact on failure.
+                }
             case .onlyDestination:
                 if prune {
                     if (try? fm.trashItem(at: to, resultingItemURL: nil)) != nil { ops += 1 }

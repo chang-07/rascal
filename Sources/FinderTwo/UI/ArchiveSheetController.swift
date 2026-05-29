@@ -192,6 +192,10 @@ final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource,
 
     // MARK: Actions
 
+    /// Extraction shells out to unzip/tar; keep it off the main thread so a
+    /// large archive doesn't beachball the UI.
+    private static let extractQueue = DispatchQueue(label: "FinderTwo.archiveExtract", qos: .userInitiated)
+
     @objc private func extractSelected() {
         let indexes = outline.selectedRowIndexes
         let nodes = indexes.compactMap { outline.item(atRow: $0) as? Node }
@@ -199,18 +203,29 @@ final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource,
         guard !entries.isEmpty else { NSSound.beep(); return }
         chooseExtractDestination { [weak self] dst in
             guard let self, let dst else { return }
-            for e in entries {
-                Archive.extract(e, from: self.archive, to: dst)
+            let archive = self.archive
+            ArchiveSheetController.extractQueue.async {
+                var failures = 0
+                for e in entries where Archive.extract(e, from: archive, to: dst) == nil { failures += 1 }
+                DispatchQueue.main.async { [weak self] in
+                    self?.target?.testActivePane?.navigate(to: dst)
+                    if failures > 0 { NSSound.beep() }
+                }
             }
-            self.target?.testActivePane?.navigate(to: dst)
         }
     }
 
     @objc private func extractEverything() {
         chooseExtractDestination { [weak self] dst in
             guard let self, let dst else { return }
-            Archive.extractAll(self.archive, to: dst)
-            self.target?.testActivePane?.navigate(to: dst)
+            let archive = self.archive
+            ArchiveSheetController.extractQueue.async {
+                let ok = Archive.extractAll(archive, to: dst)
+                DispatchQueue.main.async { [weak self] in
+                    self?.target?.testActivePane?.navigate(to: dst)
+                    if !ok { NSSound.beep() }   // refused (zip-slip) or tool failure
+                }
+            }
         }
     }
 

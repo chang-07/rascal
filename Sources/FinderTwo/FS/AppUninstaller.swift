@@ -35,13 +35,16 @@ enum AppUninstaller {
         ]
         var leftovers: [Leftover] = []
         let bidLower = bundleId.lowercased()
+        // Guard against dangerously generic ids: a 1-2 component id like
+        // "com.apple" would match a huge swath of ~/Library. Require something
+        // specific enough to be a real per-app identifier.
+        guard bidLower.count >= 6, bidLower.contains(".") else { return [] }
         for (subdir, label) in prefixes {
             let dir = library.appendingPathComponent(subdir)
             guard let kids = try? FileManager.default.contentsOfDirectory(at: dir,
                 includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey], options: []) else { continue }
             for k in kids {
-                let name = k.lastPathComponent
-                if name.lowercased().contains(bidLower) || name.lowercased().hasPrefix(bidLower) {
+                if matchesBundleId(k.lastPathComponent, bidLower) {
                     leftovers.append(Leftover(url: k,
                                               size: directorySize(k),
                                               kind: label))
@@ -49,6 +52,20 @@ enum AppUninstaller {
             }
         }
         return leftovers
+    }
+
+    /// True when a leftover file/dir name belongs to this bundle id. Matches the
+    /// id exactly or as a dotted/hyphenated prefix (e.g. "com.foo.App",
+    /// "com.foo.App.plist", "com.foo.App.helper") — NOT an arbitrary substring,
+    /// so "com.foo.App" never sweeps in a sibling app's "com.foo.AppExtras".
+    static func matchesBundleId(_ rawName: String, _ bidLower: String) -> Bool {
+        // Drop a known file extension so "com.foo.App.plist"/".savedState" match.
+        var n = rawName.lowercased()
+        for ext in [".plist", ".savedstate", ".binarycookies"] where n.hasSuffix(ext) {
+            n = String(n.dropLast(ext.count)); break
+        }
+        if n == bidLower { return true }
+        return n.hasPrefix(bidLower + ".") || n.hasPrefix(bidLower + "-")
     }
 
     /// Move every leftover (and the app bundle itself) to Trash.

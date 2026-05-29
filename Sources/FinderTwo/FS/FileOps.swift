@@ -56,7 +56,12 @@ enum FileOps {
     /// Delegates Get Info to Finder via AppleScript (path of least resistance for v0).
     static func getInfo(_ urls: [URL]) {
         for u in urls {
-            let posix = u.path.replacingOccurrences(of: "\"", with: "\\\"")
+            // Escape backslash FIRST, then the quote — otherwise a filename
+            // containing a backslash or an embedded quote can break out of the
+            // AppleScript string literal (injection via attacker-named files).
+            let posix = u.path
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
             let src = """
             tell application "Finder"
                 activate

@@ -103,13 +103,22 @@ enum GitStatus {
     /// state; a subfolder of `dir` that contains any change reports
     /// `.modifiedFolder`. Names not present in the map are clean/tracked.
     static func fileStates(in dir: URL, repoRoot root: URL) -> [String: FileState] {
-        guard let out = run(["-C", root.path, "status", "--porcelain=v1", "-z", "--untracked-files=normal"],
-                            in: root) else { return [:] }
         // Path of `dir` relative to the repo root, with trailing slash.
         let rootPath = standardize(root.path)
         let dirPath = standardize(dir.path)
         guard dirPath == rootPath || dirPath.hasPrefix(rootPath + "/") else { return [:] }
         let rel = dirPath == rootPath ? "" : String(dirPath.dropFirst(rootPath.count + 1)) + "/"
+
+        // Scope the scan to the viewed subdirectory via a pathspec so status
+        // cost tracks the folder size, not the whole (possibly huge) repo. git
+        // still reports paths relative to the repo root, so the prefix-strip and
+        // folder-aggregation below are unaffected.
+        var args = ["-C", root.path, "status", "--porcelain=v1", "-z", "--untracked-files=normal"]
+        if !rel.isEmpty {
+            args.append("--")
+            args.append(String(rel.dropLast()))   // drop the trailing slash for the pathspec
+        }
+        guard let out = run(args, in: root) else { return [:] }
 
         var result: [String: FileState] = [:]
         // Records are NUL-separated. A rename record is "R  old\0new\0" — git
@@ -171,7 +180,7 @@ enum GitStatus {
         p.currentDirectoryURL = dir
         let out = Pipe()
         p.standardOutput = out
-        p.standardError = Pipe()
+        p.standardError = FileHandle.nullDevice  // unused; nullDevice avoids a full-pipe deadlock
         // Avoid hangs: git status shouldn't prompt, but be safe.
         var env = ProcessInfo.processInfo.environment
         env["GIT_TERMINAL_PROMPT"] = "0"

@@ -55,7 +55,7 @@ enum TagIndex {
         p.arguments = [query]
         let out = Pipe()
         p.standardOutput = out
-        p.standardError = Pipe()
+        p.standardError = FileHandle.nullDevice  // unused; nullDevice avoids a full-pipe deadlock
         do { try p.run() } catch { return [] }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
