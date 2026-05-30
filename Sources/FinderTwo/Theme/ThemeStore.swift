@@ -66,6 +66,21 @@ enum ThemeStore {
                   pathBarBackground: "#DCEAEF", rowAlternate: "#E2EEF1", labelPrimary: "#14323B",
                   labelSecondary: "#2F5763", labelTertiary: "#6F95A0", accent: "#0E7C86",
                   selectionBackground: "#2BB7C24D"),
+        ThemeSpec(id: "cyberpunk", name: "Cyberpunk", appearance: "dark",
+                  background: "#1A0B2E", sidebarBackground: "#120621", toolbarBackground: "#230F3B",
+                  pathBarBackground: "#1A0B2E", rowAlternate: "#2B1348", labelPrimary: "#FF007F",
+                  labelSecondary: "#00F0FF", labelTertiary: "#BC00DD", accent: "#00F0FF",
+                  selectionBackground: "#00F0FF44"),
+        ThemeSpec(id: "gruvbox", name: "Gruvbox", appearance: "dark",
+                  background: "#282828", sidebarBackground: "#1D2021", toolbarBackground: "#3C3836",
+                  pathBarBackground: "#282828", rowAlternate: "#32302F", labelPrimary: "#EBDBB2",
+                  labelSecondary: "#A89984", labelTertiary: "#7C6F64", accent: "#D79921",
+                  selectionBackground: "#D7992144"),
+        ThemeSpec(id: "sage", name: "Sage", appearance: "light",
+                  background: "#F4F7F5", sidebarBackground: "#E3EAE5", toolbarBackground: "#ECF1EE",
+                  pathBarBackground: "#E3EAE5", rowAlternate: "#E8EFEA", labelPrimary: "#1E352F",
+                  labelSecondary: "#3B5E55", labelTertiary: "#6A8D83", accent: "#2A6F54",
+                  selectionBackground: "#2A6F5433"),
     ]
 
     /// System (dynamic AppKit colors) + the built-in specs.
