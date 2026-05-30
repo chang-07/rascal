@@ -180,6 +180,28 @@ final class TestRunner {
                    FileManager.default.fileExists(atPath: u.path), "")
         }
 
+        // --- T11-reveal: New Folder selects the just-created item ---
+        // Regression: the handler selected the item immediately after triggering
+        // the ASYNCHRONOUS reload, so the new item was never actually selected
+        // (and never entered rename). The fix queues the reveal and applies it
+        // when the item lands in the model. Verified here with a synchronous
+        // reload so it's deterministic (the async scan queue is saturated during
+        // a full test run).
+        let nfFlow = sandbox.appendingPathComponent("nf-flow")
+        try? FileManager.default.createDirectory(at: nfFlow, withIntermediateDirectories: true)
+        let nfWC = BrowserWindowController(rootURL: nfFlow)
+        _ = nfWC.window
+        if let nfPane = nfWC.testActivePane {
+            nfPane.setViewMode(.list)
+            let createdNF = nfPane.testNewFolderSyncReveal()
+            assert("New Folder created the folder on disk",
+                   createdNF != nil && FileManager.default.fileExists(atPath: createdNF!.path), "missing")
+            assert("New Folder selects the just-created item (was: never selected)",
+                   createdNF != nil && nfPane.selectedURLs().contains { $0.path == createdNF!.path },
+                   "selected=\(nfPane.selectedURLs().map { $0.lastPathComponent })")
+        } else { assert("isolated pane for New Folder test", false, "no pane") }
+        _ = nfWC   // keep the window alive
+
         // --- T11b: new file, unique naming, transfer (no-conflict), group-into-folder ---
         let foDir = sandbox.appendingPathComponent("fileops")
         try? FileManager.default.createDirectory(at: foDir, withIntermediateDirectories: true)

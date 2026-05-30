@@ -244,24 +244,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     var syncBrowsingOn: Bool { panesContainer.syncBrowsing }
     @objc func copyToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: false) }
     @objc func moveToOtherPane(_ sender: Any?) { panesContainer.transferSelectionToOtherPane(move: true) }
-    @objc func newFolder(_ sender: Any?) {
-        guard let pane = activePane,
-              let url = FileOps.newFolder(in: pane.currentURL) else { return }
-        pane.reload()
-        pane.select(url: url)
-    }
-    @objc func newFile(_ sender: Any?) {
-        guard let pane = activePane, let url = FileOps.newFile(in: pane.currentURL) else { return }
-        pane.reload()
-        pane.select(url: url)
-    }
-    @objc func newFolderWithSelection(_ sender: Any?) {
-        guard let pane = activePane else { return }
-        let sel = pane.selectedURLs()
-        guard !sel.isEmpty, let folder = FileOps.newFolderWithItems(sel, in: pane.currentURL) else { return }
-        pane.reload()
-        pane.select(url: folder)
-    }
+    @objc func newFolder(_ sender: Any?) { activePane?.createNewFolder() }
+    @objc func newFile(_ sender: Any?) { activePane?.createNewFile() }
+    @objc func newFolderWithSelection(_ sender: Any?) { activePane?.createNewFolderWithSelection() }
     @objc func deleteImmediately(_ sender: Any?) {
         guard let pane = activePane else { return }
         let sel = pane.selectedURLs()
