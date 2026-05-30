@@ -29,7 +29,7 @@ trap 'rm -rf "$STAGE"' EXIT
 cp -R "$APP" "$STAGE/Rascal.app"
 ln -s /Applications "$STAGE/Applications"          # drag Rascal → Applications
 
-echo "→ Building $DMG…"
+echo "→ Building ${DMG}..."
 rm -f "$DMG"
 hdiutil create \
     -volname "$VOL" \
