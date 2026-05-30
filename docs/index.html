@@ -145,6 +145,18 @@
     Download Rascal.dmg
   </a>
 
+  <div class="download-tip">
+    <h3>Important: Running on macOS</h3>
+    <p>Because Rascal is self-signed/ad-hoc signed, macOS Gatekeeper may show a quarantine warning when you first open the app. To run it:</p>
+    <ol>
+      <li>Drag <strong>Rascal</strong> to your <strong>Applications</strong> folder.</li>
+      <li>Right-click (or Control-click) <strong>Rascal.app</strong> in Applications and choose <strong>Open</strong> from the menu.</li>
+      <li>If macOS still warns you that the app is "damaged" or from an unidentified developer, open Terminal and run the following command to clear the quarantine flag:
+        <pre class="tip-code"><code>xattr -cr /Applications/Rascal.app</code></pre>
+      </li>
+    </ol>
+  </div>
+
   <p class="or">or build from source</p>
   <pre class="code"><code>git clone https://github.com/chang-07/finder-2.git
 cd finder-2
