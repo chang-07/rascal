@@ -2,7 +2,7 @@ import AppKit
 
 /// Sheet that prompts for SFTP connection info, tests the connection, and
 /// either lists the remote folder or saves a bookmark.
-final class SFTPConnectSheetController: NSWindowController {
+final class SFTPConnectSheetController: NSWindowController, ThemeObserving {
 
     private weak var target: BrowserWindowController?
     private let userField = NSTextField()
@@ -28,7 +28,9 @@ final class SFTPConnectSheetController: NSWindowController {
         )
         win.title = "Connect to SFTP Server"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         layout()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -49,6 +51,7 @@ final class SFTPConnectSheetController: NSWindowController {
             l.alignment = .right
             l.font = NSFont.systemFont(ofSize: 12)
             l.textColor = .secondaryLabelColor
+            l.tag = 101
             return l
         }
 
@@ -67,6 +70,7 @@ final class SFTPConnectSheetController: NSWindowController {
 
         status.font = NSFont.systemFont(ofSize: 11)
         status.textColor = .secondaryLabelColor
+        status.tag = 101
         status.lineBreakMode = .byTruncatingTail
         status.translatesAutoresizingMaskIntoConstraints = false
 
@@ -147,11 +151,18 @@ final class SFTPConnectSheetController: NSWindowController {
         if let w = window, let parent = w.sheetParent { parent.endSheet(w) }
         else { window?.close() }
     }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
+    }
 }
 
 /// Simple read-only SFTP browser — shows entries at a remote path with
 /// up-button and a download action.
-final class SFTPBrowserController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+final class SFTPBrowserController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, ThemeObserving {
 
     private let connection: SFTPClient.Connection
     private var path: String
@@ -180,7 +191,9 @@ final class SFTPBrowserController: NSWindowController, NSTableViewDataSource, NS
         )
         win.title = "SFTP — \(connection.sshTarget)"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         layout()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -193,6 +206,7 @@ final class SFTPBrowserController: NSWindowController, NSTableViewDataSource, NS
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
         pathLabel.font = NSFont.systemFont(ofSize: 12)
         pathLabel.textColor = .secondaryLabelColor
+        pathLabel.tag = 101
         pathLabel.lineBreakMode = .byTruncatingMiddle
 
         let download = NSButton(title: "Download…", target: self, action: #selector(downloadSelected))
@@ -310,12 +324,27 @@ final class SFTPBrowserController: NSWindowController, NSTableViewDataSource, NS
         switch id {
         case "name":
             cell.textField?.stringValue = (e.isDirectory ? "📁 " : "") + e.name
+            cell.textField?.textColor = ThemeChrome.primary
         case "size":
             cell.textField?.stringValue = e.isDirectory ? "" : SizeFormatter.string(e.size)
-            cell.textField?.textColor = .secondaryLabelColor
+            cell.textField?.textColor = ThemeChrome.secondary
         default: break
         }
         return cell
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
+        let t = ThemeManager.shared.current
+        let custom = t.id != "system"
+        let bg = custom ? t.background : .controlBackgroundColor
+        table.backgroundColor = bg
+        scroll.drawsBackground = true
+        scroll.backgroundColor = bg
+        table.reloadData()
     }
 }
 

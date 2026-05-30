@@ -2,7 +2,7 @@ import AppKit
 
 /// "Analyze Disk Usage" window. Background scan + interactive, animated treemap
 /// with drill-in zoom, type-colored tiles, nested folders, and hover read-outs.
-final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
+final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate, ThemeObserving {
 
     private weak var target: BrowserWindowController?
     private let rootURL: URL
@@ -35,6 +35,7 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
         ThemeChrome.apply(to: window)
         win.delegate = self
         layout()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -60,11 +61,13 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
         pathBar.translatesAutoresizingMaskIntoConstraints = false
         pathBar.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         pathBar.textColor = .secondaryLabelColor
+        pathBar.tag = 101
         pathBar.lineBreakMode = .byTruncatingMiddle
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = NSFont.systemFont(ofSize: 11)
         statusLabel.textColor = .secondaryLabelColor
+        statusLabel.tag = 101
         statusLabel.alignment = .right
 
         spinner.translatesAutoresizingMaskIntoConstraints = false
@@ -122,6 +125,7 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
             let label = NSTextField(labelWithString: cat.label)
             label.font = .systemFont(ofSize: 10)
             label.textColor = .secondaryLabelColor
+            label.tag = 101
             chip.addArrangedSubview(dot)
             chip.addArrangedSubview(label)
             stack.addArrangedSubview(chip)
@@ -167,7 +171,14 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
         let path = node.url.path
         return path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count)).replacingOccurrences(of: "^/", with: "", options: .regularExpression).ifEmpty(or: "(root)") : path
     }
-
+ 
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
+    }
+ 
     func windowWillClose(_ notification: Notification) {
         scan?.cancel()
     }
@@ -243,7 +254,7 @@ enum TreemapLayout {
 
 /// Animated, type-colored treemap. Draws nested folders to a capped depth, with
 /// a hover read-out and a zoom transition when drilling in/out.
-final class TreemapView: NSView {
+final class TreemapView: NSView, ThemeObserving {
 
     var onDrill: ((DiskScan.Node) -> Void)?
     var onOpenFile: ((DiskScan.Node) -> Void)?
@@ -270,8 +281,16 @@ final class TreemapView: NSView {
         let isContainer: Bool
     }
 
-    override init(frame frameRect: NSRect) { super.init(frame: frameRect); wantsLayer = true }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        subscribeToTheme(self)
+    }
     required init?(coder: NSCoder) { fatalError() }
+ 
+    @objc func applyTheme() {
+        needsDisplay = true
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -365,7 +384,7 @@ final class TreemapView: NSView {
             let msg = currentRoot == nil ? "Analyzing…" : "Empty"
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 13),
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .foregroundColor: ThemeChrome.secondary,
             ]
             let s = NSAttributedString(string: msg, attributes: attrs)
             let sz = s.size()

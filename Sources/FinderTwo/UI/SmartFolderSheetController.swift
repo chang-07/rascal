@@ -4,7 +4,7 @@ import AppKit
 /// optional filename + content substrings, and a search root. Saving persists
 /// it via SmartFolders (which refreshes the sidebar) and, when creating new,
 /// navigates the active pane to the synthetic `/smart/<id>` listing.
-final class SmartFolderSheetController: NSWindowController, NSWindowDelegate {
+final class SmartFolderSheetController: NSWindowController, NSWindowDelegate, ThemeObserving {
 
     /// Present a sheet to create a new smart folder rooted at `defaultRoot`.
     static func show(for wc: NSWindowController, defaultRoot: URL?) {
@@ -42,6 +42,7 @@ final class SmartFolderSheetController: NSWindowController, NSWindowDelegate {
         nameContainsField.stringValue = existing?.nameContains ?? ""
         contentContainsField.stringValue = existing?.contentContains ?? ""
         win.contentView = buildContent()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -56,7 +57,7 @@ final class SmartFolderSheetController: NSWindowController, NSWindowDelegate {
 
         rootLabel.stringValue = rootPathDisplay()
         rootLabel.font = .systemFont(ofSize: 11)
-        rootLabel.textColor = .secondaryLabelColor
+        rootLabel.tag = 101
         rootLabel.lineBreakMode = .byTruncatingMiddle
         rootLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -67,6 +68,7 @@ final class SmartFolderSheetController: NSWindowController, NSWindowDelegate {
 
         func row(_ label: String, _ field: NSView) -> NSStackView {
             let l = NSTextField(labelWithString: label)
+            l.tag = 101
             l.alignment = .right
             l.translatesAutoresizingMaskIntoConstraints = false
             l.widthAnchor.constraint(equalToConstant: 90).isActive = true
@@ -158,5 +160,12 @@ final class SmartFolderSheetController: NSWindowController, NSWindowDelegate {
     private func dismiss() {
         guard let win = window else { return }
         if let parent = win.sheetParent { parent.endSheet(win) } else { close() }
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
     }
 }

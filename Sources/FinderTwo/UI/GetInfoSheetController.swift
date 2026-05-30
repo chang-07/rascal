@@ -3,7 +3,7 @@ import AppKit
 /// Native "Get Info" window: icon, name, kind, size (folders computed async),
 /// location, dates, owner, and POSIX permissions for one item. Replaces the old
 /// AppleScript delegation to Finder.
-final class GetInfoSheetController: NSWindowController {
+final class GetInfoSheetController: NSWindowController, ThemeObserving {
 
     static func show(for url: URL, parent: NSWindow?) {
         let c = GetInfoSheetController(url: url)
@@ -14,7 +14,11 @@ final class GetInfoSheetController: NSWindowController {
     }
 
     private let url: URL
-    private let sizeLabel = NSTextField(labelWithString: "Calculating…")
+    private let sizeLabel: NSTextField = {
+        let f = NSTextField(labelWithString: "Calculating…")
+        f.tag = 100
+        return f
+    }()
     /// 9 permission checkboxes in order: owner r,w,x · group r,w,x · other r,w,x.
     private var permBoxes: [NSButton] = []
 
@@ -29,6 +33,7 @@ final class GetInfoSheetController: NSWindowController {
         ThemeChrome.apply(to: window)
         win.contentView = buildContent()
         computeSizeIfFolder()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -52,7 +57,8 @@ final class GetInfoSheetController: NSWindowController {
         name.font = .boldSystemFont(ofSize: 14)
         name.lineBreakMode = .byTruncatingMiddle
         name.isSelectable = true
-
+        name.tag = 100
+ 
         let header = NSStackView(views: [icon, name])
         header.orientation = .horizontal
         header.spacing = 10
@@ -63,6 +69,7 @@ final class GetInfoSheetController: NSWindowController {
             f.font = .systemFont(ofSize: 11)
             f.lineBreakMode = .byTruncatingMiddle
             f.isSelectable = true
+            f.tag = 100
             return f
         }
         func keyField(_ s: String) -> NSTextField {
@@ -70,6 +77,7 @@ final class GetInfoSheetController: NSWindowController {
             f.font = .systemFont(ofSize: 11)
             f.alignment = .right
             f.textColor = .secondaryLabelColor
+            f.tag = 101
             return f
         }
 
@@ -145,6 +153,7 @@ final class GetInfoSheetController: NSWindowController {
         for c in cols {
             let l = NSTextField(labelWithString: c)
             l.font = .systemFont(ofSize: 9); l.textColor = .tertiaryLabelColor; l.alignment = .center
+            l.tag = 102
             header.append(l)
         }
         g.addRow(with: header)
@@ -152,6 +161,7 @@ final class GetInfoSheetController: NSWindowController {
         for (si, scope) in scopes.enumerated() {
             let l = NSTextField(labelWithString: scope)
             l.font = .systemFont(ofSize: 10); l.textColor = .secondaryLabelColor; l.alignment = .right
+            l.tag = 101
             var row: [NSView] = [l]
             for bit in 0..<3 {
                 let box = NSButton(checkboxWithTitle: "", target: self, action: #selector(permsChanged))
@@ -188,6 +198,13 @@ final class GetInfoSheetController: NSWindowController {
             as? NSNumber)?.uint16Value ?? m
         if actual != m { NSSound.beep() }
         for box in permBoxes { box.state = (actual >> UInt16(box.tag)) & 1 == 1 ? .on : .off }
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
     }
 }
 

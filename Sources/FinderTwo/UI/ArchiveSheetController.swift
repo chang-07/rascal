@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// Sheet that shows the contents of a `.zip`/`.tar*` archive as an outline.
 /// Lets the user extract a single entry or the whole archive.
-final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource, NSOutlineViewDelegate {
+final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource, NSOutlineViewDelegate, ThemeObserving {
 
     private let archive: URL
     private weak var target: BrowserWindowController?
@@ -41,6 +41,7 @@ final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource,
         ThemeChrome.apply(to: window)
         buildTree()
         layout()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -176,9 +177,11 @@ final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource,
         }()
         let isDir = !node.children.isEmpty || node.entry?.isDirectory == true
         cell.textField?.stringValue = node.name
+        cell.textField?.textColor = ThemeChrome.primary
         let sub = cell.subviews.compactMap { $0 as? NSTextField }
             .first { $0 !== cell.textField }
         sub?.stringValue = isDir ? "" : SizeFormatter.string(node.entry?.size ?? 0)
+        sub?.textColor = ThemeChrome.secondary
         if isDir {
             cell.imageView?.image = NSImage(systemSymbolName: "folder",
                                             accessibilityDescription: nil)
@@ -187,7 +190,7 @@ final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource,
             let type = UTType(filenameExtension: ext) ?? .data
             cell.imageView?.image = NSWorkspace.shared.icon(for: type)
         }
-        cell.imageView?.contentTintColor = isDir ? .secondaryLabelColor : nil
+        cell.imageView?.contentTintColor = isDir ? ThemeChrome.secondary : nil
         return cell
     }
 
@@ -248,5 +251,16 @@ final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource,
         } else {
             window?.close()
         }
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        let t = ThemeManager.shared.current
+        let custom = t.id != "system"
+        let bg = custom ? t.background : .controlBackgroundColor
+        outline.backgroundColor = bg
+        scroll.drawsBackground = true
+        scroll.backgroundColor = bg
+        outline.reloadData()
     }
 }

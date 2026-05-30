@@ -3,7 +3,7 @@ import AppKit
 /// Multi-section settings window with a System-Settings-style toolbar:
 /// General · Appearance · Keyboard · Hotbar · Advanced. Each section is its
 /// own view controller swapped into the window; the window resizes to fit.
-final class SettingsController: NSWindowController, NSToolbarDelegate {
+final class SettingsController: NSWindowController, NSToolbarDelegate, ThemeObserving {
     private static var instance: SettingsController?
 
     static func show(selecting section: Section? = nil) {
@@ -55,6 +55,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate {
         win.toolbarStyle = .preference
         win.toolbar = toolbar
         select(.general)
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -64,6 +65,15 @@ final class SettingsController: NSWindowController, NSToolbarDelegate {
         window?.contentViewController = vc
         window?.toolbar?.selectedItemIdentifier = NSToolbarItem.Identifier(section.rawValue)
         window?.title = "Rascal Settings — \(section.label)"
+        (vc as? ThemeObserving)?.applyTheme()
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
+        (window?.contentViewController as? ThemeObserving)?.applyTheme()
     }
 
     @objc private func toolbarItemClicked(_ sender: NSToolbarItem) {
@@ -97,7 +107,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate {
 
 /// Base pane that lays out labeled rows in an NSGridView (clean, no manual
 /// constraint juggling).
-class SettingsPane: NSViewController {
+class SettingsPane: NSViewController, ThemeObserving {
     let grid = NSGridView()
     private var rows: [[NSView]] = []
 
@@ -116,6 +126,7 @@ class SettingsPane: NSViewController {
         build()
         grid.column(at: 0).xPlacement = .trailing
         if grid.numberOfColumns > 1 { grid.column(at: 1).xPlacement = .leading }
+        subscribeToTheme(self)
     }
 
     /// Subclasses override to add rows via `addRow`.
@@ -124,7 +135,7 @@ class SettingsPane: NSViewController {
     func label(_ s: String) -> NSTextField {
         let l = NSTextField(labelWithString: s)
         l.font = NSFont.systemFont(ofSize: 12)
-        l.textColor = .secondaryLabelColor
+        l.tag = 101
         l.alignment = .right
         return l
     }
@@ -147,7 +158,14 @@ class SettingsPane: NSViewController {
     func sectionHeader(_ s: String) -> NSTextField {
         let l = NSTextField(labelWithString: s)
         l.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        l.tag = 100
         return l
+    }
+
+    @objc func applyTheme() {
+        if isViewLoaded {
+            ThemeChrome.updateColors(in: view)
+        }
     }
 }
 

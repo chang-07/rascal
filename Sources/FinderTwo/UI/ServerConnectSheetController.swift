@@ -3,7 +3,7 @@ import AppKit
 /// "Mount Network Volume…" — Finder ⌘K-style connect for SMB / FTP / AFP /
 /// WebDAV via NetFS. On success the active pane navigates into the mount.
 /// (SFTP has its own in-app libssh2 browser; use Connect to SFTP Server.)
-final class ServerConnectSheetController: NSWindowController {
+final class ServerConnectSheetController: NSWindowController, ThemeObserving {
 
     private weak var target: BrowserWindowController?
     private let addressField = NSTextField()
@@ -28,6 +28,7 @@ final class ServerConnectSheetController: NSWindowController {
         super.init(window: win)
         ThemeChrome.apply(to: window)
         win.contentView = buildContent()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -37,12 +38,14 @@ final class ServerConnectSheetController: NSWindowController {
         passField.placeholderString = "password (optional)"
         for f in [addressField, userField, passField] { f.font = .systemFont(ofSize: 12) }
         status.font = .systemFont(ofSize: 11); status.textColor = .secondaryLabelColor
+        status.tag = 101
         status.lineBreakMode = .byTruncatingTail
 
         func labeled(_ t: String, _ field: NSView) -> NSStackView {
             let l = NSTextField(labelWithString: t)
             l.alignment = .right; l.translatesAutoresizingMaskIntoConstraints = false
             l.widthAnchor.constraint(equalToConstant: 80).isActive = true
+            l.tag = 101
             let s = NSStackView(views: [l, field]); s.orientation = .horizontal; s.spacing = 8
             field.translatesAutoresizingMaskIntoConstraints = false
             field.widthAnchor.constraint(greaterThanOrEqualToConstant: 320).isActive = true
@@ -108,5 +111,12 @@ final class ServerConnectSheetController: NSWindowController {
     private func dismiss() {
         guard let win = window else { return }
         if let parent = win.sheetParent { parent.endSheet(win) } else { close() }
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
     }
 }

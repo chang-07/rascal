@@ -11,7 +11,7 @@ import CoreServices
 ///
 /// Live preview shows old → new per row with conflicts highlighted. On commit
 /// each rename uses FileManager.moveItem; conflicts are skipped.
-final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
+final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, ThemeObserving {
     private weak var target: BrowserWindowController?
     private let items: [FileItem]
 
@@ -87,6 +87,7 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
         ThemeChrome.apply(to: window)
         layout()
         rebuildPreview()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -102,7 +103,7 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
             l.translatesAutoresizingMaskIntoConstraints = false
             l.font = NSFont.systemFont(ofSize: 12)
             l.alignment = .right
-            l.textColor = .secondaryLabelColor
+            l.tag = 101
             cv.addSubview(l)
         }
 
@@ -397,10 +398,10 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
         let text: String
         let color: NSColor
         switch id {
-        case "old":   text = r.oldName; color = .secondaryLabelColor
-        case "arrow": text = "→";       color = .tertiaryLabelColor
-        case "new":   text = r.newName; color = r.conflict ? .systemRed : .labelColor
-        default:      text = "";        color = .labelColor
+        case "old":   text = r.oldName; color = ThemeChrome.secondary
+        case "arrow": text = "→";       color = ThemeChrome.tertiary
+        case "new":   text = r.newName; color = r.conflict ? .systemRed : ThemeChrome.primary
+        default:      text = "";        color = ThemeChrome.primary
         }
         let cellId = NSUserInterfaceItemIdentifier("BRCell")
         let cell = (tableView.makeView(withIdentifier: cellId, owner: nil) as? NSTableCellView) ?? {
@@ -421,5 +422,19 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
         cell.textField?.stringValue = text
         cell.textField?.textColor = color
         return cell
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
+        let t = ThemeManager.shared.current
+        let custom = t.id != "system"
+        let bg = custom ? t.background : .controlBackgroundColor
+        previewTable.backgroundColor = bg
+        scroll.drawsBackground = true
+        scroll.backgroundColor = bg
+        previewTable.reloadData()
     }
 }

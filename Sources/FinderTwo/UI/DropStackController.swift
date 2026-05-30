@@ -4,10 +4,11 @@ import UniformTypeIdentifiers
 /// The Drop Stack panel: a small floating shelf that collects files (drop onto
 /// it, or "Add to Drop Stack" from the context menu) and lets you drag them
 /// back out — or copy/move the whole stack into the frontmost window's folder.
-final class DropStackController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+final class DropStackController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, ThemeObserving {
     static let shared = DropStackController()
 
     private let table = NSTableView()
+    private let scroll = NSScrollView()
     private let countLabel = NSTextField(labelWithString: "")
     private var items: [URL] = []
 
@@ -26,6 +27,7 @@ final class DropStackController: NSWindowController, NSTableViewDataSource, NSTa
         reload()
         NotificationCenter.default.addObserver(self, selector: #selector(reload),
                                                name: DropStack.didChange, object: nil)
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
     deinit { NotificationCenter.default.removeObserver(self) }
@@ -54,13 +56,12 @@ final class DropStackController: NSWindowController, NSTableViewDataSource, NSTa
         table.registerForDraggedTypes([.fileURL])
         table.setDraggingSourceOperationMask([.copy, .move], forLocal: false)
 
-        let scroll = NSScrollView()
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
         countLabel.font = .systemFont(ofSize: 11)
-        countLabel.textColor = .secondaryLabelColor
+        countLabel.tag = 101
 
         let clear = NSButton(title: "Clear", target: self, action: #selector(clearAll))
         clear.bezelStyle = .rounded
@@ -139,6 +140,7 @@ final class DropStackController: NSWindowController, NSTableViewDataSource, NSTa
             return v
         }()
         cell.textField?.stringValue = url.lastPathComponent
+        cell.textField?.textColor = ThemeChrome.primary
         let icon = NSWorkspace.shared.icon(forFile: url.path); icon.size = NSSize(width: 16, height: 16)
         cell.imageView?.image = icon
         return cell
@@ -162,5 +164,19 @@ final class DropStackController: NSWindowController, NSTableViewDataSource, NSTa
         guard let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
               !urls.isEmpty else { return false }
         return DropStack.add(urls) > 0
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
+        let t = ThemeManager.shared.current
+        let custom = t.id != "system"
+        let bg = custom ? t.background : .controlBackgroundColor
+        table.backgroundColor = bg
+        scroll.drawsBackground = true
+        scroll.backgroundColor = bg
+        table.reloadData()
     }
 }

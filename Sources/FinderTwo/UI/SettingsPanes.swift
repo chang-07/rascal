@@ -4,7 +4,7 @@ import AppKit
 
 /// Full keyboard-shortcut editor: every action with a live recorder, conflict
 /// detection, per-row reset, search filter, and a restore-all button.
-final class KeyboardPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+final class KeyboardPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, ThemeObserving {
 
     private let search = NSSearchField()
     private let table = NSTableView()
@@ -21,7 +21,7 @@ final class KeyboardPane: NSViewController, NSTableViewDataSource, NSTableViewDe
 
         let hint = NSTextField(labelWithString: "Click a shortcut to record. Press ⌫ to clear, Esc to cancel.")
         hint.font = NSFont.systemFont(ofSize: 11)
-        hint.textColor = .tertiaryLabelColor
+        hint.tag = 102
         hint.translatesAutoresizingMaskIntoConstraints = false
 
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -68,6 +68,7 @@ final class KeyboardPane: NSViewController, NSTableViewDataSource, NSTableViewDe
             restore.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
         ])
         self.view = root
+        subscribeToTheme(self)
     }
 
     func controlTextDidChange(_ obj: Notification) {
@@ -125,8 +126,11 @@ final class KeyboardPane: NSViewController, NSTableViewDataSource, NSTableViewDe
                 return v
             }()
             cell.textField?.stringValue = action.title
-            (cell.subviews.first { $0.identifier?.rawValue == "subtitle" } as? NSTextField)?
-                .stringValue = action.category.rawValue
+            cell.textField?.textColor = ThemeChrome.primary
+            if let subLabel = cell.subviews.first(where: { $0.identifier?.rawValue == "subtitle" }) as? NSTextField {
+                subLabel.stringValue = action.category.rawValue
+                subLabel.textColor = ThemeChrome.tertiary
+            }
             return cell
         case "key":
             let recorder = ShortcutRecorderView(frame: .zero)
@@ -193,12 +197,25 @@ final class KeyboardPane: NSViewController, NSTableViewDataSource, NSTableViewDe
         ActionRegistry.setShortcut(nil, forId: id)
         table.reloadData()
     }
+
+    @objc func applyTheme() {
+        if isViewLoaded {
+            ThemeChrome.updateColors(in: view)
+        }
+        let t = ThemeManager.shared.current
+        let custom = t.id != "system"
+        let bg = custom ? t.background : .controlBackgroundColor
+        table.backgroundColor = bg
+        scroll.drawsBackground = true
+        scroll.backgroundColor = bg
+        table.reloadData()
+    }
 }
 
 // MARK: - Hotbar
 
 /// Edit which actions appear in the per-pane hotbar, and their order.
-final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate, ThemeObserving {
 
     private let table = NSTableView()
     private let scroll = NSScrollView()
@@ -215,7 +232,7 @@ final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDele
 
         let header = NSTextField(labelWithString: "Buttons shown in each pane's hotbar, top to bottom:")
         header.font = NSFont.systemFont(ofSize: 12)
-        header.textColor = .secondaryLabelColor
+        header.tag = 101
         header.translatesAutoresizingMaskIntoConstraints = false
 
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -280,6 +297,7 @@ final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDele
             reset.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
         ])
         self.view = root
+        subscribeToTheme(self)
     }
 
     @objc private func toggleShowHotbar(_ s: NSButton) { Settings.showHotbar = s.state == .on }
@@ -349,6 +367,7 @@ final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDele
             return v
         }()
         cell.textField?.stringValue = action.title
+        cell.textField?.textColor = ThemeChrome.primary
         cell.imageView?.image = action.icon.flatMap {
             NSImage(systemSymbolName: $0, accessibilityDescription: nil)
         }
@@ -374,6 +393,19 @@ final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDele
         ids.insert(moved, at: min(dest, ids.count))
         commit()
         return true
+    }
+
+    @objc func applyTheme() {
+        if isViewLoaded {
+            ThemeChrome.updateColors(in: view)
+        }
+        let t = ThemeManager.shared.current
+        let custom = t.id != "system"
+        let bg = custom ? t.background : .controlBackgroundColor
+        table.backgroundColor = bg
+        scroll.drawsBackground = true
+        scroll.backgroundColor = bg
+        table.reloadData()
     }
 }
 

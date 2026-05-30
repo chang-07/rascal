@@ -2,7 +2,7 @@ import AppKit
 
 /// Confirmation sheet for uninstalling a .app: shows the app + every leftover
 /// found in ~/Library, with sizes. User can uncheck items they want to keep.
-final class AppUninstallerSheetController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+final class AppUninstallerSheetController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, ThemeObserving {
 
     private let appURL: URL
     private weak var target: BrowserWindowController?
@@ -33,6 +33,7 @@ final class AppUninstallerSheetController: NSWindowController, NSTableViewDataSo
         ThemeChrome.apply(to: window)
         layout()
         scan()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -44,6 +45,7 @@ final class AppUninstallerSheetController: NSWindowController, NSTableViewDataSo
             "Uncheck anything you want to keep.")
         header.font = NSFont.systemFont(ofSize: 12)
         header.textColor = .secondaryLabelColor
+        header.tag = 101
         header.translatesAutoresizingMaskIntoConstraints = false
         header.lineBreakMode = .byWordWrapping
         header.maximumNumberOfLines = 2
@@ -76,6 +78,7 @@ final class AppUninstallerSheetController: NSWindowController, NSTableViewDataSo
         summary.translatesAutoresizingMaskIntoConstraints = false
         summary.font = NSFont.systemFont(ofSize: 11)
         summary.textColor = .secondaryLabelColor
+        summary.tag = 101
 
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(closeSheet))
         cancel.bezelStyle = .rounded
@@ -167,12 +170,12 @@ final class AppUninstallerSheetController: NSWindowController, NSTableViewDataSo
             }
             return cell
         case "kind":
-            return textCell(text: l.kind, color: .secondaryLabelColor, id: cellId, in: tableView)
+            return textCell(text: l.kind, color: ThemeChrome.secondary, id: cellId, in: tableView)
         case "name":
-            return textCell(text: l.url.path, color: .labelColor, id: cellId, in: tableView)
+            return textCell(text: l.url.path, color: ThemeChrome.primary, id: cellId, in: tableView)
         case "size":
             return textCell(text: SizeFormatter.string(l.size),
-                            color: .secondaryLabelColor, id: cellId, in: tableView, alignment: .right)
+                            color: ThemeChrome.secondary, id: cellId, in: tableView, alignment: .right)
         default: return nil
         }
     }
@@ -206,5 +209,19 @@ final class AppUninstallerSheetController: NSWindowController, NSTableViewDataSo
         cell.textField?.textColor = color
         cell.textField?.alignment = alignment
         return cell
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
+        let t = ThemeManager.shared.current
+        let custom = t.id != "system"
+        let bg = custom ? t.background : .controlBackgroundColor
+        table.backgroundColor = bg
+        scroll.drawsBackground = true
+        scroll.backgroundColor = bg
+        table.reloadData()
     }
 }

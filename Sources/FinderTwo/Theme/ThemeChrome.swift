@@ -36,6 +36,25 @@ enum ThemeChrome {
         primaries.forEach { $0.textColor = primary }
         secondaries.forEach { $0.textColor = secondary }
     }
+
+    /// Recursively update all text fields inside a view based on their tags:
+    /// - Tag 100: primary theme color
+    /// - Tag 101: secondary theme color
+    /// - Tag 102: tertiary theme color
+    static func updateColors(in view: NSView) {
+        if let tf = view as? NSTextField {
+            if tf.tag == 100 {
+                tf.textColor = primary
+            } else if tf.tag == 101 {
+                tf.textColor = secondary
+            } else if tf.tag == 102 {
+                tf.textColor = tertiary
+            }
+        }
+        for sub in view.subviews {
+            updateColors(in: sub)
+        }
+    }
 }
 
 /// A table/outline row that highlights the selected row with the theme's
