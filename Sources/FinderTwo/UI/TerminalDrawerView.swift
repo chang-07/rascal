@@ -85,10 +85,11 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
         return p
     }
 
-    private func append(_ s: String, color: NSColor = .labelColor) {
+    private func append(_ s: String, color: NSColor? = nil) {
+        let actualColor = color ?? ThemeChrome.primary
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: color,
+            .foregroundColor: actualColor,
         ]
         let attr = NSAttributedString(string: s, attributes: attrs)
         textView.textStorage?.append(attr)
@@ -133,14 +134,14 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
             }
             if FileManager.default.fileExists(atPath: target.path) {
                 cwd = target.standardizedFileURL
-                append("\(shortPrompt(for: cwd)) ❯ cd \(arg)\n", color: .secondaryLabelColor)
+                append("\(shortPrompt(for: cwd)) ❯ cd \(arg)\n", color: ThemeChrome.secondary)
             } else {
                 append("cd: no such directory: \(arg)\n", color: .systemRed)
             }
             history.append(cmd); historyCursor = history.count
             return
         }
-        append("\(shortPrompt(for: cwd)) ❯ \(cmd)\n", color: .secondaryLabelColor)
+        append("\(shortPrompt(for: cwd)) ❯ \(cmd)\n", color: ThemeChrome.secondary)
 
         let p = Process()
         p.launchPath = "/bin/zsh"
@@ -179,7 +180,7 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 errPipe.fileHandleForReading.readabilityHandler = nil
                 if p.terminationStatus != 0 {
-                    self?.append("exit \(p.terminationStatus)\n", color: .secondaryLabelColor)
+                    self?.append("exit \(p.terminationStatus)\n", color: ThemeChrome.secondary)
                 }
             }
         }
@@ -192,6 +193,7 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
         textView.textColor = t.labelPrimary
         textView.insertionPointColor = t.accent
         prompt.textColor = t.accent
+        inputField.textColor = t.labelPrimary
     }
 
     deinit {

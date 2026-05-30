@@ -65,5 +65,6 @@ final class EmptyStateView: NSView, ThemeObserving {
         layer?.backgroundColor = t.background.cgColor
         titleLabel.textColor = t.labelSecondary
         subtitleLabel.textColor = t.labelTertiary
+        icon.contentTintColor = t.labelTertiary
     }
 }
