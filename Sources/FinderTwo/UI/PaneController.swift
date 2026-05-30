@@ -869,6 +869,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     var testToolbarVisible: Bool { !toolbar.isHidden }
     var testHotbarVisible: Bool { !hotbar.isHidden }
     var testTabStripVisible: Bool { !tabStrip.isHidden }
+    var testTabStrip: TabStripView { tabStrip }
     var testPreviewVisible: Bool { previewVisible }
     var testHotbarHeight: CGFloat { hotbarHeightConstraint.constant }
     var testToolbarTopInset: CGFloat { topInsetConstraint.constant }

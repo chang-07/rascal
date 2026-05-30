@@ -92,6 +92,13 @@ final class TabStripView: NSView, ThemeObserving {
     @objc private func handleNew() {
         delegate?.tabStripDidRequestNew()
     }
+
+    func testMiddleClickTab(at index: Int) {
+        guard stack.arrangedSubviews.indices.contains(index) else { return }
+        if let tabBtn = stack.arrangedSubviews[index] as? TabButton {
+            tabBtn.onClose?(index)
+        }
+    }
 }
 
 private final class TabButton: NSView {
@@ -158,6 +165,13 @@ private final class TabButton: NSView {
     override func mouseDown(with event: NSEvent) {
         // Single-click selects the tab. Click-on-close uses NSButton path.
         onClick?(index)
+    }
+    override func otherMouseDown(with event: NSEvent) {
+        if event.buttonNumber == 2 {
+            onClose?(index)
+        } else {
+            super.otherMouseDown(with: event)
+        }
     }
     @objc private func handleClose() { onClose?(index) }
 
