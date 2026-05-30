@@ -110,6 +110,9 @@ final class OverlayResultRow: NSTableCellView, ThemeObserving {
     let titleLabel = NSTextField(labelWithString: "")
     let subtitleLabel = NSTextField(labelWithString: "")
 
+    override var canBecomeKeyView: Bool { return false }
+    override var acceptsFirstResponder: Bool { return false }
+
     /// Grep snippets read better monospaced; filenames/commands don't.
     var monospacedSubtitle: Bool = false {
         didSet {
