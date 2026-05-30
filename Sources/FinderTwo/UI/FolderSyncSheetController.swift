@@ -1,7 +1,7 @@
 import AppKit
 
 /// "Sync Folder…" — pick source + target, view a 3-state diff, mirror src→dst.
-final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, ThemeObserving {
 
     private weak var target: BrowserWindowController?
     private let sourceField = NSTextField()
@@ -35,6 +35,7 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
         ThemeChrome.apply(to: window)
         sourceField.stringValue = source?.path ?? ""
         layout()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -42,7 +43,9 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
         guard let cv = window?.contentView else { return }
 
         let sLbl = NSTextField(labelWithString: "From:")
+        sLbl.tag = 101
         let dLbl = NSTextField(labelWithString: "To:")
+        dLbl.tag = 101
         let pickS = NSButton(title: "Choose…", target: self, action: #selector(pickSource))
         let pickD = NSButton(title: "Choose…", target: self, action: #selector(pickDest))
         let allViews: [NSView] = [sLbl, dLbl, sourceField, destField, pickS, pickD, mirrorPruneCheck, twoWayCheck]
@@ -80,6 +83,7 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
         summary.translatesAutoresizingMaskIntoConstraints = false
         summary.font = NSFont.systemFont(ofSize: 11)
         summary.textColor = .secondaryLabelColor
+        summary.tag = 101
 
         let compare = NSButton(title: "Compare", target: self, action: #selector(doCompare))
         let apply = NSButton(title: "Apply →", target: self, action: #selector(doApply))
@@ -272,21 +276,35 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
         case "st":
             switch e.status {
             case .onlySource:     text = "→ Will copy";       color = .systemGreen
-            case .onlyDestination: text = "← Only in dest";    color = .secondaryLabelColor
+            case .onlyDestination: text = "← Only in dest";    color = ThemeChrome.secondary
             case .differs:        text = "≠ Will overwrite";  color = .systemOrange
-            case .identical:      text = "= Same";             color = .tertiaryLabelColor
+            case .identical:      text = "= Same";             color = ThemeChrome.tertiary
             }
         case "path":
             text = e.relPath
-            color = .labelColor
+            color = ThemeChrome.primary
         case "size":
             text = SizeFormatter.string(max(e.srcSize, e.dstSize))
-            color = .secondaryLabelColor
+            color = ThemeChrome.secondary
         default:
-            text = ""; color = .labelColor
+            text = ""; color = ThemeChrome.primary
         }
         cell.textField?.stringValue = text
         cell.textField?.textColor = color
         return cell
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
+        let t = ThemeManager.shared.current
+        let custom = t.id != "system"
+        let bg = custom ? t.background : .controlBackgroundColor
+        table.backgroundColor = bg
+        scroll.drawsBackground = true
+        scroll.backgroundColor = bg
+        table.reloadData()
     }
 }

@@ -4,7 +4,7 @@ import AppKit
 /// a progress bar and per-op cancel, plus global Pause/Resume, Cancel All and
 /// Clear. Observes TransferQueue.shared. One shared instance; shown on demand
 /// (and auto-shown by FileOps for non-trivial transfers when not headless).
-final class TransferActivityController: NSWindowController {
+final class TransferActivityController: NSWindowController, ThemeObserving {
     static let shared = TransferActivityController()
 
     private let stack = NSStackView()
@@ -20,6 +20,7 @@ final class TransferActivityController: NSWindowController {
         ThemeChrome.apply(to: window)
         win.contentView = buildContent()
         TransferQueue.shared.onChange = { [weak self] in self?.refresh() }
+        subscribeToTheme(self)
         refresh()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -109,6 +110,7 @@ final class TransferActivityController: NSWindowController {
         let verb = op.move ? "Move" : "Copy"
         let title = NSTextField(labelWithString: "\(verb): \(op.label)")
         title.font = .systemFont(ofSize: 12, weight: .medium)
+        title.textColor = ThemeChrome.primary
         title.lineBreakMode = .byTruncatingMiddle
 
         let bar = NSProgressIndicator()
@@ -119,7 +121,7 @@ final class TransferActivityController: NSWindowController {
 
         let status = NSTextField(labelWithString: Self.statusText(op))
         status.font = .systemFont(ofSize: 10)
-        status.textColor = .secondaryLabelColor
+        status.textColor = ThemeChrome.secondary
         status.lineBreakMode = .byTruncatingMiddle
 
         let cancel = NSButton(title: "✕", target: self, action: #selector(cancelOp(_:)))
@@ -152,5 +154,11 @@ final class TransferActivityController: NSWindowController {
         case .cancelled: return "Cancelled"
         case .failed: return "Finished with \(op.failures) error\(op.failures == 1 ? "" : "s")"
         }
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        emptyLabel.textColor = ThemeChrome.secondary
+        refresh()
     }
 }

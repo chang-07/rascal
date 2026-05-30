@@ -2,7 +2,7 @@ import AppKit
 
 /// Scans a folder for byte-identical files and lists the duplicate groups;
 /// each file row reveals in Finder on click.
-final class DuplicateFinderWindowController: NSWindowController {
+final class DuplicateFinderWindowController: NSWindowController, ThemeObserving {
 
     static func show(for root: URL, parent: NSWindow?) {
         let c = DuplicateFinderWindowController(root: root)
@@ -26,12 +26,14 @@ final class DuplicateFinderWindowController: NSWindowController {
         super.init(window: win)
         ThemeChrome.apply(to: window)
         win.contentView = buildContent()
+        subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
     private func buildContent() -> NSView {
         status.font = .systemFont(ofSize: 12)
         status.textColor = .secondaryLabelColor
+        status.tag = 101
         status.translatesAutoresizingMaskIntoConstraints = false
 
         stack.orientation = .vertical
@@ -78,6 +80,7 @@ final class DuplicateFinderWindowController: NSWindowController {
             let header = NSTextField(labelWithString: "\(g.urls.count) identical · \(SizeFormatter.string(g.size))")
             header.font = .systemFont(ofSize: 11, weight: .semibold)
             header.textColor = .secondaryLabelColor
+            header.tag = 101
             stack.addArrangedSubview(header)
             for url in g.urls {
                 let b = NSButton(title: (url.path as NSString).abbreviatingWithTildeInPath,
@@ -85,7 +88,7 @@ final class DuplicateFinderWindowController: NSWindowController {
                 b.bezelStyle = .inline
                 b.alignment = .left
                 b.isBordered = false
-                b.contentTintColor = .linkColor
+                b.contentTintColor = ThemeChrome.isSystem ? .linkColor : ThemeManager.shared.effectiveAccent
                 b.toolTip = url.path
                 b.identifier = NSUserInterfaceItemIdentifier(url.path)
                 stack.addArrangedSubview(b)
@@ -102,5 +105,23 @@ final class DuplicateFinderWindowController: NSWindowController {
     @objc private func reveal(_ sender: NSButton) {
         guard let path = sender.identifier?.rawValue else { return }
         FileOps.revealInFinder([URL(fileURLWithPath: path)])
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
+        if let cv = window?.contentView {
+            ThemeChrome.updateColors(in: cv)
+        }
+        func updateButtons(in view: NSView) {
+            if let b = view as? NSButton, b.bezelStyle == .inline {
+                b.contentTintColor = ThemeChrome.isSystem ? .linkColor : ThemeManager.shared.effectiveAccent
+            }
+            for sub in view.subviews {
+                updateButtons(in: sub)
+            }
+        }
+        if let cv = window?.contentView {
+            updateButtons(in: cv)
+        }
     }
 }
