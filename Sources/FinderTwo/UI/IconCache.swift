@@ -19,9 +19,15 @@ final class IconCache {
         if let thumb = thumbCache.object(forKey: item.url as NSURL) {
             return thumb
         }
-        // Special-case directories so we share the system folder icon.
-        if item.isDirectory {
+        // Special-case directories so we share the system folder icon, but NOT packages.
+        if item.isDirectory && !item.isPackage {
             return folderIcon
+        }
+        if item.isPackage {
+            let img = NSWorkspace.shared.icon(forFile: item.url.path)
+            img.size = NSSize(width: 16, height: 16)
+            thumbCache.setObject(img, forKey: item.url as NSURL)
+            return img
         }
         let ext = item.ext
         if let cached = extCache.object(forKey: ext as NSString) {
