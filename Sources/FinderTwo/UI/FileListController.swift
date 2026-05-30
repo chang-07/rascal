@@ -1131,7 +1131,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     @objc private func menuOpen() {
         for it in selectedItems() { delegate?.fileListOpenItem(it); break }
     }
-    @objc private func menuOpenWith() {
+    @objc func menuOpenWith() {
         let urls = selectedItems().map { $0.url }
         guard !urls.isEmpty else { NSSound.beep(); return }
         let panel = NSOpenPanel()
