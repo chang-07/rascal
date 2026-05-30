@@ -194,6 +194,38 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
                 perform: { ThemeManager.shared.setTheme(id: t.id) }
             ))
         }
+        // 5. Open With
+        if let pane = target?.testActivePane {
+            let selected = pane.selectedURLs()
+            if !selected.isEmpty {
+                let fileURL = selected[0]
+                let candidates = FileListController.appCandidates(for: fileURL)
+                for appURL in candidates {
+                    let appName = (appURL.lastPathComponent as NSString).deletingPathExtension
+                    let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+                    icon.size = NSSize(width: 16, height: 16)
+                    entries.append(Entry(
+                        title: "Open With: \(appName)",
+                        subtitle: "Application",
+                        category: "Open With",
+                        icon: icon,
+                        perform: {
+                            NSWorkspace.shared.open(selected, withApplicationAt: appURL,
+                                                    configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+                        }
+                    ))
+                }
+                entries.append(Entry(
+                    title: "Open With: Other…",
+                    subtitle: "Choose application…",
+                    category: "Open With",
+                    icon: NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil),
+                    perform: { [weak pane] in
+                        pane?.testFileList.menuOpenWith()
+                    }
+                ))
+            }
+        }
 
         self.allEntries = entries
     }
