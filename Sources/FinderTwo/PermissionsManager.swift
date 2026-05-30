@@ -89,4 +89,19 @@ enum PermissionsManager {
         hasOnboarded = true   // shown once; never auto-nag again
         return controller
     }
+
+    /// Returns true if the path is in a standard TCC-protected folder
+    /// (e.g. Desktop, Documents, Downloads, etc.) or removable volume.
+    static func isProtectedPath(_ path: String) -> Bool {
+        let home = NSHomeDirectory()
+        let protectedSubdirs = ["Desktop", "Documents", "Downloads", "Library", "Movies", "Music", "Pictures"]
+        for sub in protectedSubdirs {
+            let prefix = (home as NSString).appendingPathComponent(sub)
+            if path == prefix || path.hasPrefix(prefix + "/") {
+                return true
+            }
+        }
+        if path.hasPrefix("/Volumes/") { return true }
+        return false
+    }
 }
