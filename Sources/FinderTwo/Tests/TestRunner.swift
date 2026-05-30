@@ -2102,6 +2102,14 @@ final class TestRunner {
         assert("ad-hoc warning matches the build's real signature",
                permOnboard.testShowsAdHocWarning == PermissionsManager.isAdHocSigned,
                "warning=\(permOnboard.testShowsAdHocWarning) adhoc=\(PermissionsManager.isAdHocSigned)")
+
+        // Verify state machine transitions
+        assert("Onboarding starts in welcome state", permOnboard.testCurrentState == "welcome", "got \(permOnboard.testCurrentState)")
+        permOnboard.testTransitionToWaiting()
+        assert("Onboarding transitions to waiting state", permOnboard.testCurrentState == "waiting", "got \(permOnboard.testCurrentState)")
+        permOnboard.testTransitionToSuccess()
+        assert("Onboarding transitions to success state", permOnboard.testCurrentState == "success", "got \(permOnboard.testCurrentState)")
+
         // FDA probe is side-effect-free and stable across calls (never prompts).
         let fda1 = PermissionsManager.hasFullDiskAccess
         let fda2 = PermissionsManager.hasFullDiskAccess
