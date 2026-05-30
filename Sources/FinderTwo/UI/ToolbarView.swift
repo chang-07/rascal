@@ -146,6 +146,18 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
         let t = ThemeManager.shared.current
         layer?.backgroundColor = t.toolbarBackground.cgColor
         pathField.font = ThemeManager.shared.font()
+        
+        let custom = t.id != "system"
+        let bgColor = custom ? t.pathBarBackground : .controlBackgroundColor
+        let textColor = custom ? t.labelPrimary : .controlTextColor
+        
+        pathField.textColor = textColor
+        pathField.backgroundColor = bgColor
+        pathField.drawsBackground = true
+        
+        searchField.textColor = textColor
+        searchField.backgroundColor = bgColor
+        searchField.drawsBackground = true
     }
 
     // NSTextFieldDelegate (path commit + ESC on search field)

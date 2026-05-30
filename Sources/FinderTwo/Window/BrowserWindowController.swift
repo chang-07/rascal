@@ -1,6 +1,6 @@
 import AppKit
 
-final class BrowserWindowController: NSWindowController, NSWindowDelegate {
+final class BrowserWindowController: NSWindowController, NSWindowDelegate, ThemeObserving {
 
     private let splitVC = NSSplitViewController()
     private let sidebarVC: SidebarController
@@ -109,6 +109,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         applyTitleBarVisibility()
         NotificationCenter.default.addObserver(self, selector: #selector(chromeSettingsChanged),
                                                name: Settings.didChange, object: nil)
+        subscribeToTheme(self)
+    }
+
+    @objc func applyTheme() {
+        ThemeChrome.apply(to: window)
     }
 
     @objc private func chromeSettingsChanged() { applyTitleBarVisibility() }
@@ -183,6 +188,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     deinit {
         GitBranchWorkspaces.shared.unregister(self)
         if let m = vimKeyMonitor { NSEvent.removeMonitor(m) }
+        NotificationCenter.default.removeObserver(self)
     }
 
     required init?(coder: NSCoder) { fatalError() }

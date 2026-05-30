@@ -89,7 +89,10 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
 
     @objc func applyTheme() {
         let t = ThemeManager.shared.current
-        searchField.textColor = t.id == "system" ? .controlTextColor : t.labelPrimary
+        let custom = t.id != "system"
+        searchField.textColor = custom ? t.labelPrimary : .controlTextColor
+        searchField.backgroundColor = custom ? t.pathBarBackground : .controlBackgroundColor
+        searchField.drawsBackground = true
     }
 
     deinit {

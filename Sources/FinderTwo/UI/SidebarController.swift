@@ -46,6 +46,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         // Sidebar-style NSVisualEffectView gives the native translucency for the
         // System theme; a themed tint overlay covers it for custom themes.
         let v = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 168, height: 400))
+        v.wantsLayer = true
         v.material = .sidebar
         v.blendingMode = .behindWindow
         v.state = .followsWindowActiveState
@@ -170,12 +171,18 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
 
     @objc func applyTheme() {
         let t = ThemeManager.shared.current
-        // The `.inset` outline draws its OWN background, in front of the tint
-        // and clip view — so THAT is the surface that has to carry the theme
-        // color. System → clear (the visual-effect view's translucency shows);
-        // custom → the exact opaque sidebar color. The tint mirrors it as a
-        // backstop for any sliver the table doesn't cover (e.g. inset margins).
-        let bg: NSColor = t.id == "system" ? .clear : t.sidebarBackground
+        let isSystem = t.id == "system"
+        
+        let view = self.view as? NSVisualEffectView
+        if isSystem {
+            view?.state = .followsWindowActiveState
+            view?.material = .sidebar
+        } else {
+            view?.state = .inactive
+            view?.material = .underWindowBackground
+        }
+        
+        let bg: NSColor = isSystem ? .clear : t.sidebarBackground
         outline.backgroundColor = bg
         tintView.layer?.backgroundColor = bg.cgColor
         outline.reloadData()
@@ -419,7 +426,12 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                 v.identifier = id
                 return v
             }()
-            view.imageView?.image = e.icon
+            let cellIcon = e.icon
+            if cellIcon.isTemplate {
+                view.imageView?.image = cellIcon.tinted(sidebarPrimaryColor)
+            } else {
+                view.imageView?.image = cellIcon
+            }
             view.textField?.stringValue = e.title
             view.textField?.textColor = sidebarPrimaryColor
             return view
