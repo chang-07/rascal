@@ -133,6 +133,13 @@ final class TestRunner {
         while pane.testTabCount > initialTabs + 1 { pane.closeActiveTab() }
         pane.selectTab(at: 0)
 
+        // --- T8c: middle-click tab closure ---
+        let tabsBeforeMiddleClick = pane.testTabCount
+        pane.newTab(at: sandbox)
+        assert("new tab added for middle-click test", pane.testTabCount == tabsBeforeMiddleClick + 1, "tabs=\(pane.testTabCount)")
+        pane.testTabStrip.testMiddleClickTab(at: tabsBeforeMiddleClick)
+        assert("middle-click closes tab", pane.testTabCount == tabsBeforeMiddleClick, "tabs=\(pane.testTabCount)")
+
         // --- T9: close tab ---
         pane.closeActiveTab()
         assert("close tab decrements",
