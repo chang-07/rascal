@@ -59,8 +59,11 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
 
     @objc func applyTheme() {
         let t = ThemeManager.shared.current
-        searchField.textColor = t.id == "system" ? .controlTextColor : t.labelPrimary
-        statusLabel.textColor = t.id == "system" ? .secondaryLabelColor : t.labelSecondary
+        let custom = t.id != "system"
+        searchField.textColor = custom ? t.labelPrimary : .controlTextColor
+        searchField.backgroundColor = custom ? t.pathBarBackground : .controlBackgroundColor
+        searchField.drawsBackground = true
+        statusLabel.textColor = custom ? t.labelSecondary : .secondaryLabelColor
     }
 
     deinit {
