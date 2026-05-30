@@ -207,7 +207,7 @@ final class PermissionsOnboardingController: NSWindowController, ThemeObserving 
 
         for (num, text) in [
             ("1", "System Settings is open"),
-            ("2", "Find Rascal in the list"),
+            ("2", "Find Rascal in the list (click + if missing)"),
             ("3", "Toggle the switch next to Rascal to ON"),
         ] {
             let row = NSStackView()
@@ -534,4 +534,14 @@ final class PermissionsOnboardingController: NSWindowController, ThemeObserving 
     var testTitle: String { titleLabel.stringValue }
     var testShowsAdHocWarning: Bool { !warningLabel.isHidden }
     var testBulletCount: Int { bulletStack.arrangedSubviews.count }
+
+    var testCurrentState: String {
+        switch currentState {
+        case .welcome: return "welcome"
+        case .waiting: return "waiting"
+        case .success: return "success"
+        }
+    }
+    func testTransitionToWaiting() { transition(to: .waiting, animated: false) }
+    func testTransitionToSuccess() { transition(to: .success, animated: false) }
 }
