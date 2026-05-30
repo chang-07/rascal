@@ -1384,17 +1384,29 @@ protocol NameCellDelegate: AnyObject {
     func nameCellDidCancel(_ cell: NameCell)
 }
 
+private final class FileListCellTextField: NSTextField {
+    override var canBecomeKeyView: Bool {
+        return isEditable
+    }
+    override var acceptsFirstResponder: Bool {
+        return isEditable
+    }
+}
+
 /// Custom name cell with icon + text. Text is normally a label; on demand we
 /// flip it to editable for in-place rename.
 final class NameCell: NSTableCellView, NSTextFieldDelegate {
     weak var renameDelegate: NameCellDelegate?
     private let icon = NSImageView()
-    let name = NSTextField()
+    let name = FileListCellTextField()
     private let gitBadge = NSTextField(labelWithString: "")
     private let tagDots = NSTextField(labelWithString: "")
     private(set) var currentItem: FileItem?
     private var isEditing = false
     private var originalNameBeforeEdit: String = ""
+
+    override var canBecomeKeyView: Bool { return false }
+    override var acceptsFirstResponder: Bool { return false }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
