@@ -1891,6 +1891,20 @@ final class TestRunner {
         // `loadView`/`window` so the entire view hierarchy is built.
         constructControllerSmokeTests(wc: wc, sandbox: sandbox)
 
+        // --- T61: Command Palette "Open With" entries ---
+        let openWithTestFile = sandbox.appendingPathComponent("open_with_test.txt")
+        try? "test".write(to: openWithTestFile, atomically: true, encoding: .utf8)
+        pane.testReloadSync()
+        if let item = pane.testCurrentItems.first(where: { $0.name == "open_with_test.txt" }) {
+            pane.testSelectItem(item)
+            let palette = CommandPaletteController(target: wc)
+            let entries = palette.testFilteredEntries
+            let hasOpenWithOther = entries.contains { $0.title == "Open With: Other…" }
+            assert("command palette contains Open With: Other…", hasOpenWithOther, "entries=\(entries.map { $0.title })")
+        } else {
+            assert("command palette Open With test file exists", false, "test file not found")
+        }
+
         finish()
     }
 
