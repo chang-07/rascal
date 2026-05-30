@@ -617,6 +617,33 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         }
     }
 
+    /// Create-and-reveal helpers (New Folder / New File): make the item, then
+    /// select + inline-rename it once the asynchronous directory reload lands.
+    func createNewFolder() {
+        guard let url = FileOps.newFolder(in: currentURL) else { NSSound.beep(); return }
+        fileList.queueReveal(url, rename: true); reload()
+    }
+
+    /// Test hook: create a folder and reveal it via a SYNCHRONOUS reload, so the
+    /// resulting selection is deterministic (the async scan queue is saturated
+    /// during the full test run). Exercises the same queueReveal + consume path.
+    @discardableResult
+    func testNewFolderSyncReveal() -> URL? {
+        guard let url = FileOps.newFolder(in: currentURL) else { return nil }
+        fileList.queueReveal(url, rename: false)
+        activeTab.model.reload(sync: true)
+        return url
+    }
+    func createNewFile() {
+        guard let url = FileOps.newFile(in: currentURL) else { NSSound.beep(); return }
+        fileList.queueReveal(url, rename: true); reload()
+    }
+    func createNewFolderWithSelection() {
+        let sel = selectedURLs()
+        guard !sel.isEmpty, let url = FileOps.newFolderWithItems(sel, in: currentURL) else { NSSound.beep(); return }
+        fileList.queueReveal(url, rename: true); reload()
+    }
+
     func selectedURLs() -> [URL] {
         if viewMode == .icon || viewMode == .gallery { return iconSelection.map { $0.url } }
         return fileList.selectedItems().map { $0.url }

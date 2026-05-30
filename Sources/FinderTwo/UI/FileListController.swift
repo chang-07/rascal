@@ -237,6 +237,13 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         tableView.addTableColumn(c)
     }
 
+    /// A just-created item (New Folder / New File) to select — and optionally
+    /// start inline rename on — as soon as it lands in the model after the next
+    /// async reload. The directory reload is asynchronous, so selecting right
+    /// after triggering it would miss the new item.
+    private var pendingReveal: (url: URL, rename: Bool)?
+    func queueReveal(_ url: URL, rename: Bool) { pendingReveal = (url, rename) }
+
     func reload() {
         // Preserve selection by URL
         let prevSel = selectedItems().map { $0.url }
@@ -258,6 +265,17 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
                 indexes.insert(tableRow(forModelIndex: i))
             }
             tableView.selectRowIndexes(indexes, byExtendingSelection: false)
+        }
+        // A just-created item has now landed: select it (overriding the
+        // restored selection) and, if requested, start inline rename.
+        // Compare by path: a directory URL from the scan is isDirectory-tagged
+        // (trailing slash) and won't `==` the plain URL we created it with.
+        if let p = pendingReveal, let mi = model.items.firstIndex(where: { $0.url.path == p.url.path }) {
+            pendingReveal = nil
+            let row = tableRow(forModelIndex: mi)
+            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            tableView.scrollRowToVisible(row)
+            if p.rename { beginRenameSelection() }
         }
     }
 
@@ -1082,8 +1100,14 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         for it in m.items { it.target = self }
         return m
     }
-    @objc private func menuBgNewFolder() { _ = FileOps.newFolder(in: model.url); model.reload() }
-    @objc private func menuBgNewFile() { _ = FileOps.newFile(in: model.url); model.reload() }
+    @objc private func menuBgNewFolder() {
+        guard let url = FileOps.newFolder(in: model.url) else { NSSound.beep(); return }
+        queueReveal(url, rename: true); model.reload()
+    }
+    @objc private func menuBgNewFile() {
+        guard let url = FileOps.newFile(in: model.url) else { NSSound.beep(); return }
+        queueReveal(url, rename: true); model.reload()
+    }
     @objc private func menuBgGetInfo() { GetInfoSheetController.show(for: model.url, parent: view.window) }
     @objc private func menuBgAddToSidebar() { SidebarBookmarks.add(model.url) }
     @objc private func menuSetDesktop() {
