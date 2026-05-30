@@ -1652,7 +1652,7 @@ final class TestRunner {
         assert("malformed hex is rejected", NSColor(hex: "nope") == nil, "accepted")
         let themeIDs = Set(ThemeManager.shared.available.map { $0.id })
         assert("new built-in themes are present",
-               themeIDs.isSuperset(of: ["nord", "dracula", "solarized-light", "solarized-dark", "high-contrast", "ocean", "cyberpunk", "gruvbox", "sage"]),
+               themeIDs.isSuperset(of: ["nord", "dracula", "solarized-light", "solarized-dark", "high-contrast", "ocean", "cyberpunk", "gruvbox", "sage", "tokyo-night", "rose-pine"]),
                "got \(themeIDs)")
         assert("theme library has 10+ themes", ThemeManager.shared.available.count >= 10,
                "got \(ThemeManager.shared.available.count)")

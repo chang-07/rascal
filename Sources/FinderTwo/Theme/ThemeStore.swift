@@ -81,6 +81,16 @@ enum ThemeStore {
                   pathBarBackground: "#E3EAE5", rowAlternate: "#E8EFEA", labelPrimary: "#1E352F",
                   labelSecondary: "#3B5E55", labelTertiary: "#6A8D83", accent: "#2A6F54",
                   selectionBackground: "#2A6F5433"),
+        ThemeSpec(id: "tokyo-night", name: "Tokyo Night", appearance: "dark",
+                  background: "#1A1B26", sidebarBackground: "#16161E", toolbarBackground: "#1F2335",
+                  pathBarBackground: "#1A1B26", rowAlternate: "#24283B", labelPrimary: "#A9B1D6",
+                  labelSecondary: "#787C99", labelTertiary: "#565F89", accent: "#7AA2F7",
+                  selectionBackground: "#7AA2F73D"),
+        ThemeSpec(id: "rose-pine", name: "Rose Pine", appearance: "dark",
+                  background: "#191724", sidebarBackground: "#121019", toolbarBackground: "#1F1D2E",
+                  pathBarBackground: "#191724", rowAlternate: "#26233A", labelPrimary: "#E0DEF4",
+                  labelSecondary: "#908CAA", labelTertiary: "#6E6A86", accent: "#EBBCBA",
+                  selectionBackground: "#EBBCBA3D"),
     ]
 
     /// System (dynamic AppKit colors) + the built-in specs.

@@ -79,7 +79,7 @@ final class DuplicateFinderWindowController: NSWindowController, ThemeObserving 
         for (i, g) in groups.enumerated() {
             let header = NSTextField(labelWithString: "\(g.urls.count) identical · \(SizeFormatter.string(g.size))")
             header.font = .systemFont(ofSize: 11, weight: .semibold)
-            header.textColor = .secondaryLabelColor
+            header.textColor = ThemeChrome.secondary
             header.tag = 101
             stack.addArrangedSubview(header)
             for url in g.urls {

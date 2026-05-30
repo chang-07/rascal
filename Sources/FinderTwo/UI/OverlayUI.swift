@@ -105,7 +105,7 @@ final class OverlayPanelBackground: NSView {
 
 /// One result row: icon + title over a muted subtitle, themed. Used by the
 /// palette and both search modes.
-final class OverlayResultRow: NSTableCellView {
+final class OverlayResultRow: NSTableCellView, ThemeObserving {
     let iconView = NSImageView()
     let titleLabel = NSTextField(labelWithString: "")
     let subtitleLabel = NSTextField(labelWithString: "")
@@ -123,17 +123,11 @@ final class OverlayResultRow: NSTableCellView {
     required init?(coder: NSCoder) { super.init(coder: coder); setup() }
 
     private func setup() {
-        let t = ThemeManager.shared.current
-        let primary = t.id == "system" ? NSColor.labelColor : t.labelPrimary
-        let secondary = t.id == "system" ? NSColor.secondaryLabelColor : t.labelSecondary
-
         iconView.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        titleLabel.textColor = primary
         subtitleLabel.font = .systemFont(ofSize: 11)
-        subtitleLabel.textColor = secondary
         titleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.lineBreakMode = .byTruncatingTail
         addSubview(iconView); addSubview(titleLabel); addSubview(subtitleLabel)
@@ -151,5 +145,16 @@ final class OverlayResultRow: NSTableCellView {
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 1),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
         ])
+        subscribeToTheme(self)
+    }
+
+    @objc func applyTheme() {
+        let t = ThemeManager.shared.current
+        titleLabel.textColor = t.id == "system" ? .labelColor : t.labelPrimary
+        subtitleLabel.textColor = t.id == "system" ? .secondaryLabelColor : t.labelSecondary
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 }

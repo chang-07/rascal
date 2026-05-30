@@ -2,7 +2,7 @@ import AppKit
 
 /// Spotlight-style fuzzy launcher over every Action in ActionRegistry, plus
 /// every recent folder, every favorite, every open tab. Cmd+Shift+P.
-final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
+final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, ThemeObserving {
 
     private weak var target: BrowserWindowController?
     private let searchField = NSTextField()
@@ -84,6 +84,16 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
 
         buildEntries()
         layout()
+        subscribeToTheme(self)
+    }
+
+    @objc func applyTheme() {
+        let t = ThemeManager.shared.current
+        searchField.textColor = t.id == "system" ? .controlTextColor : t.labelPrimary
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
