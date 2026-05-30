@@ -672,6 +672,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func duplicateSelection() {
         let urls = selectedURLs()
         guard !urls.isEmpty else { NSSound.beep(); return }
+        var lastCreated: URL?
         for u in urls {
             let dir = u.deletingLastPathComponent()
             let base = u.deletingPathExtension().lastPathComponent
@@ -689,6 +690,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
                     do {
                         try FileManager.default.copyItem(at: u, to: candidate)
                         FileActionLog.shared.recordCreate(candidate, name: "Duplicate")
+                        lastCreated = candidate
                     } catch {
                         NSSound.beep()
                     }
@@ -698,6 +700,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
                 if i > 999 { NSSound.beep(); break }
             }
         }
+        // Select the duplicate once it lands (Finder selects the copy). No rename
+        // (Cmd+D leaves the name as-is), and reveal the last one for a multi-select.
+        if let created = lastCreated { fileList.queueReveal(created, rename: false); reload() }
     }
 
     func showGoToFolderSheet() {

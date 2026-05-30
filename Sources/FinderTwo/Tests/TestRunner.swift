@@ -686,14 +686,21 @@ final class TestRunner {
         assert("Sync reload of 5k yields full sorted list",
                perfModel.items.count == 5000, "items=\(perfModel.items.count)")
 
-        // Filter benchmark: typing should not cost > 60ms on 5k items
-        let t4 = Date()
+        // Filter benchmark: filtering 5k items should be fast. Measure the
+        // synchronous compute directly. The live setter dispatches the work
+        // off-main and applies it via DispatchQueue.main.async, which does NOT
+        // drain inside the FT_RUN_TESTS nested run loop — so timing the setter
+        // (as the old version did) actually timed a fixed wait() while the filter
+        // silently never applied. testApplyComputeSync runs the real filter+sort
+        // on this thread and returns the post-filter count, so we measure work.
         perfModel.filterText = "item_0001"
-        wait(0.02)
-        let t5 = Date()
-        let filterMs = Int(t5.timeIntervalSince(t4) * 1000)
-        assert("Filter on 5k completes under 60ms (got \(filterMs)ms)",
-               filterMs < 60, "perf regression")
+        let t4 = Date()
+        let filteredCount = perfModel.testApplyComputeSync()
+        let filterMs = Int(Date().timeIntervalSince(t4) * 1000)
+        assert("Filter on 5k completes under 60ms (got \(filterMs)ms, matched \(filteredCount))",
+               filterMs < 60 && filteredCount < 5000, "perf regression")
+        perfModel.filterText = ""
+        perfModel.testApplyComputeSync()
 
         // Progressive filter benchmark: typing extra chars should narrow the
         // prior result set, not rescan rawItems. Wait for the async narrow to
