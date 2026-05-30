@@ -273,9 +273,18 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
 
     /// Settings changed: a grouping on/off flip needs a full reload (to build
     /// or tear down header rows); everything else is a light repaint.
+    private var lastOrderSettings = ""
     func settingsDidChange() {
+        // Re-sort/reload when an order- or content-affecting setting changed
+        // (grouping, keep-folders-on-top, folder sizes); otherwise just repaint.
+        let key = "\(Settings.useGroups)|\(Settings.foldersFirst)|\(Settings.calculateFolderSizes)"
         let wantGroups = Settings.useGroups && !model.items.isEmpty
-        if wantGroups != groupsActive { reload() } else { reloadVisibleRows() }
+        if key != lastOrderSettings || wantGroups != groupsActive {
+            lastOrderSettings = key
+            reload()
+        } else {
+            reloadVisibleRows()
+        }
     }
 
     func select(item: FileItem, scroll: Bool) {
@@ -514,7 +523,8 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        let v = NSTableRowView()
+        let v = ThemedRowView()
+        v.pill = false          // full-width band, classic list selection
         v.isEmphasized = true
         return v
     }
@@ -1147,7 +1157,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         wc.duplicate(nil)
     }
     @objc private func menuRename() { beginRenameSelection() }
-    @objc private func menuTrash() { FileOps.moveToTrash(selectedItems().map { $0.url }) }
+    @objc private func menuTrash() { FileOps.trashWithConfirmation(selectedItems().map { $0.url }) }
     @objc private func menuQuickLook() { toggleQuickLook() }
     @objc private func menuMakeAlias() {
         let urls = selectedItems().map { $0.url }
@@ -1437,7 +1447,7 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
 
     /// Show up to 3 colored dots for the file's color tags (Finder-style).
     private func applyTagDots(for url: URL) {
-        let colors = Tags.read(url).map { $0.color }.filter { $0 != .none }
+        let colors = Tags.cachedColors(for: url)   // memoized — no getxattr per cell
         guard !colors.isEmpty else { tagDots.attributedStringValue = NSAttributedString(string: ""); return }
         let s = NSMutableAttributedString()
         for c in colors.prefix(3) {

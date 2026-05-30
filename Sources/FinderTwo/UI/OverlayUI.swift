@@ -79,9 +79,9 @@ enum OverlayUI {
         scroll.documentView = table
     }
 
-    /// Shared selection row — fills the selected row with the theme accent so
-    /// every finder highlights in Rascal's orange (not the system blue).
-    static func makeRowView() -> NSTableRowView { OverlayRowView() }
+    /// Shared selection row — the theme's selectionBackground, so every finder
+    /// highlights in Rascal's orange (system theme → native highlight).
+    static func makeRowView() -> NSTableRowView { ThemedRowView() }
 }
 
 /// Rounded, themed background that fills an overlay panel's content view.
@@ -100,19 +100,6 @@ final class OverlayPanelBackground: NSView {
         layer?.masksToBounds = true
         layer?.borderWidth = 1
         layer?.borderColor = border.cgColor
-    }
-}
-
-/// Selection fill for overlay rows — the theme accent, lightly tinted.
-final class OverlayRowView: NSTableRowView {
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
-        let t = ThemeManager.shared.current
-        let fill = t.id == "system"
-            ? NSColor.selectedContentBackgroundColor.withAlphaComponent(0.85)
-            : t.accent.withAlphaComponent(0.22)
-        fill.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 7, yRadius: 7).fill()
     }
 }
 

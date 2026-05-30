@@ -159,6 +159,19 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.useGroups"); notify() }
     }
 
+    /// Keep folders grouped ahead of files regardless of sort key. On by default.
+    static var foldersFirst: Bool {
+        get { d.object(forKey: "FinderTwo.foldersFirst") as? Bool ?? true }
+        set { d.set(newValue, forKey: "FinderTwo.foldersFirst"); notify() }
+    }
+
+    /// Show a confirmation alert before moving items to the Trash. Off by
+    /// default (matches Finder); a safety net for users who want it.
+    static var confirmTrash: Bool {
+        get { d.object(forKey: "FinderTwo.confirmTrash") as? Bool ?? false }
+        set { d.set(newValue, forKey: "FinderTwo.confirmTrash"); notify() }
+    }
+
     /// Delay before a spring-loaded folder opens, in seconds. Clamped 0.2…2.0.
     static var springLoadDelay: Double {
         get { let v = d.object(forKey: "FinderTwo.springLoadDelay") as? Double ?? 0.6; return min(2.0, max(0.2, v)) }

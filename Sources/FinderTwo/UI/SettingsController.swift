@@ -47,6 +47,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate {
         )
         win.title = "Rascal Settings"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         let toolbar = NSToolbar(identifier: "FinderTwo.Settings")
         toolbar.delegate = self
         toolbar.displayMode = .iconAndLabel
@@ -180,12 +181,56 @@ final class GeneralPane: SettingsPane {
         spring.state = Settings.springLoadedFolders ? .on : .off
         addRow("Dragging:", spring)
 
+        let delay = NSSlider(value: Settings.springLoadDelay, minValue: 0.2, maxValue: 2.0,
+                             target: self, action: #selector(springDelayChanged(_:)))
+        delay.controlSize = .small
+        delay.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        addRow("Spring delay:", delay)
+
         let view = NSPopUpButton()
         for v in Settings.DefaultView.allCases { view.addItem(withTitle: v.label) }
         view.selectItem(withTitle: Settings.defaultView.label)
         view.target = self; view.action = #selector(viewChanged(_:))
         addRow("Default view:", view)
+
+        let foldersTop = NSButton(checkboxWithTitle: "Keep folders on top",
+                                  target: self, action: #selector(foldersTopChanged(_:)))
+        foldersTop.state = Settings.foldersFirst ? .on : .off
+        addRow("Sorting:", foldersTop)
+
+        let calcSizes = NSButton(checkboxWithTitle: "Calculate folder sizes (slower)",
+                                 target: self, action: #selector(calcSizesChanged(_:)))
+        calcSizes.state = Settings.calculateFolderSizes ? .on : .off
+        addRow("", calcSizes)
+
+        let titleBar = NSButton(checkboxWithTitle: "Show window title bar",
+                                target: self, action: #selector(titleBarChanged(_:)))
+        titleBar.state = Settings.showTitleBar ? .on : .off
+        addRow("Window chrome:", titleBar)
+
+        let statusBar = NSButton(checkboxWithTitle: "Show status bar",
+                                 target: self, action: #selector(statusBarChanged(_:)))
+        statusBar.state = Settings.showStatusBar ? .on : .off
+        addRow("", statusBar)
+
+        let pathBar = NSButton(checkboxWithTitle: "Show path bar (breadcrumb)",
+                               target: self, action: #selector(pathBarChanged(_:)))
+        pathBar.state = Settings.showPathBar ? .on : .off
+        addRow("", pathBar)
+
+        let confirmTrash = NSButton(checkboxWithTitle: "Warn before moving items to Trash",
+                                    target: self, action: #selector(confirmTrashChanged(_:)))
+        confirmTrash.state = Settings.confirmTrash ? .on : .off
+        addRow("Safety:", confirmTrash)
     }
+
+    @objc private func springDelayChanged(_ s: NSSlider) { Settings.springLoadDelay = s.doubleValue }
+    @objc private func foldersTopChanged(_ s: NSButton) { Settings.foldersFirst = s.state == .on }
+    @objc private func calcSizesChanged(_ s: NSButton) { Settings.calculateFolderSizes = s.state == .on }
+    @objc private func titleBarChanged(_ s: NSButton) { Settings.showTitleBar = s.state == .on }
+    @objc private func statusBarChanged(_ s: NSButton) { Settings.showStatusBar = s.state == .on }
+    @objc private func pathBarChanged(_ s: NSButton) { Settings.showPathBar = s.state == .on }
+    @objc private func confirmTrashChanged(_ s: NSButton) { Settings.confirmTrash = s.state == .on }
 
     @objc private func locChanged(_ s: NSPopUpButton) {
         if let raw = s.selectedItem?.representedObject as? String,

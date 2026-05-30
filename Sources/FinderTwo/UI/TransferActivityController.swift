@@ -17,6 +17,7 @@ final class TransferActivityController: NSWindowController {
         win.title = "Transfers"
         win.minSize = NSSize(width: 360, height: 200)
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         win.contentView = buildContent()
         TransferQueue.shared.onChange = { [weak self] in self?.refresh() }
         refresh()

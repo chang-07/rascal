@@ -84,6 +84,7 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
         )
         win.title = "Batch Rename — \(items.count) item\(items.count == 1 ? "" : "s")"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         layout()
         rebuildPreview()
     }

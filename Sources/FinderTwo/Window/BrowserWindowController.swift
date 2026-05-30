@@ -274,7 +274,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard let pane = activePane else { return }
         let sel = pane.selectedURLs()
         guard !sel.isEmpty else { NSSound.beep(); return }
-        FileOps.moveToTrash(sel)
+        FileOps.trashWithConfirmation(sel)
     }
 
     @objc func pasteMove(_ sender: Any?) { activePane?.pasteMoveHere() }

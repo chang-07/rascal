@@ -32,6 +32,7 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
         )
         win.title = "Sync Folder"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         sourceField.stringValue = source?.path ?? ""
         layout()
     }

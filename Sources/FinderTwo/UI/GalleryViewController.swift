@@ -66,10 +66,15 @@ final class GalleryViewController: NSViewController, ThemeObserving {
         nameLabel.textColor = t.id == "system" ? .labelColor : t.labelPrimary
     }
 
+    /// The filmstrip builds one control per item, so cap it — a 50k-file folder
+    /// would otherwise instantiate 50k live buttons in a single layout pass and
+    /// hang. Gallery is for browsing media; the first few hundred is plenty.
+    private static let maxStripItems = 400
+
     func reload(_ items: [FileItem]) {
-        self.items = items
+        self.items = items.count > Self.maxStripItems ? Array(items.prefix(Self.maxStripItems)) : items
         rebuildStrip()
-        focus(items.first)
+        focus(self.items.first)
     }
 
     private func rebuildStrip() {

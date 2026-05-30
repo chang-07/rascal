@@ -38,6 +38,7 @@ final class ArchiveSheetController: NSWindowController, NSOutlineViewDataSource,
         )
         win.title = "Archive — \(archive.lastPathComponent)"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         buildTree()
         layout()
     }

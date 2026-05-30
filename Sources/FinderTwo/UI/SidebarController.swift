@@ -359,6 +359,9 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
         !(item is Section)
     }
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+        ThemedRowView()   // theme-accent selection pill (system theme → native)
+    }
     func outlineViewSelectionDidChange(_ notification: Notification) {
         let row = outline.selectedRow
         guard row >= 0, let entry = outline.item(atRow: row) as? Entry else { return }

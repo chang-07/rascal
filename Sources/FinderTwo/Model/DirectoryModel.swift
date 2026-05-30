@@ -159,7 +159,7 @@ final class DirectoryModel {
                 self.reloadAgain = false
                 self.reload(sync: false)
             }
-            self.computeGitStatus()
+            self.scheduleGitStatus()
             let t3 = Date()
             if raw.count > 1000 {
                 NSLog("DM: reload \(self.url.lastPathComponent) n=\(raw.count) dir=\(Int(t1.timeIntervalSince(t0)*1000))ms load=\(Int(t2.timeIntervalSince(t1)*1000))ms sort=\(Int(t3.timeIntervalSince(t2)*1000))ms async=\(applyOnMain)")
@@ -169,6 +169,20 @@ final class DirectoryModel {
             DispatchQueue.main.async(execute: apply)
         } else {
             apply()
+        }
+    }
+
+    /// Coalesce git recomputes: the directory watcher reloads on every file
+    /// change, so an active repo / build / `npm install` would otherwise spawn a
+    /// `git status` subprocess per event. Debounce to one run per quiet period.
+    private var gitDebounce: DispatchWorkItem?
+    private func scheduleGitStatus() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.gitDebounce?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.computeGitStatus() }
+            self.gitDebounce = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
         }
     }
 

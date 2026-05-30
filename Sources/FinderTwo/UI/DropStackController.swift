@@ -21,6 +21,7 @@ final class DropStackController: NSWindowController, NSTableViewDataSource, NSTa
         panel.hidesOnDeactivate = false
         panel.minSize = NSSize(width: 200, height: 200)
         super.init(window: panel)
+        ThemeChrome.apply(to: window)
         panel.contentView = buildContent()
         reload()
         NotificationCenter.default.addObserver(self, selector: #selector(reload),
