@@ -329,4 +329,6 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
         cell.subtitleLabel.stringValue = entry.subtitle
         return cell
     }
+
+    var testFilteredEntries: [Entry] { filtered }
 }
