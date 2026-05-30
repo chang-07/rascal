@@ -216,6 +216,18 @@ final class DirectoryModel {
         gitStates = GitStatus.fileStates(in: url, repoRoot: root)
     }
 
+    /// Test hook: apply the current sort / showHidden / filterText synchronously
+    /// and return the resulting item count. The live recompute uses an off-main
+    /// hot path for large lists whose apply does not drain inside the FT_RUN_TESTS
+    /// nested run loop — this measures the real filter+sort cost deterministically.
+    @discardableResult
+    func testApplyComputeSync() -> Int {
+        items = computed(from: rawItems)
+        recomputeGeneration &+= 1
+        delegate?.directoryModelDidUpdate(self)
+        return items.count
+    }
+
     private func recompute(forceSync: Bool = false) {
         // Progressive filtering shortcut: if the new filter is just an extension
         // of the previous filter, narrow the prior result set. This avoids the
