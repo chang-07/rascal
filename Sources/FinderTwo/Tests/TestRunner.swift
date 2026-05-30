@@ -1631,17 +1631,33 @@ final class TestRunner {
                "got=\(visited)")
 
         // --- T59a: a custom theme repaints the file list background ---
-        let midnightBG = ThemeManager.shared.available.first { $0.id == "midnight" }!.background
+        let midnight = ThemeManager.shared.available.first { $0.id == "midnight" }!
+        let midnightBG = midnight.background
         ThemeManager.shared.setTheme(id: "midnight")
         wait(0.05)
         assert("file list paints custom theme background",
                pane.testFileList.tableView.backgroundColor == midnightBG,
                "got=\(pane.testFileList.tableView.backgroundColor)")
+        
+        let cornerBg = pane.testFileList.tableView.cornerView?.layer?.backgroundColor
+        assert("file list corner view background matches custom theme",
+               cornerBg == midnight.toolbarBackground.cgColor,
+               "got=\(String(describing: cornerBg))")
+        
+        let headerCell = pane.testFileList.tableView.tableColumns.first?.headerCell
+        assert("table columns use themed header cell",
+               headerCell is ThemedTableHeaderCell,
+               "got=\(String(describing: headerCell))")
+
         ThemeManager.shared.setTheme(id: "system")
         wait(0.05)
         assert("file list reverts to native background on System theme",
                pane.testFileList.tableView.backgroundColor == .controlBackgroundColor,
                "got=\(pane.testFileList.tableView.backgroundColor)")
+        assert("file list corner view is nil on system theme",
+               pane.testFileList.tableView.cornerView == nil,
+               "got=\(String(describing: pane.testFileList.tableView.cornerView))")
+
         ThemeManager.shared.setTheme(id: startThemeId)
 
         // --- T59b: portable, data-driven theme system ---

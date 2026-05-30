@@ -49,7 +49,7 @@ final class StatusBarView: NSView, ThemeObserving {
     }
 
     private let label = NSTextField(labelWithString: "")
-    private let topLine = NSBox()
+    private let topLine = SeparatorView()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -66,7 +66,6 @@ final class StatusBarView: NSView, ThemeObserving {
             label.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 12),
             label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
         ])
-        topLine.boxType = .separator
         topLine.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topLine)
         NSLayoutConstraint.activate([

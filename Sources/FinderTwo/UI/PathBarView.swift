@@ -33,8 +33,7 @@ final class PathBarView: NSView, ThemeObserving {
             stack.heightAnchor.constraint(equalTo: scroll.heightAnchor),
         ])
         // Bottom hairline
-        let line = NSBox()
-        line.boxType = .separator
+        let line = SeparatorView()
         line.translatesAutoresizingMaskIntoConstraints = false
         addSubview(line)
         NSLayoutConstraint.activate([

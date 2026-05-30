@@ -59,8 +59,7 @@ final class TabStripView: NSView, ThemeObserving {
             newButton.heightAnchor.constraint(equalToConstant: 22),
         ])
 
-        let line = NSBox()
-        line.boxType = .separator
+        let line = SeparatorView()
         line.translatesAutoresizingMaskIntoConstraints = false
         addSubview(line)
         NSLayoutConstraint.activate([

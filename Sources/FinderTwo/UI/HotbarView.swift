@@ -23,8 +23,7 @@ final class HotbarView: NSView, ThemeObserving {
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        let line = NSBox()
-        line.boxType = .separator
+        let line = SeparatorView()
         line.translatesAutoresizingMaskIntoConstraints = false
         addSubview(line)
         NSLayoutConstraint.activate([

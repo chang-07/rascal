@@ -224,6 +224,15 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         tableView.usesAlternatingRowBackgroundColors = !custom
         scrollView.drawsBackground = true
         scrollView.backgroundColor = custom ? t.background : .controlBackgroundColor
+        if custom {
+            let cv = NSView()
+            cv.wantsLayer = true
+            cv.layer?.backgroundColor = t.toolbarBackground.cgColor
+            tableView.cornerView = cv
+        } else {
+            tableView.cornerView = nil
+        }
+        ThemeChrome.themeHeaders(of: tableView)
         tableView.reloadData()
     }
 
@@ -544,6 +553,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         let v = ThemedRowView()
         v.pill = false          // full-width band, classic list selection
         v.isEmphasized = true
+        v.alternating = true
         return v
     }
 
@@ -1384,7 +1394,7 @@ protocol NameCellDelegate: AnyObject {
     func nameCellDidCancel(_ cell: NameCell)
 }
 
-private final class FileListCellTextField: NSTextField {
+fileprivate final class FileListCellTextField: NSTextField {
     override var canBecomeKeyView: Bool {
         return isEditable
     }
@@ -1398,7 +1408,7 @@ private final class FileListCellTextField: NSTextField {
 final class NameCell: NSTableCellView, NSTextFieldDelegate {
     weak var renameDelegate: NameCellDelegate?
     private let icon = NSImageView()
-    let name = FileListCellTextField()
+    fileprivate let name = FileListCellTextField()
     private let gitBadge = NSTextField(labelWithString: "")
     private let tagDots = NSTextField(labelWithString: "")
     private(set) var currentItem: FileItem?

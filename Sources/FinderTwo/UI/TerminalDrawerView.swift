@@ -48,8 +48,7 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
         inputField.placeholderString = "command"
         inputField.delegate = self
 
-        let topLine = NSBox()
-        topLine.boxType = .separator
+        let topLine = SeparatorView()
         topLine.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(topLine)
