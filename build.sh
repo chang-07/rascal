@@ -38,11 +38,11 @@ cp "$ROOT/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 SIGN_CN="FinderTwo Local Signing"
 SIGN_HASH=$(security find-certificate -c "$SIGN_CN" -Z "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null \
     | awk '/SHA-1 hash:/{print $NF; exit}')
-if [[ -n "${SIGN_HASH:-}" ]] && codesign --force --deep --sign "$SIGN_HASH" "$APP_DIR" >/dev/null 2>&1; then
+if [[ "$CONFIG" == "debug" ]] && [[ -n "${SIGN_HASH:-}" ]] && codesign --force --deep --sign "$SIGN_HASH" "$APP_DIR" >/dev/null 2>&1; then
     echo "  signed with stable identity ($SIGN_CN) — permissions persist across rebuilds"
 else
     codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
-    echo "  ad-hoc signed (run ./setup-signing.sh once so macOS stops re-asking for permissions)"
+    echo "  ad-hoc signed"
 fi
 
 echo "✓ Built $APP_DIR"

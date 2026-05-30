@@ -17,11 +17,10 @@ APP="$ROOT/build/Rascal.app"
 DMG="$ROOT/build/Rascal.dmg"
 VOL="Rascal"
 
-# Build a fresh release bundle if one isn't present.
-if [[ ! -d "$APP" ]]; then
-    echo "→ No build/Rascal.app yet — building release…"
-    "$ROOT/build.sh" release >/dev/null
-fi
+# Always compile a fresh release bundle.
+echo "→ Building fresh release bundle…"
+rm -rf "$APP"
+"$ROOT/build.sh" release >/dev/null
 
 echo "→ Staging disk image contents…"
 STAGE="$(mktemp -d)"
