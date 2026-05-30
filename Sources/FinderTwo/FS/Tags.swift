@@ -54,6 +54,9 @@ enum Tags {
     }
 
     static func read(_ url: URL) -> [Tag] {
+        if !PermissionsManager.hasFullDiskAccess && PermissionsManager.isProtectedPath(url.path) {
+            return []
+        }
         guard let data = readXAttr(at: url, name: xattrName) else { return [] }
         guard let strings = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] else {
             return []
@@ -69,6 +72,9 @@ enum Tags {
     private static let colorCache = NSCache<NSString, NSArray>()
 
     static func cachedColors(for url: URL) -> [Color] {
+        if !PermissionsManager.hasFullDiskAccess && PermissionsManager.isProtectedPath(url.path) {
+            return []
+        }
         let key = url.path as NSString
         if let nums = colorCache.object(forKey: key) as? [NSNumber] {
             return nums.compactMap { Color(rawValue: $0.intValue) }

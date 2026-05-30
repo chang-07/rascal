@@ -218,7 +218,12 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         func makeEntry(_ title: String, _ path: String, fallback: NSImage.Name) -> Entry? {
             let url = URL(fileURLWithPath: path)
             guard fm.fileExists(atPath: url.path) else { return nil }
-            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            let icon: NSImage
+            if !PermissionsManager.hasFullDiskAccess && PermissionsManager.isProtectedPath(url.path) {
+                icon = NSWorkspace.shared.icon(for: .folder)
+            } else {
+                icon = NSWorkspace.shared.icon(forFile: url.path)
+            }
             icon.size = NSSize(width: 16, height: 16)
             return Entry(title: title, url: url, icon: icon)
         }
@@ -243,7 +248,12 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         }
         // User-added bookmarks live at the bottom of Favorites.
         for url in SidebarBookmarks.all() where fm.fileExists(atPath: url.path) {
-            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            let icon: NSImage
+            if !PermissionsManager.hasFullDiskAccess && PermissionsManager.isProtectedPath(url.path) {
+                icon = NSWorkspace.shared.icon(for: .folder)
+            } else {
+                icon = NSWorkspace.shared.icon(forFile: url.path)
+            }
             icon.size = NSSize(width: 16, height: 16)
             let name = url.path == "/" ? "Macintosh HD" : url.lastPathComponent
             favs.append(Entry(title: name, url: url, icon: icon))
@@ -265,7 +275,12 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                     || (!isRoot && v.path.hasPrefix("/Volumes/") && rv.volumeIsInternal != true)
                 guard isRoot || isUserMount else { continue }
                 let name = rv.volumeName ?? v.lastPathComponent
-                let icon = NSWorkspace.shared.icon(forFile: v.path)
+                let icon: NSImage
+                if !PermissionsManager.hasFullDiskAccess && PermissionsManager.isProtectedPath(v.path) {
+                    icon = NSWorkspace.shared.icon(for: .folder)
+                } else {
+                    icon = NSWorkspace.shared.icon(forFile: v.path)
+                }
                 icon.size = NSSize(width: 16, height: 16)
                 locations.append(Entry(title: name, url: v, icon: icon))
             }
