@@ -22,7 +22,9 @@ final class TabStripView: NSView, ThemeObserving {
     required init?(coder: NSCoder) { fatalError() }
 
     @objc func applyTheme() {
-        layer?.backgroundColor = ThemeManager.shared.current.toolbarBackground.cgColor
+        let t = ThemeManager.shared.current
+        layer?.backgroundColor = t.toolbarBackground.cgColor
+        newButton.contentTintColor = t.id == "system" ? .labelColor : t.labelPrimary
         rebuild()   // re-tint active/hover with the live accent
     }
 
@@ -181,11 +183,13 @@ private final class TabButton: NSView {
         let custom = t.id != "system"
         let primary: NSColor = custom ? t.labelPrimary : .labelColor
         let secondary: NSColor = custom ? t.labelSecondary : .secondaryLabelColor
+        let tertiary: NSColor = custom ? t.labelTertiary : .tertiaryLabelColor
+        close.contentTintColor = tertiary
         if isActive {
             layer?.backgroundColor = accent.withAlphaComponent(0.20).cgColor
             label.textColor = primary
         } else if isHovering {
-            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+            layer?.backgroundColor = (custom ? t.labelPrimary : NSColor.labelColor).withAlphaComponent(0.06).cgColor
             label.textColor = primary
         } else {
             layer?.backgroundColor = .clear

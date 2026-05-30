@@ -9,7 +9,7 @@ import AppKit
 /// Both modes run on background queues and stream results into the table as
 /// they arrive. Enter on a result navigates the active pane to that file's
 /// containing folder and selects it.
-final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
+final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, ThemeObserving {
 
     enum Mode { case fuzzyFilenames, contentGrep }
 
@@ -54,6 +54,17 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         super.init(window: win)
         layout()
         if mode == .fuzzyFilenames { startFilenameIndex() }
+        subscribeToTheme(self)
+    }
+
+    @objc func applyTheme() {
+        let t = ThemeManager.shared.current
+        searchField.textColor = t.id == "system" ? .controlTextColor : t.labelPrimary
+        statusLabel.textColor = t.id == "system" ? .secondaryLabelColor : t.labelSecondary
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 
