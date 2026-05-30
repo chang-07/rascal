@@ -24,6 +24,7 @@ final class FileDiffWindowController: NSWindowController {
         win.title = "\(a.lastPathComponent) ↔ \(b.lastPathComponent)"
         win.minSize = NSSize(width: 420, height: 300)
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         win.contentView = buildContent()
     }
     required init?(coder: NSCoder) { fatalError() }

@@ -71,16 +71,12 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
 
     private func entries(in url: URL) -> [ColEntry] {
         if let cached = entryCache[url] { return cached }
-        guard let kids = try? FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey, .nameKey],
-            options: []
-        ) else { entryCache[url] = []; return [] }
+        // FastDirScan returns name + isDirectory from one lstat per entry —
+        // far cheaper than contentsOfDirectory + a resourceValues call per URL.
         let showHidden = pane?.testModel.showHidden ?? false
-        let resolved: [ColEntry] = kids.compactMap { u in
-            if !showHidden && u.lastPathComponent.hasPrefix(".") { return nil }
-            let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            return ColEntry(url: u, isDir: isDir)
+        let resolved: [ColEntry] = FastDirScan.list(url).compactMap { e in
+            if !showHidden && e.isHidden { return nil }
+            return ColEntry(url: e.url, isDir: e.isDirectory)
         }
         let sorted = resolved.sorted { a, b in
             if a.isDir != b.isDir { return a.isDir }

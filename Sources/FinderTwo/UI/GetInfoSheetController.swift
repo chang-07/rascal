@@ -26,6 +26,7 @@ final class GetInfoSheetController: NSWindowController {
         win.title = "\(url.lastPathComponent) Info"
         win.minSize = NSSize(width: 300, height: 280)
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         win.contentView = buildContent()
         computeSizeIfFolder()
     }

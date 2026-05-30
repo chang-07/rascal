@@ -26,6 +26,7 @@ final class ServerConnectSheetController: NSWindowController {
                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
         win.title = "Mount Network Volume"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         win.contentView = buildContent()
     }
     required init?(coder: NSCoder) { fatalError() }

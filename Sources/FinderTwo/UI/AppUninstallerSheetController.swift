@@ -30,6 +30,7 @@ final class AppUninstallerSheetController: NSWindowController, NSTableViewDataSo
         )
         win.title = "Uninstall \(appURL.lastPathComponent)"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         layout()
         scan()
     }

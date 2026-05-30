@@ -163,8 +163,8 @@ final class IconGridItem: NSCollectionViewItem {
 
     func configure(with item: FileItem, labelColor: NSColor) {
         nameLabel.stringValue = item.name
-        nameLabel.textColor = item.isHidden ? .tertiaryLabelColor : labelColor
-        img.image = NSWorkspace.shared.icon(forFile: item.url.path)
+        nameLabel.textColor = item.isHidden ? ThemeChrome.tertiary : labelColor
+        img.image = IconCache.shared.icon(for: item)   // cached per-extension, not a LaunchServices hit per cell
     }
 
     override var isSelected: Bool {
@@ -172,8 +172,9 @@ final class IconGridItem: NSCollectionViewItem {
     }
     private func applySelection() {
         view.layer?.cornerRadius = 6
-        view.layer?.backgroundColor = isSelected
-            ? ThemeManager.shared.effectiveAccent.withAlphaComponent(0.25).cgColor
-            : NSColor.clear.cgColor
+        let t = ThemeManager.shared.current
+        let sel = t.id == "system" ? ThemeManager.shared.effectiveAccent.withAlphaComponent(0.25)
+                                    : t.selectionBackground
+        view.layer?.backgroundColor = isSelected ? sel.cgColor : NSColor.clear.cgColor
     }
 }

@@ -71,7 +71,7 @@ struct SortDescriptor: Equatable {
     var foldersFirst: Bool = true
 
     func compare(_ a: FileItem, _ b: FileItem) -> Bool {
-        if foldersFirst && a.isDirectory != b.isDirectory {
+        if Settings.foldersFirst && a.isDirectory != b.isDirectory {
             return a.isDirectory && !b.isDirectory
         }
         let order: ComparisonResult

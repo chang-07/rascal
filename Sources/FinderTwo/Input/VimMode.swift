@@ -85,7 +85,7 @@ final class VimMode {
                 return true
             case "dd":
                 let urls = pane.selectedURLs()
-                if !urls.isEmpty { FileOps.moveToTrash(urls) }
+                if !urls.isEmpty { FileOps.trashWithConfirmation(urls) }
                 return true
             default:
                 // unknown combo — fall through as no-op

@@ -24,6 +24,7 @@ final class DuplicateFinderWindowController: NSWindowController {
         win.title = "Duplicates in \(root.lastPathComponent)"
         win.minSize = NSSize(width: 380, height: 280)
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         win.contentView = buildContent()
     }
     required init?(coder: NSCoder) { fatalError() }

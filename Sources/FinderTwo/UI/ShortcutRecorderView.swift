@@ -104,8 +104,8 @@ final class ShortcutRecorderView: NSView {
         let bg: NSColor
         let border: NSColor
         if recording {
-            bg = NSColor.controlAccentColor.withAlphaComponent(0.15)
-            border = .controlAccentColor
+            bg = ThemeManager.shared.effectiveAccent.withAlphaComponent(0.15)
+            border = ThemeManager.shared.effectiveAccent
         } else if hovering {
             bg = NSColor.labelColor.withAlphaComponent(0.06)
             border = NSColor.separatorColor
@@ -123,7 +123,7 @@ final class ShortcutRecorderView: NSView {
         let color: NSColor
         if recording {
             text = "Type shortcut…"
-            color = .controlAccentColor
+            color = ThemeManager.shared.effectiveAccent
         } else if let s = shortcut {
             text = s.displayLabel
             color = .labelColor

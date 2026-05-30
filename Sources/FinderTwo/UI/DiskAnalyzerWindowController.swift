@@ -32,6 +32,7 @@ final class DiskAnalyzerWindowController: NSWindowController, NSWindowDelegate {
         )
         win.title = "Disk Usage — \(rootURL.lastPathComponent)"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         win.delegate = self
         layout()
     }

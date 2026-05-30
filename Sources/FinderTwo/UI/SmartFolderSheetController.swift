@@ -36,6 +36,7 @@ final class SmartFolderSheetController: NSWindowController, NSWindowDelegate {
                            styleMask: [.titled], backing: .buffered, defer: false)
         win.title = existing == nil ? "New Smart Folder" : "Edit Smart Folder"
         super.init(window: win)
+        ThemeChrome.apply(to: window)
         win.delegate = self
         nameField.stringValue = existing?.name ?? ""
         nameContainsField.stringValue = existing?.nameContains ?? ""

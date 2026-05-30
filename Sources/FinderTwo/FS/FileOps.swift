@@ -1,6 +1,23 @@
 import AppKit
 
 enum FileOps {
+    /// Move to Trash, optionally behind a confirmation alert (Settings.confirmTrash).
+    static func trashWithConfirmation(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        if Settings.confirmTrash {
+            let a = NSAlert()
+            a.alertStyle = .warning
+            a.messageText = urls.count == 1
+                ? "Move “\(urls[0].lastPathComponent)” to the Trash?"
+                : "Move \(urls.count) items to the Trash?"
+            a.informativeText = "You can put items back from the Trash."
+            a.addButton(withTitle: "Move to Trash")
+            a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        moveToTrash(urls)
+    }
+
     @discardableResult
     static func moveToTrash(_ urls: [URL]) -> Bool {
         let fm = FileManager.default

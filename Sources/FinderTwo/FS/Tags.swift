@@ -61,7 +61,27 @@ enum Tags {
         return strings.map(Tag.decode)
     }
 
+    // MARK: Cached colors (hot path: the file list reads tags on every cell
+    // configure / scroll / git-badge refresh). A getxattr per row is real
+    // scroll jank, so memoize the non-`.none` colors and only invalidate when a
+    // tag is actually written (file add/remove can't change an existing file's
+    // tags, so the cache survives directory reloads).
+    private static let colorCache = NSCache<NSString, NSArray>()
+
+    static func cachedColors(for url: URL) -> [Color] {
+        let key = url.path as NSString
+        if let nums = colorCache.object(forKey: key) as? [NSNumber] {
+            return nums.compactMap { Color(rawValue: $0.intValue) }
+        }
+        let colors = read(url).map { $0.color }.filter { $0 != .none }
+        colorCache.setObject(colors.map { NSNumber(value: $0.rawValue) } as NSArray, forKey: key)
+        return colors
+    }
+
+    static func invalidateColorCache() { colorCache.removeAllObjects() }
+
     static func write(_ tags: [Tag], to url: URL) {
+        colorCache.removeObject(forKey: url.path as NSString)
         if tags.isEmpty {
             removeXAttr(at: url, name: xattrName)
             return

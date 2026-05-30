@@ -208,6 +208,11 @@ final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDele
     override func loadView() {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 460))
 
+        let showToggle = NSButton(checkboxWithTitle: "Show the hotbar in each pane",
+                                  target: self, action: #selector(toggleShowHotbar))
+        showToggle.state = Settings.showHotbar ? .on : .off
+        showToggle.translatesAutoresizingMaskIntoConstraints = false
+
         let header = NSTextField(labelWithString: "Buttons shown in each pane's hotbar, top to bottom:")
         header.font = NSFont.systemFont(ofSize: 12)
         header.textColor = .secondaryLabelColor
@@ -250,13 +255,16 @@ final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDele
         addRow.orientation = .horizontal; addRow.spacing = 8
         addRow.translatesAutoresizingMaskIntoConstraints = false
 
+        root.addSubview(showToggle)
         root.addSubview(header)
         root.addSubview(scroll)
         root.addSubview(btnRow)
         root.addSubview(addRow)
         root.addSubview(reset)
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: root.topAnchor, constant: 16),
+            showToggle.topAnchor.constraint(equalTo: root.topAnchor, constant: 16),
+            showToggle.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            header.topAnchor.constraint(equalTo: showToggle.bottomAnchor, constant: 14),
             header.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
             scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
             scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
@@ -273,6 +281,8 @@ final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDele
         ])
         self.view = root
     }
+
+    @objc private func toggleShowHotbar(_ s: NSButton) { Settings.showHotbar = s.state == .on }
 
     private func availableActions() -> [Action] {
         ActionRegistry.all.filter { !ids.contains($0.id) }
