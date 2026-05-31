@@ -30,6 +30,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     private var terminalHeightConstraint: NSLayoutConstraint!
     private var terminalVisible = false
     var isTerminalVisible: Bool { terminalVisible }
+    private let gitDiffView = GitDiffDrawerView()
+    private var gitDiffWidthConstraint: NSLayoutConstraint!
+    private var gitDiffVisible = false
+    var isGitDiffVisible: Bool { gitDiffVisible }
 
     private(set) var viewMode: ViewMode = .list
     private var isActive: Bool = false
@@ -95,6 +99,32 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         }
     }
 
+    func toggleGitDiffDrawer() {
+        gitDiffVisible.toggle()
+        if gitDiffVisible {
+            gitDiffView.isHidden = false
+            gitDiffWidthConstraint.constant = 400
+            if let first = selectedURLs().first,
+               (try? first.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true {
+                gitDiffView.fileURL = first
+            } else {
+                gitDiffView.fileURL = nil
+            }
+        } else {
+            gitDiffWidthConstraint.constant = 0
+            gitDiffView.isHidden = true
+        }
+    }
+
+    func showGitDiffDrawer(for url: URL) {
+        if !gitDiffVisible {
+            gitDiffVisible = true
+            gitDiffView.isHidden = false
+            gitDiffWidthConstraint.constant = 400
+        }
+        gitDiffView.fileURL = url
+    }
+
     /// Toggle the right-side notes drawer.
     func toggleNotesDrawer() {
         notesVisible.toggle()
@@ -157,6 +187,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         root.addSubview(hotbar)
         root.addSubview(fileList.view)
         root.addSubview(emptyState)
+        root.addSubview(gitDiffView)
         root.addSubview(previewView)
         root.addSubview(notesView)
         root.addSubview(terminalView)
@@ -169,6 +200,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         previewView.translatesAutoresizingMaskIntoConstraints = false
         previewView.isHidden = true
         previewWidthConstraint = previewView.widthAnchor.constraint(equalToConstant: 0)
+        gitDiffView.isHidden = true
+        gitDiffWidthConstraint = gitDiffView.widthAnchor.constraint(equalToConstant: 0)
+        gitDiffView.onClose = { [weak self] in self?.toggleGitDiffDrawer() }
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminalView.isHidden = true
         terminalHeightConstraint = terminalView.heightAnchor.constraint(equalToConstant: 0)
@@ -202,10 +236,16 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
             fileList.view.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
             fileList.view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            fileList.view.trailingAnchor.constraint(equalTo: previewView.leadingAnchor),
+            fileList.view.trailingAnchor.constraint(equalTo: gitDiffView.leadingAnchor),
             fileList.view.bottomAnchor.constraint(equalTo: terminalView.topAnchor),
 
-            // Preview drawer sits between the content and the notes drawer.
+            // Git Diff drawer sits between content and preview drawer
+            gitDiffView.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
+            gitDiffView.trailingAnchor.constraint(equalTo: previewView.leadingAnchor),
+            gitDiffView.bottomAnchor.constraint(equalTo: terminalView.topAnchor),
+            gitDiffWidthConstraint,
+
+            // Preview drawer sits between git diff drawer and notes drawer.
             previewView.topAnchor.constraint(equalTo: hotbar.bottomAnchor),
             previewView.trailingAnchor.constraint(equalTo: notesView.leadingAnchor),
             previewView.bottomAnchor.constraint(equalTo: terminalView.topAnchor),
@@ -765,8 +805,19 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         updateTabStripVisibility()
     }
 
+    private func updateGitDiffContent() {
+        guard gitDiffVisible else { return }
+        if let first = selectedURLs().first,
+           (try? first.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true {
+            gitDiffView.fileURL = first
+        } else {
+            gitDiffView.fileURL = nil
+        }
+    }
+
     private func updateStatus() {
         updatePreviewContent()
+        updateGitDiffContent()
         let total = activeTab.model.items.count
         let selected = fileList.selectedItems()
         let freeStr = currentFreeBytesString()
@@ -849,6 +900,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     /// Browse inside a bundle (Show Package Contents) — navigate in, treating
     /// the package as an ordinary folder.
     func fileListShowPackageContents(_ url: URL) { navigate(to: url) }
+    func fileListShowGitDiff(for url: URL) {
+        showGitDiffDrawer(for: url)
+    }
     func fileListBecameActive() { becomeActive() }
     func fileListBeginTypeAhead(initial: String) {
         toolbar.focusSearchField(insert: initial)

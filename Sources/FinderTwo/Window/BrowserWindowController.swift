@@ -204,12 +204,23 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     @objc func makeAliasSelection(_ sender: Any?) { activePane?.makeAliasSelection() }
     @objc func newTab(_ sender: Any?) { panesContainer.activePane?.newTab(at: nil) }
     @objc func closeTab(_ sender: Any?) {
-        if let pane = activePane, pane.isTerminalVisible {
+        if let pane = activePane, pane.isGitDiffVisible {
+            pane.toggleGitDiffDrawer()
+        } else if let pane = activePane, pane.isTerminalVisible {
             pane.toggleTerminalDrawer()
         } else if panesContainer.allPanes.count > 1, let pane = activePane {
             panesContainer.closePane(pane)
         } else {
             panesContainer.activePane?.closeActiveTab()
+        }
+    }
+    @objc func viewGitDiffs(_ sender: Any?) {
+        guard let pane = activePane else { return }
+        if let first = pane.selectedURLs().first,
+           (try? first.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true {
+            pane.showGitDiffDrawer(for: first)
+        } else {
+            pane.toggleGitDiffDrawer()
         }
     }
     @objc func nextTab(_ sender: Any?) { activePane?.nextTab() }

@@ -27,7 +27,7 @@ final class FileDiffWindowController: NSWindowController, ThemeObserving {
     }
 
     private let mode: DiffMode
-    private let textView = NSTextView()
+    private let textView = DiffTextView()
     private let status = NSTextField(labelWithString: "Comparing…")
     private let scrollView = NSScrollView()
     private var rawDiff: String?
@@ -123,22 +123,32 @@ final class FileDiffWindowController: NSWindowController, ThemeObserving {
             return
         }
         status.stringValue = "Showing differences."
+        let isDark = DiffTextView.isDark
+        let normalColor = isDark ? NSColor.white : NSColor.black
+        let addColor = isDark ? NSColor(red: 0.25, green: 0.73, blue: 0.31, alpha: 1.0) : NSColor(red: 0.10, green: 0.50, blue: 0.22, alpha: 1.0)
+        let delColor = isDark ? NSColor(red: 0.97, green: 0.32, blue: 0.29, alpha: 1.0) : NSColor(red: 0.81, green: 0.13, blue: 0.18, alpha: 1.0)
+        let hunkColor = isDark ? NSColor(red: 0.35, green: 0.65, blue: 1.0, alpha: 1.0) : NSColor(red: 0.04, green: 0.41, blue: 0.85, alpha: 1.0)
+        let metaColor = isDark ? NSColor.lightGray : NSColor.darkGray
+        
         let out = NSMutableAttributedString()
-        let base: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: ThemeChrome.primary,
-        ]
+        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        
         for line in diff.components(separatedBy: "\n") {
-            var attrs = base
+            var color = normalColor
             if line.hasPrefix("+") && !line.hasPrefix("+++") {
-                attrs[.foregroundColor] = NSColor.systemGreen
+                color = addColor
             } else if line.hasPrefix("-") && !line.hasPrefix("---") {
-                attrs[.foregroundColor] = NSColor.systemRed
+                color = delColor
             } else if line.hasPrefix("@@") {
-                attrs[.foregroundColor] = NSColor.systemBlue
-            } else if line.hasPrefix("+++") || line.hasPrefix("---") {
-                attrs[.foregroundColor] = ThemeChrome.secondary
+                color = hunkColor
+            } else if line.hasPrefix("diff") || line.hasPrefix("index") || line.hasPrefix("---") || line.hasPrefix("+++") {
+                color = metaColor
             }
+            
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: color
+            ]
             out.append(NSAttributedString(string: line + "\n", attributes: attrs))
         }
         textView.textStorage?.setAttributedString(out)

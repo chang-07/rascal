@@ -9,6 +9,7 @@ protocol FileListDelegate: AnyObject {
     func fileListBecameActive()
     func fileListBeginTypeAhead(initial: String)
     func fileListShowPackageContents(_ url: URL)
+    func fileListShowGitDiff(for url: URL)
 }
 
 final class FileListController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate, NameCellDelegate, ThemeObserving {
@@ -1212,9 +1213,8 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         wc.compareFiles(nil)
     }
     @objc private func menuViewDiffs() {
-        guard let item = selectedItems().first,
-              let root = GitStatus.repoRoot(for: item.url) else { return }
-        FileDiffWindowController.showGitDiff(repoRoot: root, fileURL: item.url, parent: view.window)
+        guard let item = selectedItems().first else { return }
+        delegate?.fileListShowGitDiff(for: item.url)
     }
     @objc private func menuShowPackageContents() {
         guard let pkg = selectedItems().first(where: { $0.isPackage }) else { return }

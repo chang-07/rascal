@@ -108,6 +108,11 @@ enum ActionRegistry {
               defaultShortcut: KeyShortcut("o", [.command, .shift])) { $0.openInEditor(nil) },
 
         // -------- File --------
+        .init(id: "git.view-diffs",
+              title: "View Git Diffs",
+              category: .file,
+              icon: "arrow.triangle.branch",
+              defaultShortcut: nil) { $0.viewGitDiffs(nil) },
         .init(id: "file.new-folder",
               title: "New Folder",
               category: .file,
