@@ -152,12 +152,34 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
         let textColor = custom ? t.labelPrimary : .controlTextColor
         
         pathField.textColor = textColor
-        pathField.backgroundColor = bgColor
-        pathField.drawsBackground = true
-        
         searchField.textColor = textColor
-        searchField.backgroundColor = bgColor
-        searchField.drawsBackground = true
+        
+        if custom {
+            pathField.isBezeled = false
+            pathField.isBordered = false
+            pathField.drawsBackground = false
+            pathField.wantsLayer = true
+            pathField.layer?.backgroundColor = bgColor.cgColor
+            pathField.layer?.cornerRadius = 5
+            
+            searchField.isBezeled = false
+            searchField.isBordered = false
+            searchField.drawsBackground = false
+            searchField.wantsLayer = true
+            searchField.layer?.backgroundColor = bgColor.cgColor
+            searchField.layer?.cornerRadius = 5
+        } else {
+            pathField.wantsLayer = false
+            pathField.isBezeled = true
+            pathField.bezelStyle = .roundedBezel
+            pathField.drawsBackground = true
+            pathField.backgroundColor = bgColor
+            
+            searchField.wantsLayer = false
+            searchField.isBezeled = true
+            searchField.drawsBackground = true
+            searchField.backgroundColor = bgColor
+        }
     }
 
     // NSTextFieldDelegate (path commit + ESC on search field)
