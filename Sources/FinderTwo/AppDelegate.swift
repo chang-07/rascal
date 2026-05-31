@@ -271,7 +271,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("search.palette"))
         fileMenu.addItem(routed("search.find-files"))
-        fileMenu.addItem(routed("search.quick-open"))
         fileMenu.addItem(routed("search.grep"))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("file.copy-path"))

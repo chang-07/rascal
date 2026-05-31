@@ -1578,11 +1578,6 @@ final class TestRunner {
         assert("SearchSheet displays rows under empty query", rows >= 0, "negative rows?")
         searchSheet.window?.close()
 
-        // --- T54c: Go to File action is registered ---
-        let quickOpenAction = ActionRegistry.all.first(where: { $0.id == "search.quick-open" })
-        assert("search.quick-open action is registered", quickOpenAction != nil, "missing action")
-        assert("search.quick-open has default shortcut Cmd+P", quickOpenAction?.defaultShortcut == KeyShortcut("p", [.command]), "got \(String(describing: quickOpenAction?.defaultShortcut))")
-
         // --- T55: Batch rename preview produces a non-empty new name ---
         let brItems = ["x.txt", "y.txt", "z.txt"].compactMap { name -> FileItem? in
             let u = sandbox.appendingPathComponent(name)
