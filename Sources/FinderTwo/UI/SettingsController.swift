@@ -15,7 +15,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate, ThemeObse
     }
 
     enum Section: String, CaseIterable {
-        case general, appearance, keyboard, hotbar, advanced
+        case general, appearance, keyboard, hotbar, developer, advanced
         var label: String { rawValue.capitalized }
         var symbol: String {
             switch self {
@@ -23,6 +23,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate, ThemeObse
             case .appearance: return "paintpalette"
             case .keyboard: return "keyboard"
             case .hotbar: return "square.grid.2x2"
+            case .developer: return "terminal"
             case .advanced: return "wrench.and.screwdriver"
             }
         }
@@ -32,6 +33,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate, ThemeObse
             case .appearance: return AppearancePane()
             case .keyboard: return KeyboardPane()
             case .hotbar: return HotbarPane()
+            case .developer: return DeveloperPane()
             case .advanced: return AdvancedPane()
             }
         }
@@ -41,7 +43,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate, ThemeObse
 
     init() {
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 460),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered, defer: false
         )
@@ -112,7 +114,7 @@ class SettingsPane: NSViewController, ThemeObserving {
     private var rows: [[NSView]] = []
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 420))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 460))
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.rowSpacing = 12
         grid.columnSpacing = 12
@@ -194,16 +196,7 @@ final class GeneralPane: SettingsPane {
         typeAhead.state = Settings.typeAheadEnabled ? .on : .off
         addRow("", typeAhead)
 
-        let spring = NSButton(checkboxWithTitle: "Spring-loaded folders (open on drag-hover)",
-                              target: self, action: #selector(springChanged(_:)))
-        spring.state = Settings.springLoadedFolders ? .on : .off
-        addRow("Dragging:", spring)
 
-        let delay = NSSlider(value: Settings.springLoadDelay, minValue: 0.2, maxValue: 2.0,
-                             target: self, action: #selector(springDelayChanged(_:)))
-        delay.controlSize = .small
-        delay.widthAnchor.constraint(equalToConstant: 150).isActive = true
-        addRow("Spring delay:", delay)
 
         let view = NSPopUpButton()
         for v in Settings.DefaultView.allCases { view.addItem(withTitle: v.label) }
@@ -216,10 +209,7 @@ final class GeneralPane: SettingsPane {
         foldersTop.state = Settings.foldersFirst ? .on : .off
         addRow("Sorting:", foldersTop)
 
-        let calcSizes = NSButton(checkboxWithTitle: "Calculate folder sizes (slower)",
-                                 target: self, action: #selector(calcSizesChanged(_:)))
-        calcSizes.state = Settings.calculateFolderSizes ? .on : .off
-        addRow("", calcSizes)
+
 
         let titleBar = NSButton(checkboxWithTitle: "Show window title bar",
                                 target: self, action: #selector(titleBarChanged(_:)))
@@ -236,28 +226,33 @@ final class GeneralPane: SettingsPane {
         pathBar.state = Settings.showPathBar ? .on : .off
         addRow("", pathBar)
 
-        let confirmTrash = NSButton(checkboxWithTitle: "Warn before moving items to Trash",
-                                    target: self, action: #selector(confirmTrashChanged(_:)))
-        confirmTrash.state = Settings.confirmTrash ? .on : .off
-        addRow("Safety:", confirmTrash)
+
+
+        let alwaysShowTab = NSButton(checkboxWithTitle: "Always show tab bar",
+                                     target: self, action: #selector(alwaysShowTabChanged(_:)))
+        alwaysShowTab.state = Settings.alwaysShowTabBar ? .on : .off
+        addRow("", alwaysShowTab)
+
+        let doubleClickTab = NSButton(checkboxWithTitle: "Double-click folder opens in new tab",
+                                      target: self, action: #selector(doubleClickTabChanged(_:)))
+        doubleClickTab.state = Settings.doubleClickFolderOpensNewTab ? .on : .off
+        addRow("Navigation:", doubleClickTab)
     }
 
-    @objc private func springDelayChanged(_ s: NSSlider) { Settings.springLoadDelay = s.doubleValue }
     @objc private func foldersTopChanged(_ s: NSButton) { Settings.foldersFirst = s.state == .on }
-    @objc private func calcSizesChanged(_ s: NSButton) { Settings.calculateFolderSizes = s.state == .on }
     @objc private func titleBarChanged(_ s: NSButton) { Settings.showTitleBar = s.state == .on }
     @objc private func statusBarChanged(_ s: NSButton) { Settings.showStatusBar = s.state == .on }
     @objc private func pathBarChanged(_ s: NSButton) { Settings.showPathBar = s.state == .on }
-    @objc private func confirmTrashChanged(_ s: NSButton) { Settings.confirmTrash = s.state == .on }
+    @objc private func alwaysShowTabChanged(_ s: NSButton) { Settings.alwaysShowTabBar = s.state == .on }
+    @objc private func doubleClickTabChanged(_ s: NSButton) { Settings.doubleClickFolderOpensNewTab = s.state == .on }
 
     @objc private func locChanged(_ s: NSPopUpButton) {
         if let raw = s.selectedItem?.representedObject as? String,
-           let v = Settings.DefaultLocation(rawValue: raw) { Settings.defaultLocation = v }
+            let v = Settings.DefaultLocation(rawValue: raw) { Settings.defaultLocation = v }
     }
     @objc private func restoreChanged(_ s: NSButton) { Settings.restoreSession = s.state == .on }
     @objc private func hiddenChanged(_ s: NSButton) { Settings.showHiddenByDefault = s.state == .on }
     @objc private func typeAheadChanged(_ s: NSButton) { Settings.typeAheadEnabled = s.state == .on }
-    @objc private func springChanged(_ s: NSButton) { Settings.springLoadedFolders = s.state == .on }
     @objc private func viewChanged(_ s: NSPopUpButton) {
         if let v = Settings.DefaultView(rawValue: (s.titleOfSelectedItem ?? "").lowercased()) {
             Settings.defaultView = v
@@ -310,6 +305,11 @@ final class AppearancePane: SettingsPane {
         stepperStack.addArrangedSubview(stepper)
         addRow("Font size:", stepperStack)
 
+        let altRows = NSButton(checkboxWithTitle: "Use alternating row background colors",
+                               target: self, action: #selector(altRowsChanged(_:)))
+        altRows.state = Settings.alternatingRows ? .on : .off
+        addRow("List style:", altRows)
+
         addFullWidth(NSBox.divider())
         let header = sectionHeader("Preview")
         addFullWidth(header)
@@ -349,6 +349,10 @@ final class AppearancePane: SettingsPane {
         Settings.fontSizeDelta = s.integerValue
         refreshFontLabel()
     }
+    @objc private func altRowsChanged(_ s: NSButton) {
+        Settings.alternatingRows = s.state == .on
+        preview.needsDisplay = true
+    }
     private func refreshFontLabel() {
         if let lbl = view.viewWithTag(99) as? NSTextField { lbl.stringValue = fontLabel() }
     }
@@ -382,7 +386,7 @@ final class AppearancePreview: NSView, ThemeObserving {
             if i == 1 {
                 ThemeManager.shared.effectiveAccent.withAlphaComponent(0.30).setFill()
                 rowRect.fill()
-            } else if i % 2 == 0 {
+            } else if i % 2 == 0, Settings.alternatingRows {
                 t.rowAlternate.withAlphaComponent(0.5).setFill()
                 rowRect.fill()
             }
