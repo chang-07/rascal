@@ -441,9 +441,11 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         guard row >= 0, hits.indices.contains(row) else { return }
         let h = hits[row]
         closeSheet()
-        target?.testActivePane?.navigate(to: h.url.deletingLastPathComponent())
-        DispatchQueue.main.async { [weak self] in
-            self?.target?.testActivePane?.select(url: h.url)
+        let pane = target?.testActivePane
+        pane?.navigate(to: h.url.deletingLastPathComponent())
+        DispatchQueue.main.async {
+            pane?.select(url: h.url)
+            pane?.focusFileList()
         }
     }
 

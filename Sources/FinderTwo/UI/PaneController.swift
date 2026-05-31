@@ -277,6 +277,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         toolbar.onUp = { [weak self] in self?.goUp() }
         toolbar.onCommit = { [weak self] text in self?.commitTypedPath(text) }
         toolbar.onSearchChanged = { [weak self] q in self?.applyFilter(q) }
+        toolbar.onSearchCancelled = { [weak self] in self?.focusFileList() }
 
         pathBar.onSelectSegment = { [weak self] url in self?.navigate(to: url) }
 
@@ -939,6 +940,12 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         // Compile-time presence — calling shouldn't crash.
         toolbar.focusSearchField()
         return true
+    }
+    func testFocusSearchField(insert: String? = nil) {
+        toolbar.focusSearchField(insert: insert)
+    }
+    func testCancelSearch() -> Bool {
+        return toolbar.testSimulateCancelSearch()
     }
 }
 

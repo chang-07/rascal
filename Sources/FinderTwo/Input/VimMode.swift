@@ -138,7 +138,7 @@ final class VimMode {
         case "p":
             pane.pasteHere()
             return true
-        case "/":
+        case "/", "?":
             pane.focusFilterFromVim()
             return true
         case ":":

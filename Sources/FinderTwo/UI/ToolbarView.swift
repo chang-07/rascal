@@ -7,6 +7,7 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
     var onUp: (() -> Void)?
     var onCommit: ((String) -> Void)?
     var onSearchChanged: ((String) -> Void)?
+    var onSearchCancelled: (() -> Void)?
 
     var canGoBack: Bool = false {
         didSet { backBtn.isEnabled = canGoBack }
@@ -193,6 +194,7 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
             searchField.stringValue = ""
             onSearchChanged?("")
             window?.makeFirstResponder(nil)
+            onSearchCancelled?()
             return true
         }
         return false
@@ -202,5 +204,12 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
     func controlTextDidChange(_ obj: Notification) {
         guard let sf = obj.object as? NSSearchField, sf === searchField else { return }
         onSearchChanged?(sf.stringValue)
+    }
+
+    /// Test hook: simulate Esc on the search field by calling the delegate method
+    /// with the real searchField (needed because the delegate uses identity check).
+    func testSimulateCancelSearch() -> Bool {
+        return control(searchField, textView: NSTextView(),
+                       doCommandBy: #selector(NSResponder.cancelOperation(_:)))
     }
 }
