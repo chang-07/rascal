@@ -411,8 +411,100 @@ final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDele
 
 // MARK: - Advanced
 
+final class DeveloperPane: SettingsPane {
+    private let customShellField = NSTextField()
+
+    override func build() {
+        let gitEnabled = NSButton(checkboxWithTitle: "Enable Git integration (status & badges)",
+                                  target: self, action: #selector(gitEnabledChanged(_:)))
+        gitEnabled.state = Settings.gitIntegrationEnabled ? .on : .off
+        addRow("Git:", gitEnabled)
+
+        let gitStatus = NSButton(checkboxWithTitle: "Show Git branch in status bar",
+                                 target: self, action: #selector(gitBranchChanged(_:)))
+        gitStatus.state = Settings.showGitBranchInStatusBar ? .on : .off
+        addRow("", gitStatus)
+
+        // shell setup
+        let shellPopup = NSPopUpButton()
+        shellPopup.addItem(withTitle: "Zsh (/bin/zsh)")
+        shellPopup.lastItem?.representedObject = "/bin/zsh"
+        shellPopup.addItem(withTitle: "Bash (/bin/bash)")
+        shellPopup.lastItem?.representedObject = "/bin/bash"
+        shellPopup.addItem(withTitle: "Sh (/bin/sh)")
+        shellPopup.lastItem?.representedObject = "/bin/sh"
+        shellPopup.addItem(withTitle: "Custom...")
+        shellPopup.lastItem?.representedObject = "custom"
+
+        let currentShell = Settings.terminalShell
+        if ["/bin/zsh", "/bin/bash", "/bin/sh"].contains(currentShell) {
+            shellPopup.selectItem(withTitle: currentShell == "/bin/zsh" ? "Zsh (/bin/zsh)" :
+                                             currentShell == "/bin/bash" ? "Bash (/bin/bash)" : "Sh (/bin/sh)")
+        } else {
+            shellPopup.selectItem(withTitle: "Custom...")
+        }
+        shellPopup.target = self
+        shellPopup.action = #selector(shellPopupChanged(_:))
+
+        customShellField.placeholderString = "/path/to/shell"
+        customShellField.stringValue = currentShell
+        customShellField.translatesAutoresizingMaskIntoConstraints = false
+        customShellField.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        customShellField.target = self
+        customShellField.action = #selector(customShellPathChanged(_:))
+        customShellField.isHidden = shellPopup.selectedItem?.representedObject as? String != "custom"
+
+        let shellStack = NSStackView(views: [shellPopup, customShellField])
+        shellStack.orientation = .horizontal
+        shellStack.spacing = 8
+        addRow("Terminal shell:", shellStack)
+    }
+
+    @objc private func gitEnabledChanged(_ s: NSButton) { Settings.gitIntegrationEnabled = s.state == .on }
+    @objc private func gitBranchChanged(_ s: NSButton) { Settings.showGitBranchInStatusBar = s.state == .on }
+
+    @objc private func shellPopupChanged(_ sender: NSPopUpButton) {
+        if let val = sender.selectedItem?.representedObject as? String {
+            if val == "custom" {
+                customShellField.isHidden = false
+                Settings.terminalShell = customShellField.stringValue
+            } else {
+                customShellField.isHidden = true
+                Settings.terminalShell = val
+            }
+        }
+    }
+
+    @objc private func customShellPathChanged(_ sender: NSTextField) {
+        Settings.terminalShell = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - Advanced
+
 final class AdvancedPane: SettingsPane {
     override func build() {
+        let spring = NSButton(checkboxWithTitle: "Spring-loaded folders (open on drag-hover)",
+                              target: self, action: #selector(springChanged(_:)))
+        spring.state = Settings.springLoadedFolders ? .on : .off
+        addRow("Dragging:", spring)
+
+        let delay = NSSlider(value: Settings.springLoadDelay, minValue: 0.2, maxValue: 2.0,
+                             target: self, action: #selector(springDelayChanged(_:)))
+        delay.controlSize = .small
+        delay.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        addRow("Spring delay:", delay)
+
+        let calcSizes = NSButton(checkboxWithTitle: "Calculate folder sizes (slower)",
+                                 target: self, action: #selector(calcSizesChanged(_:)))
+        calcSizes.state = Settings.calculateFolderSizes ? .on : .off
+        addRow("Folders:", calcSizes)
+
+        let confirmTrash = NSButton(checkboxWithTitle: "Warn before moving items to Trash",
+                                    target: self, action: #selector(confirmTrashChanged(_:)))
+        confirmTrash.state = Settings.confirmTrash ? .on : .off
+        addRow("Safety:", confirmTrash)
+
         let vim = NSButton(checkboxWithTitle: "Enable Vim navigation (hjkl, /, :, dd, yy, p, r, gt/gT)",
                            target: self, action: #selector(vimChanged(_:)))
         vim.state = VimMode.shared.enabled ? .on : .off
@@ -437,6 +529,11 @@ final class AdvancedPane: SettingsPane {
         resetBtn.bezelStyle = .rounded
         addRow("Settings:", resetBtn)
     }
+
+    @objc private func springChanged(_ s: NSButton) { Settings.springLoadedFolders = s.state == .on }
+    @objc private func springDelayChanged(_ s: NSSlider) { Settings.springLoadDelay = s.doubleValue }
+    @objc private func calcSizesChanged(_ s: NSButton) { Settings.calculateFolderSizes = s.state == .on }
+    @objc private func confirmTrashChanged(_ s: NSButton) { Settings.confirmTrash = s.state == .on }
 
     @objc private func vimChanged(_ s: NSButton) { VimMode.shared.setEnabled(s.state == .on) }
 
