@@ -196,6 +196,40 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.showTitleBar"); notify() }
     }
 
+    // MARK: Git & Terminal Integration
+
+    static var gitIntegrationEnabled: Bool {
+        get { d.object(forKey: "FinderTwo.gitIntegrationEnabled") as? Bool ?? true }
+        set { d.set(newValue, forKey: "FinderTwo.gitIntegrationEnabled"); notify() }
+    }
+
+    static var showGitBranchInStatusBar: Bool {
+        get { d.object(forKey: "FinderTwo.showGitBranchInStatusBar") as? Bool ?? true }
+        set { d.set(newValue, forKey: "FinderTwo.showGitBranchInStatusBar"); notify() }
+    }
+
+    static var terminalShell: String {
+        get { d.string(forKey: "FinderTwo.terminalShell") ?? "/bin/zsh" }
+        set { d.set(newValue, forKey: "FinderTwo.terminalShell"); notify() }
+    }
+
+    // MARK: Custom Navigation & Layout
+
+    static var alwaysShowTabBar: Bool {
+        get { d.object(forKey: "FinderTwo.alwaysShowTabBar") as? Bool ?? false }
+        set { d.set(newValue, forKey: "FinderTwo.alwaysShowTabBar"); notify() }
+    }
+
+    static var alternatingRows: Bool {
+        get { d.object(forKey: "FinderTwo.alternatingRows") as? Bool ?? true }
+        set { d.set(newValue, forKey: "FinderTwo.alternatingRows"); notifyAppearance() }
+    }
+
+    static var doubleClickFolderOpensNewTab: Bool {
+        get { d.object(forKey: "FinderTwo.doubleClickFolderOpensNewTab") as? Bool ?? false }
+        set { d.set(newValue, forKey: "FinderTwo.doubleClickFolderOpensNewTab"); notify() }
+    }
+
     // MARK: Notifications
 
     private static func notify() {
@@ -215,7 +249,10 @@ enum Settings {
                     "FinderTwo.typeAhead", "FinderTwo.showHotbar", "FinderTwo.showTitleBar",
                     "FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar",
                     "FinderTwo.springLoadedFolders", "FinderTwo.springLoadDelay",
-                    "FinderTwo.useGroups"] {
+                    "FinderTwo.useGroups",
+                    "FinderTwo.gitIntegrationEnabled", "FinderTwo.showGitBranchInStatusBar",
+                    "FinderTwo.terminalShell", "FinderTwo.alwaysShowTabBar",
+                    "FinderTwo.alternatingRows", "FinderTwo.doubleClickFolderOpensNewTab"] {
             d.removeObject(forKey: key)
         }
         notifyAppearance()
