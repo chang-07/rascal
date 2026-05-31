@@ -7,7 +7,7 @@ enum GitStatus {
 
     /// Per-file working-tree state, mapped to a display glyph + color intent.
     enum FileState: Equatable {
-        case modified       // tracked file changed (index or worktree)
+        case modified(added: Int, deleted: Int) // tracked file changed (index or worktree)
         case added          // newly staged
         case untracked      // ?? not tracked
         case deleted        // removed
@@ -18,7 +18,7 @@ enum GitStatus {
 
         var letter: String {
             switch self {
-            case .modified: return "M"
+            case .modified(_, _): return "M"
             case .added: return "A"
             case .untracked: return "U"
             case .deleted: return "D"
@@ -147,6 +147,57 @@ enum GitStatus {
                 result[relInDir] = state(x: x, y: y)
             }
         }
+
+        // Fetch numstat for modified files in this directory.
+        var numstat: [String: (added: Int, deleted: Int)] = [:]
+        var diffArgs = ["-C", root.path, "diff", "HEAD", "--numstat", "--no-renames"]
+        if !rel.isEmpty {
+            diffArgs.append("--")
+            diffArgs.append(String(rel.dropLast()))
+        }
+        let diffOut = run(diffArgs, in: root) ?? {
+            var fallbackArgs = ["-C", root.path, "diff", "--numstat", "--no-renames"]
+            if !rel.isEmpty {
+                fallbackArgs.append("--")
+                fallbackArgs.append(String(rel.dropLast()))
+            }
+            return run(fallbackArgs, in: root)
+        }()
+
+        if let diffOut = diffOut {
+            let lines = diffOut.components(separatedBy: .newlines)
+            for line in lines {
+                let parts = line.components(separatedBy: "\t")
+                guard parts.count >= 3 else { continue }
+                let addedStr = parts[0].trimmingCharacters(in: .whitespaces)
+                let deletedStr = parts[1].trimmingCharacters(in: .whitespaces)
+                let path = parts[2...].joined(separator: "\t")
+                let added = Int(addedStr) ?? 0
+                let deleted = Int(deletedStr) ?? 0
+
+                guard path.hasPrefix(rel) || rel.isEmpty else { continue }
+                let relInDir = rel.isEmpty ? path : String(path.dropFirst(rel.count))
+                guard !relInDir.isEmpty else { continue }
+
+                if relInDir.firstIndex(of: "/") == nil {
+                    numstat[relInDir] = (added, deleted)
+                }
+            }
+        }
+
+        for (file, stats) in numstat {
+            if let currentState = result[file] {
+                switch currentState {
+                case .modified:
+                    result[file] = .modified(added: stats.added, deleted: stats.deleted)
+                default:
+                    break
+                }
+            } else {
+                result[file] = .modified(added: stats.added, deleted: stats.deleted)
+            }
+        }
+
         return result
     }
 
@@ -156,7 +207,11 @@ enum GitStatus {
         if x == "R" { return .renamed }
         if x == "A" { return .added }
         if x == "D" || y == "D" { return .deleted }
-        return .modified
+        return .modified(added: 0, deleted: 0)
+    }
+
+    static func gitDiff(repoRoot: URL, fileURL: URL) -> String? {
+        run(["-C", repoRoot.path, "diff", "HEAD", "--", fileURL.path], in: repoRoot)
     }
 
     // MARK: - helpers

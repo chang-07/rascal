@@ -29,6 +29,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     private let terminalView = TerminalDrawerView()
     private var terminalHeightConstraint: NSLayoutConstraint!
     private var terminalVisible = false
+    var isTerminalVisible: Bool { terminalVisible }
 
     private(set) var viewMode: ViewMode = .list
     private var isActive: Bool = false

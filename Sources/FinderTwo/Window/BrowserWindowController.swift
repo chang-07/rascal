@@ -203,7 +203,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     @objc func extractSelection(_ sender: Any?) { activePane?.extractSelection() }
     @objc func makeAliasSelection(_ sender: Any?) { activePane?.makeAliasSelection() }
     @objc func newTab(_ sender: Any?) { panesContainer.activePane?.newTab(at: nil) }
-    @objc func closeTab(_ sender: Any?) { panesContainer.activePane?.closeActiveTab() }
+    @objc func closeTab(_ sender: Any?) {
+        if let pane = activePane, pane.isTerminalVisible {
+            pane.toggleTerminalDrawer()
+        } else if panesContainer.allPanes.count > 1, let pane = activePane {
+            panesContainer.closePane(pane)
+        } else {
+            panesContainer.activePane?.closeActiveTab()
+        }
+    }
     @objc func nextTab(_ sender: Any?) { activePane?.nextTab() }
     @objc func prevTab(_ sender: Any?) { activePane?.prevTab() }
     @objc func selectLastTab(_ sender: Any?) { activePane?.selectLastTab() }

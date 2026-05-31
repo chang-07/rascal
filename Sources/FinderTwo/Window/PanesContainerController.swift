@@ -56,6 +56,17 @@ final class PanesContainerController: NSSplitViewController {
         }
     }
 
+    func closePane(_ pane: PaneController) {
+        guard panes.count > 1 else { return }
+        if let idx = panes.firstIndex(where: { $0 === pane }) {
+            let removed = panes.remove(at: idx)
+            removeSplitViewItem(splitViewItems[idx])
+            removed.removeFromParent()
+            if activeIndex >= panes.count { activeIndex = panes.count - 1 }
+            updateAfterActiveChange()
+        }
+    }
+
     @discardableResult
     private func addPane(at url: URL, activate: Bool) -> PaneController {
         let pane = PaneController(url: url)

@@ -1292,6 +1292,46 @@ final class TestRunner {
                    states["new.txt"] == .untracked, "got=\(String(describing: states["new.txt"]))")
             assert("GitStatus aggregates subfolder changes to the folder",
                    states["src"] == .modifiedFolder, "got=\(String(describing: states["src"]))")
+
+            // Test modified file additions/deletions diff recaps.
+            let trackedFile = gitProj.appendingPathComponent("tracked.txt")
+            try? "line1\nline2\nline3\n".write(to: trackedFile, atomically: true, encoding: .utf8)
+            let addP = Process()
+            addP.launchPath = "/usr/bin/git"
+            addP.arguments = ["-C", gitProj.path, "add", "tracked.txt"]
+            addP.standardOutput = Pipe(); addP.standardError = Pipe()
+            try? addP.run(); addP.waitUntilExit()
+
+            let configName = Process()
+            configName.launchPath = "/usr/bin/git"
+            configName.arguments = ["-C", gitProj.path, "config", "user.name", "Test"]
+            try? configName.run(); configName.waitUntilExit()
+
+            let configEmail = Process()
+            configEmail.launchPath = "/usr/bin/git"
+            configEmail.arguments = ["-C", gitProj.path, "config", "user.email", "test@test.com"]
+            try? configEmail.run(); configEmail.waitUntilExit()
+
+            let commitP = Process()
+            commitP.launchPath = "/usr/bin/git"
+            commitP.arguments = ["-C", gitProj.path, "commit", "-m", "initial"]
+            commitP.standardOutput = Pipe(); commitP.standardError = Pipe()
+            try? commitP.run(); commitP.waitUntilExit()
+
+            try? "line1\nline2changed\nline3\nline4\nline5\n".write(to: trackedFile, atomically: true, encoding: .utf8)
+
+            let testStates = GitStatus.fileStates(in: gitProj, repoRoot: gitProj)
+            if let modifiedState = testStates["tracked.txt"] {
+                switch modifiedState {
+                case .modified(let added, let deleted):
+                    assert("GitStatus returns correct additions/deletions", added == 3 && deleted == 1, "got added=\(added), deleted=\(deleted)")
+                default:
+                    assert("GitStatus returns modified state for modified file", false, "got state=\(modifiedState)")
+                }
+            } else {
+                assert("GitStatus finds tracked.txt in fileStates", false, "keys=\(testStates.keys)")
+            }
+
             let info = GitStatus.repoInfo(root: gitProj)
             assert("GitStatus.repoInfo reads branch", info.branch == "main", "got=\(info.branch ?? "nil")")
             // GitStatus.repoRoot finds the repo from a nested dir too.

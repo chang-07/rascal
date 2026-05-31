@@ -851,6 +851,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         if selectedItems().filter({ !$0.isDirectory }).count == 2 {
             m.addItem(NSMenuItem(title: "Compare Two Files…", action: #selector(menuCompareFiles), keyEquivalent: ""))
         }
+        if selectedItems().count == 1, !selectedItems()[0].isDirectory,
+           GitStatus.repoRoot(for: selectedItems()[0].url) != nil {
+            m.addItem(NSMenuItem(title: "View Diffs", action: #selector(menuViewDiffs), keyEquivalent: ""))
+        }
         if NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: nil) {
             m.addItem(NSMenuItem(title: "Paste", action: #selector(menuPaste), keyEquivalent: ""))
         }
@@ -1207,6 +1211,11 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         guard let wc = view.window?.windowController as? BrowserWindowController else { return }
         wc.compareFiles(nil)
     }
+    @objc private func menuViewDiffs() {
+        guard let item = selectedItems().first,
+              let root = GitStatus.repoRoot(for: item.url) else { return }
+        FileDiffWindowController.showGitDiff(repoRoot: root, fileURL: item.url, parent: view.window)
+    }
     @objc private func menuShowPackageContents() {
         guard let pkg = selectedItems().first(where: { $0.isPackage }) else { return }
         delegate?.fileListShowPackageContents(pkg.url)
@@ -1518,14 +1527,40 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
     }
 
     private func applyGitState(_ state: GitStatus.FileState?) {
-        guard let state else { gitBadge.stringValue = ""; return }
-        gitBadge.stringValue = state.letter
-        gitBadge.textColor = NameCell.color(for: state)
+        guard let state else {
+            gitBadge.attributedStringValue = NSAttributedString(string: "")
+            return
+        }
+        switch state {
+        case .modified(let added, let deleted):
+            let mas = NSMutableAttributedString()
+            let mColor = NameCell.color(for: state)
+            mas.append(NSAttributedString(string: "M", attributes: [
+                .foregroundColor: mColor,
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+            ]))
+            if added > 0 {
+                mas.append(NSAttributedString(string: " +\(added)", attributes: [
+                    .foregroundColor: NSColor.systemGreen,
+                    .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+                ]))
+            }
+            if deleted > 0 {
+                mas.append(NSAttributedString(string: " -\(deleted)", attributes: [
+                    .foregroundColor: NSColor.systemRed,
+                    .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+                ]))
+            }
+            gitBadge.attributedStringValue = mas
+        default:
+            gitBadge.stringValue = state.letter
+            gitBadge.textColor = NameCell.color(for: state)
+        }
     }
 
     static func color(for state: GitStatus.FileState) -> NSColor {
         switch state {
-        case .modified, .modifiedFolder, .renamed: return .systemOrange
+        case .modified(_, _), .modifiedFolder, .renamed: return .systemOrange
         case .added, .untracked: return .systemGreen
         case .deleted: return .systemRed
         case .conflicted: return .systemRed
