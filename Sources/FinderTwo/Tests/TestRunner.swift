@@ -1331,6 +1331,30 @@ final class TestRunner {
                "got=\(String(describing: pane.testModel.gitRepoInfo?.branch))")
         pane.navigate(to: sandbox); wait(0.05)
 
+        // --- T46g: Settings.gitIntegrationEnabled toggling clears states ---
+        Settings.gitIntegrationEnabled = true
+        pane.navigate(to: gitProj)
+        wait(0.05)
+        pane.testModel.testRefreshGitSync()
+        assert("model populates git badge", pane.testModel.gitStates["new.txt"] == .untracked, "")
+        
+        Settings.gitIntegrationEnabled = false
+        // Trigger settingsChanged notification
+        NotificationCenter.default.post(name: Settings.didChange, object: nil)
+        wait(0.05)
+        assert("model clears git badge when disabled", pane.testModel.gitStates.isEmpty, "got=\(pane.testModel.gitStates)")
+        assert("model clears repo info when disabled", pane.testModel.gitRepoInfo == nil, "")
+        
+        Settings.gitIntegrationEnabled = true // restore default
+        NotificationCenter.default.post(name: Settings.didChange, object: nil)
+        pane.navigate(to: sandbox); wait(0.05)
+
+        // --- T46h: Settings.terminalShell value storage ---
+        let originalShell = Settings.terminalShell
+        Settings.terminalShell = "/bin/bash"
+        assert("terminalShell setting saves new value", Settings.terminalShell == "/bin/bash", "got=\(Settings.terminalShell)")
+        Settings.terminalShell = originalShell // restore
+
         // --- T46f: project navigation actions registered ---
         assert("action: project.jump-root",
                ActionRegistry.action(id: "project.jump-root") != nil, "missing")
