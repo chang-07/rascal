@@ -28,6 +28,7 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         let subtitle: String    // secondary line (parent path)
     }
     private var hits: [Hit] = []
+    private var recentHits: [Hit] = []
     private var queryGeneration: UInt64 = 0
     private var indexCache: [URL]?      // filename mode prebuilds a list of all files under root
 
@@ -53,8 +54,31 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         win.title = mode == .fuzzyFilenames ? "Find Files" : "Search File Contents"
         super.init(window: win)
         layout()
-        if mode == .fuzzyFilenames { startFilenameIndex() }
+        if mode == .fuzzyFilenames {
+            startFilenameIndex()
+            loadRecentFiles()
+        }
         subscribeToTheme(self)
+    }
+
+    private func loadRecentFiles() {
+        TagIndex.recentFiles { [weak self] urls in
+            guard let self else { return }
+            self.recentHits = urls.map { url in
+                Hit(url: url,
+                    title: url.lastPathComponent,
+                    subtitle: url.deletingLastPathComponent().path)
+            }
+            if self.searchField.stringValue.isEmpty {
+                self.hits = self.recentHits
+                let suffix = self.indexCache.map { " · \($0.count) files indexed" } ?? ""
+                self.statusLabel.stringValue = "Recent files" + suffix
+                self.tableView.reloadData()
+                if !self.hits.isEmpty {
+                    self.tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+                }
+            }
+        }
     }
 
     @objc func applyTheme() {
@@ -147,11 +171,19 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         let gen = queryGeneration
         let q = searchField.stringValue
         if q.isEmpty {
-            hits = []
-            tableView.reloadData()
-            statusLabel.stringValue = mode == .fuzzyFilenames
-                ? (indexCache.map { "\($0.count) files indexed" } ?? "Indexing…")
-                : "Type to search"
+            if mode == .fuzzyFilenames {
+                hits = recentHits
+                tableView.reloadData()
+                if !hits.isEmpty {
+                    tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+                }
+                let suffix = indexCache.map { " · \($0.count) files indexed" } ?? ""
+                statusLabel.stringValue = "Recent files" + suffix
+            } else {
+                hits = []
+                tableView.reloadData()
+                statusLabel.stringValue = "Type to search"
+            }
             return
         }
         switch mode {
