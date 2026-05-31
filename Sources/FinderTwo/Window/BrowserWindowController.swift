@@ -2,8 +2,8 @@ import AppKit
 
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, ThemeObserving {
 
-    private let splitVC = NSSplitViewController()
-    private let sidebarVC: SidebarController
+    let splitVC = NSSplitViewController()
+    let sidebarVC: SidebarController
     private let panesContainer: PanesContainerController
     private var vimKeyMonitor: Any?
     /// Off-main branch lookups for the window subtitle (reads .git/HEAD).
@@ -161,11 +161,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
             // Never intercept while the user is editing text.
             if self.firstResponderIsTextEditing() { return event }
             guard let pane = self.panesContainer.activePane else { return event }
+            let oldResponder = self.window?.firstResponder
             if VimMode.shared.handle(event: event, in: pane, fileList: pane.testFileList) {
                 // Pull focus to the file list so j/k selection is visible even
                 // if the sidebar (or nothing) had focus when the key was hit.
-                if self.window?.firstResponder !== pane.testFileList.tableView {
-                    self.window?.makeFirstResponder(pane.testFileList.tableView)
+                // Do not pull focus back if the command explicitly shifted the responder (e.g. buffer switching)
+                if self.window?.firstResponder === oldResponder {
+                    if self.window?.firstResponder !== pane.testFileList.tableView {
+                        self.window?.makeFirstResponder(pane.testFileList.tableView)
+                    }
                 }
                 return nil   // consumed
             }
@@ -229,8 +233,189 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     @objc func moveTabToNewWindow(_ sender: Any?) { activePane?.moveActiveTabToNewWindow() }
     @objc func moveTabLeft(_ sender: Any?) { activePane?.moveActiveTab(by: -1) }
     @objc func moveTabRight(_ sender: Any?) { activePane?.moveActiveTab(by: 1) }
+    struct BufferTarget {
+        let view: NSView
+        let focus: () -> Void
+    }
+
+    func getBufferTargets() -> [BufferTarget] {
+        var targets: [BufferTarget] = []
+        
+        // 1. Sidebar outline
+        if !splitVC.splitViewItems[0].isCollapsed {
+            targets.append(BufferTarget(view: sidebarVC.outline) { [weak self] in
+                guard let self else { return }
+                self.window?.makeFirstResponder(self.sidebarVC.outline)
+            })
+        }
+        
+        // 2. Panes components
+        for pane in panesContainer.allPanes {
+            // Main file list table
+            targets.append(BufferTarget(view: pane.fileList.tableView) { [weak pane] in
+                pane?.focusFileList()
+            })
+            
+            // Terminal input
+            if pane.isTerminalVisible {
+                targets.append(BufferTarget(view: pane.terminalView) { [weak pane] in
+                    pane?.focusTerminal()
+                })
+            }
+            
+            // Git Diff
+            if pane.isGitDiffVisible {
+                targets.append(BufferTarget(view: pane.gitDiffView) { [weak pane] in
+                    pane?.focusGitDiff()
+                })
+            }
+            
+            // Notes
+            if pane.isNotesVisible {
+                targets.append(BufferTarget(view: pane.notesView) { [weak pane] in
+                    pane?.focusNotes()
+                })
+            }
+        }
+        
+        return targets
+    }
+
+    func isResponder(_ responder: NSResponder?, descendingFrom view: NSView) -> Bool {
+        var r: NSResponder? = responder
+        while let current = r {
+            if current === view { return true }
+            if let viewResponder = current as? NSView {
+                r = viewResponder.superview
+            } else {
+                r = current.nextResponder
+            }
+        }
+        return false
+    }
+
+    func focusNextBuffer() {
+        let targets = getBufferTargets()
+        guard !targets.isEmpty else { return }
+        
+        let currentIdx = targets.firstIndex { isResponder(window?.firstResponder, descendingFrom: $0.view) }
+        let nextIdx: Int
+        if let currentIdx = currentIdx {
+            nextIdx = (currentIdx + 1) % targets.count
+        } else {
+            nextIdx = 0
+        }
+        targets[nextIdx].focus()
+    }
+
+    func focusPrevBuffer() {
+        let targets = getBufferTargets()
+        guard !targets.isEmpty else { return }
+        
+        let currentIdx = targets.firstIndex { isResponder(window?.firstResponder, descendingFrom: $0.view) }
+        let nextIdx: Int
+        if let currentIdx = currentIdx {
+            nextIdx = (currentIdx - 1 + targets.count) % targets.count
+        } else {
+            nextIdx = targets.count - 1
+        }
+        targets[nextIdx].focus()
+    }
+
+    func focusBufferLeft() {
+        let targets = getBufferTargets()
+        guard !targets.isEmpty else { return }
+        
+        guard let currentIdx = targets.firstIndex(where: { isResponder(window?.firstResponder, descendingFrom: $0.view) }) else {
+            panesContainer.activePane?.focusFileList()
+            return
+        }
+        
+        let currentView = targets[currentIdx].view
+        
+        // If we are in Git Diff or Notes, move Left to the active pane's file list
+        if let pane = activePane, currentView === pane.gitDiffView || currentView === pane.notesView {
+            pane.focusFileList()
+            return
+        }
+        
+        // If we are in Pane 1 (right pane) file list/terminal, move Left to Pane 0 (left pane) file list
+        if panesContainer.allPanes.count > 1, let active = activePane {
+            let all = panesContainer.allPanes
+            if active === all[1] {
+                all[0].focusFileList()
+                return
+            }
+        }
+        
+        // If we are in Pane 0 (left pane/only pane) file list/terminal, move Left to Sidebar
+        if !splitVC.splitViewItems[0].isCollapsed {
+            window?.makeFirstResponder(sidebarVC.outline)
+        }
+    }
+
+    func focusBufferRight() {
+        let targets = getBufferTargets()
+        guard !targets.isEmpty else { return }
+        
+        guard let currentIdx = targets.firstIndex(where: { isResponder(window?.firstResponder, descendingFrom: $0.view) }) else {
+            panesContainer.activePane?.focusFileList()
+            return
+        }
+        
+        let currentView = targets[currentIdx].view
+        
+        // If we are in Sidebar, move Right to the active pane's file list
+        if currentView === sidebarVC.outline {
+            panesContainer.activePane?.focusFileList()
+            return
+        }
+        
+        // If we are in Pane 0 (left pane), move Right to Pane 1 (right pane) file list if it exists,
+        // otherwise to the active pane's Git Diff or Notes if visible
+        if panesContainer.allPanes.count > 1, let active = activePane {
+            let all = panesContainer.allPanes
+            if active === all[0] {
+                all[1].focusFileList()
+                return
+            }
+        }
+        
+        // Move to Git Diff or Notes drawer if they are visible
+        if let pane = activePane {
+            if pane.isGitDiffVisible {
+                pane.focusGitDiff()
+            } else if pane.isNotesVisible {
+                pane.focusNotes()
+            }
+        }
+    }
+
+    func focusBufferDown() {
+        if let pane = activePane, pane.isTerminalVisible {
+            pane.focusTerminal()
+        }
+    }
+
+    func focusBufferUp() {
+        let targets = getBufferTargets()
+        guard !targets.isEmpty else { return }
+        
+        guard let currentIdx = targets.firstIndex(where: { isResponder(window?.firstResponder, descendingFrom: $0.view) }) else {
+            panesContainer.activePane?.focusFileList()
+            return
+        }
+        let currentView = targets[currentIdx].view
+        
+        if let pane = activePane, currentView === pane.terminalView {
+            pane.focusFileList()
+        }
+    }
+
     @objc func focusNextPane(_ sender: Any?) { panesContainer.focusPane(by: 1) }
     @objc func focusPrevPane(_ sender: Any?) { panesContainer.focusPane(by: -1) }
+    @objc func focusNextBuffer(_ sender: Any?) { focusNextBuffer() }
+    @objc func focusPrevBuffer(_ sender: Any?) { focusPrevBuffer() }
     @objc func toggleSidebarItem(_ sender: Any?) { splitVC.toggleSidebar(sender) }
     @objc func toggleStatusBarItem(_ sender: Any?) { Settings.showStatusBar.toggle() }
     @objc func toggleUseGroups(_ sender: Any?) { Settings.useGroups.toggle() }

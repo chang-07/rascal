@@ -6,7 +6,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     var onOpenInNewTab: ((URL) -> Void)?
     var onOpenInNewWindow: ((URL) -> Void)?
 
-    private let outline = NSOutlineView()
+    let outline = NSOutlineView()
     private let scrollView = NSScrollView()
 
     private final class Section {

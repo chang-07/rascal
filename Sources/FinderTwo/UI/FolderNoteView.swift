@@ -14,7 +14,7 @@ final class FolderNoteView: NSView, NSTextViewDelegate, ThemeObserving {
     /// Visibility — caller toggles this via a constraint on the right edge.
 
     private let scroll = NSScrollView()
-    private let textView = NSTextView()
+    let textView = NSTextView()
     private let header = NSTextField(labelWithString: "")
     private var saveTimer: Timer?
 
@@ -108,6 +108,10 @@ final class FolderNoteView: NSView, NSTextViewDelegate, ThemeObserving {
             return
         }
         try? text.data(using: .utf8)?.write(to: url, options: .atomic)
+    }
+
+    func focus() {
+        window?.makeFirstResponder(textView)
     }
 
     @objc func applyTheme() {

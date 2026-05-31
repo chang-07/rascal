@@ -48,14 +48,50 @@ final class VimMode {
     @discardableResult
     func handle(event: NSEvent, in pane: PaneController, fileList: FileListController) -> Bool {
         guard enabled else { return false }
-        // Ignore if modifiers are present (we want pure-letter bindings)
         let mods = event.modifierFlags.intersection([.command, .option, .control])
-        if !mods.isEmpty { return false }
+        let isCtrlW = mods == .control && event.charactersIgnoringModifiers == "w"
+        if !mods.isEmpty && !isCtrlW && pending != "ctrl-w" { return false }
         guard let chars = event.charactersIgnoringModifiers, !chars.isEmpty else { return false }
 
         // Esc cancels everything
         if chars == "\u{1b}" {
             reset()
+            return true
+        }
+
+        // Handle Ctrl-w window command when it's pending
+        if pending == "ctrl-w" {
+            pending = ""
+            reset()
+            if let wc = fileList.view.window?.windowController as? BrowserWindowController {
+                let char = chars.lowercased()
+                let scalar = chars.unicodeScalars.first
+                
+                let isNextCtrlW = event.modifierFlags.contains(.control) && event.charactersIgnoringModifiers == "w"
+                let isShift = event.modifierFlags.contains(.shift)
+                
+                if char == "w" || isNextCtrlW {
+                    if isShift {
+                        wc.focusPrevBuffer()
+                    } else {
+                        wc.focusNextBuffer()
+                    }
+                } else if char == "h" || scalar?.value == 0xF702 { // NSLeftArrowFunctionKey
+                    wc.focusBufferLeft()
+                } else if char == "l" || scalar?.value == 0xF703 { // NSRightArrowFunctionKey
+                    wc.focusBufferRight()
+                } else if char == "j" || scalar?.value == 0xF701 { // NSDownArrowFunctionKey
+                    wc.focusBufferDown()
+                } else if char == "k" || scalar?.value == 0xF700 { // NSUpArrowFunctionKey
+                    wc.focusBufferUp()
+                }
+            }
+            return true
+        }
+
+        // Initiate Ctrl-w sequence
+        if isCtrlW {
+            pending = "ctrl-w"
             return true
         }
         // Return / Enter — open the selection (enter a folder or open a file).

@@ -75,7 +75,7 @@ final class GitDiffDrawerView: NSView, ThemeObserving {
     }
     
     private let scroll = NSScrollView()
-    private let textView = DiffTextView()
+    let textView = DiffTextView()
     private let header = NSTextField(labelWithString: "")
     private let closeBtn = NSButton()
     
@@ -216,6 +216,10 @@ final class GitDiffDrawerView: NSView, ThemeObserving {
         textView.textStorage?.setAttributedString(out)
     }
     
+    func focus() {
+        window?.makeFirstResponder(textView)
+    }
+
     @objc func applyTheme() {
         let t = ThemeManager.shared.current
         layer?.backgroundColor = t.background.cgColor

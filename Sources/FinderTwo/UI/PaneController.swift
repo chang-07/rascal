@@ -13,24 +13,26 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     var currentURL: URL { activeTab.currentURL }
 
-    private let fileList: FileListController
+    let fileList: FileListController
     private let pathBar = PathBarView()
     private let toolbar = ToolbarView()
     private let statusBar = StatusBarView()
     private let tabStrip = TabStripView()
     private let hotbar = HotbarView()
     private let emptyState = EmptyStateView()
-    private let notesView = FolderNoteView()
+    let notesView = FolderNoteView()
     private var notesWidthConstraint: NSLayoutConstraint!
     private var notesVisible = false
     private let previewView = PreviewDrawerView()
     private var previewWidthConstraint: NSLayoutConstraint!
     private var previewVisible = false
-    private let terminalView = TerminalDrawerView()
+    let terminalView = TerminalDrawerView()
     private var terminalHeightConstraint: NSLayoutConstraint!
     private var terminalVisible = false
     var isTerminalVisible: Bool { terminalVisible }
-    private let gitDiffView = GitDiffDrawerView()
+    var isNotesVisible: Bool { notesVisible }
+    var isPreviewVisible: Bool { previewVisible }
+    let gitDiffView = GitDiffDrawerView()
     private var gitDiffWidthConstraint: NSLayoutConstraint!
     private var gitDiffVisible = false
     var isGitDiffVisible: Bool { gitDiffVisible }
@@ -520,6 +522,18 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     /// Put keyboard focus on this pane's file list (used by pane-switching).
     func focusFileList() {
         view.window?.makeFirstResponder(fileList.tableView)
+    }
+
+    func focusTerminal() {
+        terminalView.focusInput()
+    }
+
+    func focusGitDiff() {
+        gitDiffView.focus()
+    }
+
+    func focusNotes() {
+        notesView.focus()
     }
 
     func compressSelection() { fileList.compressSelection() }

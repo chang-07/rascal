@@ -2358,6 +2358,135 @@ final class TestRunner {
         wc.toggleNotes(nil); wait(0.02)
         wc.toggleNotes(nil); wait(0.02)
         assert("all tool action handlers survive invocation", true, "")
+
+        // --- T62: Buffer/Pane focus cycling & directional focus ---
+        let currentWindow = wc.window
+        let pane = self.pane(of: wc)!
+        
+        // Ensure sidebar is visible
+        if wc.splitVC.splitViewItems[0].isCollapsed {
+            wc.toggleSidebarItem(nil)
+            wait(0.05)
+        }
+        
+        // Ensure terminal is visible
+        if !pane.isTerminalVisible {
+            pane.toggleTerminalDrawer()
+            wait(0.05)
+        }
+        
+        // Ensure git diff is visible
+        if !pane.isGitDiffVisible {
+            pane.toggleGitDiffDrawer()
+            wait(0.05)
+        }
+        
+        // Let's get the buffer targets and check count
+        let targets = wc.getBufferTargets()
+        assert("buffer targets include sidebar, file list, terminal, diff",
+               targets.count >= 4, "got=\(targets.count)")
+               
+        // Focus the file list first
+        pane.focusFileList()
+        wait(0.05)
+        
+        // Focus next buffer should focus terminal
+        wc.focusNextBuffer()
+        wait(0.05)
+        assert("focusNextBuffer focused the terminal",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.terminalView),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+               
+        // Focus next buffer should focus git diff
+        wc.focusNextBuffer()
+        wait(0.05)
+        assert("focusNextBuffer focused the git diff view",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.gitDiffView.textView),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+               
+        // Focus prev buffer should focus terminal again
+        wc.focusPrevBuffer()
+        wait(0.05)
+        assert("focusPrevBuffer focused the terminal again",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.terminalView),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+               
+        // Directional focus checks:
+        // From terminal, Up should focus file list
+        wc.focusBufferUp()
+        wait(0.05)
+        assert("focusBufferUp focused the file list",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.fileList.tableView),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+               
+        // From file list, Down should focus terminal
+        wc.focusBufferDown()
+        wait(0.05)
+        assert("focusBufferDown focused the terminal",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.terminalView),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+               
+        // Back to file list
+        pane.focusFileList()
+        wait(0.05)
+        
+        // From file list, Left should focus sidebar
+        wc.focusBufferLeft()
+        wait(0.05)
+        assert("focusBufferLeft focused the sidebar outline",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: wc.sidebarVC.outline),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+               
+        // From sidebar, Right should focus file list
+        wc.focusBufferRight()
+        wait(0.05)
+        assert("focusBufferRight focused the file list",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.fileList.tableView),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+               
+        // From file list, Right should focus git diff
+        wc.focusBufferRight()
+        wait(0.05)
+        assert("focusBufferRight focused the git diff",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.gitDiffView.textView),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+               
+        // Close terminal and git diff drawer to clean up
+        pane.toggleTerminalDrawer()
+        pane.toggleGitDiffDrawer()
+        wait(0.05)
+        
+        // --- T63: VimMode Ctrl-w command integrations ---
+        VimMode.shared.setEnabled(true)
+        pane.focusFileList()
+        wait(0.05)
+        
+        // Simulate Ctrl-w key event
+        let ctrlWEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
+                                          modifierFlags: [.control], timestamp: 0,
+                                          windowNumber: 0, context: nil,
+                                          characters: "w", charactersIgnoringModifiers: "w",
+                                          isARepeat: false, keyCode: 0)!
+        
+        // Handle Ctrl-w in VimMode
+        let handledCtrlW = VimMode.shared.handle(event: ctrlWEvent, in: pane, fileList: pane.fileList)
+        assert("VimMode handled Ctrl-w event", handledCtrlW == true, "not handled")
+        
+        // Now simulate pressing 'w' (without modifiers) to cycle to next buffer (sidebar)
+        let wEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
+                                      modifierFlags: [], timestamp: 0,
+                                      windowNumber: 0, context: nil,
+                                      characters: "w", charactersIgnoringModifiers: "w",
+                                      isARepeat: false, keyCode: 0)!
+        let handledW = VimMode.shared.handle(event: wEvent, in: pane, fileList: pane.fileList)
+        assert("VimMode handled 'w' event after Ctrl-w", handledW == true, "not handled")
+        wait(0.05)
+        
+        assert("VimMode Ctrl-w w shifted focus to sidebar outline",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: wc.sidebarVC.outline),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+        
+        VimMode.shared.setEnabled(false)
     }
 
     /// Dismiss any sheets on the window + its children so the next action's

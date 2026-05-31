@@ -13,7 +13,7 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
 
     private let scroll = NSScrollView()
     private let textView = NSTextView()
-    private let inputField = NSTextField()
+    let inputField = NSTextField()
     private let prompt = NSTextField(labelWithString: "")
     private var history: [String] = []
     private var historyCursor: Int = 0
