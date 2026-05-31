@@ -1578,6 +1578,47 @@ final class TestRunner {
         assert("SearchSheet displays rows under empty query", rows >= 0, "negative rows?")
         searchSheet.window?.close()
 
+        // --- T54c: FileItem isPackage optimization ---
+        let folderNoExt = sandbox.appendingPathComponent("folder_no_ext")
+        try? FileManager.default.createDirectory(at: folderNoExt, withIntermediateDirectories: true)
+        let itemNoExt = FileItem(
+            url: folderNoExt, name: "folder_no_ext", isDirectory: true, isSymlink: false, isHidden: false,
+            size: -1, modified: Date(), created: Date(), ext: "", contentType: nil, kindDescription: "Folder"
+        )
+        assert("itemNoExt.isPackage is false", !itemNoExt.isPackage, "expected false")
+        
+        let folderWithAppExt = sandbox.appendingPathComponent("App.app")
+        try? FileManager.default.createDirectory(at: folderWithAppExt, withIntermediateDirectories: true)
+        let itemWithAppExt = FileItem(
+            url: folderWithAppExt, name: "App.app", isDirectory: true, isSymlink: false, isHidden: false,
+            size: -1, modified: Date(), created: Date(), ext: "app", contentType: nil, kindDescription: "Application"
+        )
+        assert("itemWithAppExt.isPackage is true", itemWithAppExt.isPackage, "expected true")
+
+        // --- T54d: VimMode repeat count stepTab ---
+        let dummyPane = PaneController(url: sandbox)
+        _ = dummyPane.view
+        dummyPane.newTab(at: nil)
+        dummyPane.newTab(at: nil)
+        let testTabCount = dummyPane.testTabCount
+        assert("dummyPane has at least 3 tabs", testTabCount >= 3, "got \(testTabCount)")
+        let activeIdx = dummyPane.testActiveTabIndex
+        
+        VimMode.shared.setEnabled(true)
+        VimMode.shared.reset()
+        
+        let e2 = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "2", charactersIgnoringModifiers: "2", isARepeat: false, keyCode: 0)!
+        let eg = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "g", charactersIgnoringModifiers: "g", isARepeat: false, keyCode: 0)!
+        let et = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "t", charactersIgnoringModifiers: "t", isARepeat: false, keyCode: 0)!
+        
+        VimMode.shared.handle(event: e2, in: dummyPane, fileList: FileListController(model: dummyPane.testModel))
+        VimMode.shared.handle(event: eg, in: dummyPane, fileList: FileListController(model: dummyPane.testModel))
+        VimMode.shared.handle(event: et, in: dummyPane, fileList: FileListController(model: dummyPane.testModel))
+        
+        let newActiveIdx = dummyPane.testActiveTabIndex
+        let expectedIdx = (activeIdx + 2) % testTabCount
+        assert("VimMode 2gt advanced by 2 tabs", newActiveIdx == expectedIdx, "got \(newActiveIdx) expected \(expectedIdx)")
+
         // --- T55: Batch rename preview produces a non-empty new name ---
         let brItems = ["x.txt", "y.txt", "z.txt"].compactMap { name -> FileItem? in
             let u = sandbox.appendingPathComponent(name)

@@ -110,6 +110,14 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
                 if historyCursor < history.count - 1 { historyCursor += 1; inputField.stringValue = history[historyCursor] }
                 else { historyCursor = history.count; inputField.stringValue = "" }
                 return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                if let task = runningTask, task.isRunning {
+                    task.terminate()
+                    append("^C\n", color: .systemRed)
+                    inputField.stringValue = ""
+                    return true
+                }
+                return false
             default: return false
             }
         }
@@ -140,6 +148,13 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
             history.append(cmd); historyCursor = history.count
             return
         }
+
+        // Interrupt any existing running task before starting a new one
+        if let task = runningTask, task.isRunning {
+            task.terminate()
+            append("^C\n", color: .systemRed)
+        }
+
         append("\(shortPrompt(for: cwd)) ❯ \(cmd)\n", color: ThemeChrome.secondary)
 
         let p = Process()
@@ -151,6 +166,7 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
         p.standardOutput = outPipe
         p.standardError = errPipe
         runningTask = p
+
 
         outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData

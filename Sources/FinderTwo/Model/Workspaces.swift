@@ -105,17 +105,26 @@ final class WorkspaceMenuTarget: NSObject {
     }
 
     @objc func promptDelete(_ sender: NSMenuItem) {
+        let workspaces = WorkspaceStore.all()
+        guard !workspaces.isEmpty else {
+            NSSound.beep()
+            return
+        }
         let alert = NSAlert()
         alert.messageText = "Delete a Workspace"
-        alert.informativeText = "Type the name of the workspace to delete."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 22))
-        alert.accessoryView = field
+        alert.informativeText = "Select the workspace you want to permanently delete."
+        let popUp = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 26), pullsDown: false)
+        for ws in workspaces {
+            popUp.addItem(withTitle: ws.name)
+        }
+        alert.accessoryView = popUp
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         guard let p = sender.representedObject as? Payload, let win = p.wc.window else { return }
         alert.beginSheetModal(for: win) { resp in
-            guard resp == .alertFirstButtonReturn else { return }
-            WorkspaceStore.delete(name: field.stringValue)
+            guard resp == .alertFirstButtonReturn,
+                  let selectedName = popUp.selectedItem?.title else { return }
+            WorkspaceStore.delete(name: selectedName)
         }
     }
 }

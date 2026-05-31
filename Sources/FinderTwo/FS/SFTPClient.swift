@@ -46,7 +46,7 @@ enum SFTPClient {
         let target = "\(conn.sshTarget):\(remotePath)"
         let p = Process()
         p.launchPath = "/usr/bin/scp"
-        var args = ["-q"]
+        var args = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
         if conn.port != 22 { args.append(contentsOf: ["-P", "\(conn.port)"]) }
         args.append(contentsOf: [target, local.path])
         p.arguments = args
@@ -61,7 +61,7 @@ enum SFTPClient {
         let target = "\(conn.sshTarget):\(remotePath)"
         let p = Process()
         p.launchPath = "/usr/bin/scp"
-        var args = ["-q"]
+        var args = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
         if conn.port != 22 { args.append(contentsOf: ["-P", "\(conn.port)"]) }
         args.append(contentsOf: [local.path, target])
         p.arguments = args
@@ -87,7 +87,7 @@ enum SFTPClient {
     private static func run(_ conn: Connection, stdin: String) -> String? {
         let p = Process()
         p.launchPath = "/usr/bin/sftp"
-        var args = ["-b", "-"]
+        var args = ["-b", "-", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
         if conn.port != 22 { args.append(contentsOf: ["-P", "\(conn.port)"]) }
         args.append(conn.sshTarget)
         p.arguments = args

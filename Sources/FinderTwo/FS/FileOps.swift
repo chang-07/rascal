@@ -278,27 +278,6 @@ enum FileOps {
         if err != nil { NSSound.beep() }
     }
 
-    /// Delegates Get Info to Finder via AppleScript (path of least resistance for v0).
-    static func getInfo(_ urls: [URL]) {
-        for u in urls {
-            // Escape backslash FIRST, then the quote — otherwise a filename
-            // containing a backslash or an embedded quote can break out of the
-            // AppleScript string literal (injection via attacker-named files).
-            let posix = u.path
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-            let src = """
-            tell application "Finder"
-                activate
-                open information window of (POSIX file "\(posix)" as alias)
-            end tell
-            """
-            var err: NSDictionary?
-            NSAppleScript(source: src)?.executeAndReturnError(&err)
-            if err != nil { NSSound.beep() }
-        }
-    }
-
     static func revealInFinder(_ urls: [URL]) {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }

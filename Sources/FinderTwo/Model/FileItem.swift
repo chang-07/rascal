@@ -19,7 +19,12 @@ struct FileItem: Hashable {
     /// browses inside). Computed so the memberwise init is unchanged.
     var isPackage: Bool {
         guard isDirectory else { return false }
+        if ext.isEmpty { return false }
         if let t = contentType,
+           t.conforms(to: .package) || t.conforms(to: .bundle) || t.conforms(to: .application) {
+            return true
+        }
+        if let t = UTType(filenameExtension: ext),
            t.conforms(to: .package) || t.conforms(to: .bundle) || t.conforms(to: .application) {
             return true
         }

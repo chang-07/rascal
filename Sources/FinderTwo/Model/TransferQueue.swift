@@ -62,7 +62,16 @@ final class TransferQueue {
         nextId += 1
         ops.append(op)
         lock.unlock()
-        op.totalBytes = plan.reduce(0) { $0 + Self.size(of: $1.src) }
+        
+        let opCopy = op
+        DispatchQueue.global(qos: .userInitiated).async {
+            let bytes = plan.reduce(0) { $0 + Self.size(of: $1.src) }
+            DispatchQueue.main.async {
+                opCopy.totalBytes = bytes
+                self.notify(force: true)
+            }
+        }
+        
         notify(force: true)
         kick()
         return op

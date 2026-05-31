@@ -70,15 +70,17 @@ final class VimMode {
         if !pending.isEmpty {
             let combined = pending + chars
             pending = ""
+            let rep = max(1, count)
+            count = 0
             switch combined {
             case "gg":
                 pane.vimSelectFirst()
                 return true
             case "gt":
-                stepTab(in: pane, forward: true)
+                stepTab(in: pane, forward: true, count: rep)
                 return true
             case "gT":
-                stepTab(in: pane, forward: false)
+                stepTab(in: pane, forward: false, count: rep)
                 return true
             case "yy":
                 pane.copySelection()
@@ -98,6 +100,12 @@ final class VimMode {
                 count = count * 10 + n
                 return true
             }
+        }
+
+        // Start a two-char sequence without clearing the count
+        if chars == "g" || chars == "y" || chars == "d" {
+            pending = chars
+            return true
         }
 
         let repeatCount = max(1, count)
@@ -147,20 +155,17 @@ final class VimMode {
                 visualAnchor = nil
             }
             return true
-        case "g", "y", "d":
-            // Start a two-char sequence
-            pending = chars
-            return true
         default:
             return false
         }
     }
 
-    private func stepTab(in pane: PaneController, forward: Bool) {
+    private func stepTab(in pane: PaneController, forward: Bool, count: Int = 1) {
         let n = pane.testTabCount
         guard n > 1 else { NSSound.beep(); return }
         let cur = pane.testActiveTabIndex
-        let next = (cur + (forward ? 1 : -1) + n) % n
+        let delta = (forward ? count : -count) % n
+        let next = (cur + delta + n) % n
         pane.selectTab(at: next)
     }
 
