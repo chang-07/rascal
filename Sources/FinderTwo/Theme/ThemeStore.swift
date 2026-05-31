@@ -91,6 +91,11 @@ enum ThemeStore {
                   pathBarBackground: "#191724", rowAlternate: "#26233A", labelPrimary: "#E0DEF4",
                   labelSecondary: "#908CAA", labelTertiary: "#6E6A86", accent: "#EBBCBA",
                   selectionBackground: "#EBBCBA3D"),
+        ThemeSpec(id: "catppuccin", name: "Catppuccin Mocha", appearance: "dark",
+                  background: "#1E1E2E", sidebarBackground: "#181825", toolbarBackground: "#1E1E2E",
+                  pathBarBackground: "#181825", rowAlternate: "#252538", labelPrimary: "#CDD6F4",
+                  labelSecondary: "#A6ADC8", labelTertiary: "#6C7086", accent: "#B4BEFE",
+                  selectionBackground: "#B4BEFE3D"),
     ]
 
     /// System (dynamic AppKit colors) + the built-in specs.
