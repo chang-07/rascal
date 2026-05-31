@@ -143,10 +143,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     private func installVimKeyMonitor() {
         vimKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
+            
+            // Global buffer switching hotkeys (works even when text editing)
+            if event.window === self.window,
+               let nextShortcut = ActionRegistry.shortcut(for: "buffer.focus-next"),
+               self.eventMatches(event, shortcut: nextShortcut) {
+                self.focusNextBuffer()
+                return nil
+            }
+            if event.window === self.window,
+               let prevShortcut = ActionRegistry.shortcut(for: "buffer.focus-prev"),
+               self.eventMatches(event, shortcut: prevShortcut) {
+                self.focusPrevBuffer()
+                return nil
+            }
+
             // Orthodox-commander function keys (work regardless of Vim mode):
             // F5 copy to other pane, F6 move to other pane, F8 move to Trash.
             if event.window === self.window, !self.firstResponderIsTextEditing(),
-               event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+               event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
                let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first {
                 switch Int(scalar.value) {
                 case 0xF708: self.copyToOtherPane(nil); return nil   // F5
@@ -283,22 +298,51 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
 
     func isResponder(_ responder: NSResponder?, descendingFrom view: NSView) -> Bool {
         var r: NSResponder? = responder
+        
+        // If responder is the window itself, check if there is an active field editor
+        if let window = r as? NSWindow {
+            if let fieldEditor = window.fieldEditor(false, for: nil),
+               let delegate = fieldEditor.delegate as? NSView {
+                r = delegate
+            }
+        }
+        
         while let current = r {
             if current === view { return true }
             if let viewResponder = current as? NSView {
-                r = viewResponder.superview
-            } else {
-                r = current.nextResponder
+                if viewResponder.isDescendant(of: view) { return true }
             }
+            if let textView = current as? NSTextView, let delegate = textView.delegate as? NSView {
+                if delegate.isDescendant(of: view) { return true }
+            }
+            r = current.nextResponder
         }
         return false
+    }
+
+    private func eventMatches(_ event: NSEvent, shortcut: KeyShortcut) -> Bool {
+        let eventKey: String
+        if event.keyCode == 48 {
+            eventKey = "\t"
+        } else if let chars = event.charactersIgnoringModifiers, !chars.isEmpty {
+            eventKey = chars.lowercased()
+        } else {
+            return false
+        }
+        
+        let shortcutKey = shortcut.key.lowercased()
+        let eventMods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        let shortcutMods = shortcut.modifiers.intersection([.command, .option, .control, .shift])
+        let matches = eventKey == shortcutKey && eventMods == shortcutMods
+        return matches
     }
 
     func focusNextBuffer() {
         let targets = getBufferTargets()
         guard !targets.isEmpty else { return }
         
-        let currentIdx = targets.firstIndex { isResponder(window?.firstResponder, descendingFrom: $0.view) }
+        let firstResp = window?.firstResponder
+        let currentIdx = targets.firstIndex { isResponder(firstResp, descendingFrom: $0.view) }
         let nextIdx: Int
         if let currentIdx = currentIdx {
             nextIdx = (currentIdx + 1) % targets.count
@@ -312,7 +356,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         let targets = getBufferTargets()
         guard !targets.isEmpty else { return }
         
-        let currentIdx = targets.firstIndex { isResponder(window?.firstResponder, descendingFrom: $0.view) }
+        let firstResp = window?.firstResponder
+        let currentIdx = targets.firstIndex { isResponder(firstResp, descendingFrom: $0.view) }
         let nextIdx: Int
         if let currentIdx = currentIdx {
             nextIdx = (currentIdx - 1 + targets.count) % targets.count
@@ -367,7 +412,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         
         // If we are in Sidebar, move Right to the active pane's file list
         if currentView === sidebarVC.outline {
-            panesContainer.activePane?.focusFileList()
+            activePane?.focusFileList()
             return
         }
         
