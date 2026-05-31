@@ -80,6 +80,27 @@ final class ThemedRowView: NSTableRowView {
 
     override func drawBackground(in dirtyRect: NSRect) {
         let t = ThemeManager.shared.current
+        
+        if isGroupRowStyle {
+            if superview is NSOutlineView {
+                // Sidebar group header: transparent for system (vibrancy), solid theme color for custom
+                if t.id != "system" {
+                    t.sidebarBackground.setFill()
+                    bounds.fill()
+                }
+                return
+            } else {
+                // File list group header: flat theme background or native system header background
+                if t.id != "system" {
+                    t.background.setFill()
+                    bounds.fill()
+                } else {
+                    super.drawBackground(in: dirtyRect)
+                }
+                return
+            }
+        }
+
         guard t.id != "system" else {
             super.drawBackground(in: dirtyRect)
             return
