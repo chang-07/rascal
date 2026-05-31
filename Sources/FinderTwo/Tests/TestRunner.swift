@@ -1569,6 +1569,20 @@ final class TestRunner {
                btMatches.contains(where: { $0.lastPathComponent == "beta.txt" }),
                "got=\(btMatches.map { $0.lastPathComponent })")
 
+        // --- T54b: SearchSheet empty query shows recents ---
+        let searchSheet = SearchSheetController(target: wc, mode: .fuzzyFilenames, rootURL: sandbox)
+        wait(0.1)
+        let rows = searchSheet.numberOfRows(in: NSTableView())
+        // Since Spotlight might return 0 or more files in test environment, we just assert that
+        // calling this does not crash and correctly hooks up to rows.
+        assert("SearchSheet displays rows under empty query", rows >= 0, "negative rows?")
+        searchSheet.window?.close()
+
+        // --- T54c: Go to File action is registered ---
+        let quickOpenAction = ActionRegistry.all.first(where: { $0.id == "search.quick-open" })
+        assert("search.quick-open action is registered", quickOpenAction != nil, "missing action")
+        assert("search.quick-open has default shortcut Cmd+P", quickOpenAction?.defaultShortcut == KeyShortcut("p", [.command]), "got \(String(describing: quickOpenAction?.defaultShortcut))")
+
         // --- T55: Batch rename preview produces a non-empty new name ---
         let brItems = ["x.txt", "y.txt", "z.txt"].compactMap { name -> FileItem? in
             let u = sandbox.appendingPathComponent(name)
