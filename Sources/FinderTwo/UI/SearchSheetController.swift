@@ -148,10 +148,17 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
             var list: [URL] = []
             let fm = FileManager.default
             if let en = fm.enumerator(at: root,
-                                      includingPropertiesForKeys: [.isRegularFileKey],
+                                      includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
                                       options: [.skipsHiddenFiles, .skipsPackageDescendants],
                                       errorHandler: nil) {
-                for case let u as URL in en {
+                while let u = en.nextObject() as? URL {
+                    if !PermissionsManager.hasFullDiskAccess {
+                        if u.path != root.path && PermissionsManager.isProtectedPath(u.path) {
+                            if (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                                en.skipDescendants()
+                            }
+                        }
+                    }
                     list.append(u)
                     if list.count >= 200_000 { break }    // safety cap
                 }
@@ -256,18 +263,41 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         let pipe = Pipe()
         let rgPath = SearchSheetController.toolPath("rg")
         let grepPath = SearchSheetController.toolPath("grep")
+        
+        var ignores: [String] = []
+        if !PermissionsManager.hasFullDiskAccess {
+            let home = NSHomeDirectory()
+            let protectedSubdirs = ["Desktop", "Documents", "Downloads", "Library", "Movies", "Music", "Pictures"]
+            let normalizedRoot = rootURL.path.hasSuffix("/") ? rootURL.path : (rootURL.path + "/")
+            for sub in protectedSubdirs {
+                let path = (home as NSString).appendingPathComponent(sub)
+                if path.hasPrefix(normalizedRoot) && path != rootURL.path {
+                    ignores.append(sub)
+                }
+            }
+        }
+
         if let rg = rgPath {
             task.executableURL = URL(fileURLWithPath: rg)
-            task.arguments = [
+            var args = [
                 "--no-config", "--no-heading", "--line-number", "--color", "never",
                 "--max-count", "10",
                 "--max-filesize", "5M",
-                "--smart-case",
-                pattern, rootURL.path
+                "--smart-case"
             ]
+            for sub in ignores {
+                args.append(contentsOf: ["--glob", "!\(sub)"])
+            }
+            args.append(contentsOf: [pattern, rootURL.path])
+            task.arguments = args
         } else if let g = grepPath {
             task.executableURL = URL(fileURLWithPath: g)
-            task.arguments = ["-nrI", "--include=*", pattern, rootURL.path]
+            var args = ["-nrI", "--include=*"]
+            for sub in ignores {
+                args.append("--exclude-dir=\(sub)")
+            }
+            args.append(contentsOf: [pattern, rootURL.path])
+            task.arguments = args
         } else {
             statusLabel.stringValue = "No grep/rg available"
             return
@@ -349,9 +379,20 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         _ = window?.contentView
         let fm = FileManager.default
         var list: [URL] = []
-        if let en = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil,
+        if let en = fm.enumerator(at: rootURL,
+                                  includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
                                   options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
-            for case let u as URL in en { list.append(u); if list.count > 5000 { break } }
+            while let u = en.nextObject() as? URL {
+                if !PermissionsManager.hasFullDiskAccess {
+                    if u.path != rootURL.path && PermissionsManager.isProtectedPath(u.path) {
+                        if (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                            en.skipDescendants()
+                        }
+                    }
+                }
+                list.append(u)
+                if list.count > 5000 { break }
+            }
         }
         indexCache = list
         searchField.stringValue = q

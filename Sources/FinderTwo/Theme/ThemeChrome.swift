@@ -78,11 +78,25 @@ final class ThemedRowView: NSTableRowView {
     var pill: Bool = true
     var alternating: Bool = false
 
+    private var isSidebarRow: Bool {
+        var current: NSView? = self
+        while let v = current {
+            if v is NSOutlineView {
+                return true
+            }
+            if let sc = v as? NSScrollView, sc.documentView is NSOutlineView {
+                return true
+            }
+            current = v.superview
+        }
+        return false
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
         let t = ThemeManager.shared.current
         
         if isGroupRowStyle {
-            if superview is NSOutlineView {
+            if isSidebarRow {
                 // Sidebar group header: transparent for system (vibrancy), solid theme color for custom
                 if t.id != "system" {
                     t.sidebarBackground.setFill()
@@ -105,17 +119,18 @@ final class ThemedRowView: NSTableRowView {
             super.drawBackground(in: dirtyRect)
             return
         }
+        let rowBg = isSidebarRow ? t.sidebarBackground : t.background
         if alternating, Settings.alternatingRows, let tableView = superview as? NSTableView {
             let row = tableView.row(for: self)
             if row >= 0 {
                 let isAlternate = row % 2 == 1
-                let bgColor = isAlternate ? t.rowAlternate : t.background
+                let bgColor = isAlternate ? t.rowAlternate : rowBg
                 bgColor.setFill()
                 bounds.fill()
                 return
             }
         }
-        t.background.setFill()
+        rowBg.setFill()
         bounds.fill()
     }
 

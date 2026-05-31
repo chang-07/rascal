@@ -100,7 +100,6 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         outline.doubleAction = #selector(handleClick)
         outline.autosaveExpandedItems = true
         outline.autosaveName = "FinderTwo.Sidebar"
-        outline.backgroundColor = .clear
         outline.allowsMultipleSelection = false
         outline.allowsEmptySelection = true
         outline.focusRingType = .none   // no blue focus outline around the sidebar
