@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-13.34 -13.34 146.67 146.67" width="1024" height="1024" aria-label="Rascal app icon">
+  <defs>
+    <mask id="hm"><rect x="-6" y="-6" width="132" height="132" fill="#fff"/>
+      <circle cx="47" cy="63" r="11.5" fill="#000"/><circle cx="73" cy="63" r="11.5" fill="#000"/>
+      <circle cx="48.5" cy="65" r="5" fill="#fff"/><circle cx="71.5" cy="65" r="5" fill="#fff"/>
+      <circle cx="51" cy="61" r="2.3" fill="#000"/><circle cx="74" cy="61" r="2.3" fill="#000"/>
+      <circle cx="45" cy="67" r="1.1" fill="#000"/><circle cx="68" cy="67" r="1.1" fill="#000"/>
+      <path d="M56.5 76 H63.5 L60 80 Z" fill="#000"/>
+    </mask>
+    <mask id="pm"><rect x="-6" y="-6" width="132" height="132" fill="#fff"/>
+      <g stroke="#000" stroke-width="1.7" stroke-linecap="round"><path d="M40 81 V88"/><path d="M44 81 V88"/><path d="M76 81 V88"/><path d="M80 81 V88"/></g>
+    </mask>
+  </defs>
+  <rect x="-6" y="-6" width="132" height="132" rx="30" fill="#FF6600"/>
+  <g fill="#FFFFFF" mask="url(#hm)"><path d="M26 90 C24 65 30 54 40 53 L36 31 Q39 25 45 32 L55 51 Q60 49 65 51 L75 32 Q81 25 84 31 L80 53 C90 54 96 65 94 90 Z"/></g>
+  <path d="M12 90 H108" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+  <g fill="#FFFFFF" mask="url(#pm)"><path d="M34 95 Q34 79 42 79 Q50 79 50 95 Z"/><path d="M70 95 Q70 79 78 79 Q86 79 86 95 Z"/></g>
+  <g stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" fill="none"><path d="M14 74 L33 76"/><path d="M14 83 L33 81"/><path d="M106 74 L87 76"/><path d="M106 83 L87 81"/></g>
+</svg>
