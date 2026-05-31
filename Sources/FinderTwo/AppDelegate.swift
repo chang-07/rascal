@@ -338,6 +338,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(routed("pane.toggle-extra", title: "Open Extra Pane"))
         viewMenu.addItem(routed("pane.focus-next"))
         viewMenu.addItem(routed("pane.focus-prev"))
+        viewMenu.addItem(routed("buffer.focus-next"))
+        viewMenu.addItem(routed("buffer.focus-prev"))
         viewMenu.addItem(routed("pane.copy-to-other"))
         viewMenu.addItem(routed("pane.move-to-other"))
         let syncItem = routed("pane.sync-browsing")

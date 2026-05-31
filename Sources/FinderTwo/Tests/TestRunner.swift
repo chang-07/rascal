@@ -2410,7 +2410,23 @@ final class TestRunner {
         assert("focusPrevBuffer focused the terminal again",
                wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.terminalView),
                "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+
+        // Simulate Control-Tab key event while in terminal
+        let controlTabEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
+                                               modifierFlags: [.control], timestamp: 0,
+                                               windowNumber: currentWindow?.windowNumber ?? 0, context: nil,
+                                               characters: "\t", charactersIgnoringModifiers: "\t",
+                                               isARepeat: false, keyCode: 48)!
+        NSApp.sendEvent(controlTabEvent)
+        wait(0.05)
+        assert("Control-Tab switches focus out of terminal to next buffer",
+               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.gitDiffView.textView),
+               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
                
+        // Focus terminal again before starting directional focus checks
+        pane.focusTerminal()
+        wait(0.05)
+        
         // Directional focus checks:
         // From terminal, Up should focus file list
         wc.focusBufferUp()
