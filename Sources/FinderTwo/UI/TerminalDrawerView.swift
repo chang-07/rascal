@@ -143,7 +143,7 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
         append("\(shortPrompt(for: cwd)) ❯ \(cmd)\n", color: ThemeChrome.secondary)
 
         let p = Process()
-        p.launchPath = "/bin/zsh"
+        p.launchPath = Settings.terminalShell
         p.arguments = ["-l", "-c", cmd]
         p.currentDirectoryURL = cwd
         let outPipe = Pipe()

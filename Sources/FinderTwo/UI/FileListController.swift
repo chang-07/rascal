@@ -221,7 +221,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         // native look (and native alternating rows).
         let custom = t.id != "system"
         tableView.backgroundColor = custom ? t.background : .controlBackgroundColor
-        tableView.usesAlternatingRowBackgroundColors = !custom
+        tableView.usesAlternatingRowBackgroundColors = !custom && Settings.alternatingRows
         scrollView.drawsBackground = true
         scrollView.backgroundColor = custom ? t.background : .controlBackgroundColor
         if custom {
@@ -302,6 +302,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     /// or tear down header rows); everything else is a light repaint.
     private var lastOrderSettings = ""
     func settingsDidChange() {
+        let t = ThemeManager.shared.current
+        let custom = t.id != "system"
+        tableView.usesAlternatingRowBackgroundColors = !custom && Settings.alternatingRows
+
         // Re-sort/reload when an order- or content-affecting setting changed
         // (grouping, keep-folders-on-top, folder sizes); otherwise just repaint.
         let key = "\(Settings.useGroups)|\(Settings.foldersFirst)|\(Settings.calculateFolderSizes)"

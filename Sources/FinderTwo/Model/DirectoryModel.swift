@@ -60,6 +60,8 @@ final class DirectoryModel {
         self.url = url
         reload(sync: true)        // first load is sync so UI shows content immediately
         startWatcher()
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged),
+                                               name: Settings.didChange, object: nil)
     }
 
     func navigate(to url: URL) {
@@ -177,12 +179,28 @@ final class DirectoryModel {
     /// `git status` subprocess per event. Debounce to one run per quiet period.
     private var gitDebounce: DispatchWorkItem?
     private func scheduleGitStatus() {
+        guard Settings.gitIntegrationEnabled else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.gitDebounce?.cancel()
             let work = DispatchWorkItem { [weak self] in self?.computeGitStatus() }
             self.gitDebounce = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+        }
+    }
+
+    @objc private func settingsChanged() {
+        if !Settings.gitIntegrationEnabled {
+            gitDebounce?.cancel()
+            if !gitStates.isEmpty || gitRepoInfo != nil {
+                gitStates = [:]
+                gitRepoInfo = nil
+                delegate?.directoryModelDidUpdateGitStatus(self)
+            }
+        } else {
+            if gitStates.isEmpty && gitRepoInfo == nil {
+                scheduleGitStatus()
+            }
         }
     }
 
@@ -315,5 +333,6 @@ final class DirectoryModel {
 
     deinit {
         watcher?.stop()
+        NotificationCenter.default.removeObserver(self)
     }
 }

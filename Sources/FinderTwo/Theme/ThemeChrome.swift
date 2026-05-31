@@ -84,7 +84,7 @@ final class ThemedRowView: NSTableRowView {
             super.drawBackground(in: dirtyRect)
             return
         }
-        if alternating, let tableView = superview as? NSTableView {
+        if alternating, Settings.alternatingRows, let tableView = superview as? NSTableView {
             let row = tableView.row(for: self)
             if row >= 0 {
                 let isAlternate = row % 2 == 1

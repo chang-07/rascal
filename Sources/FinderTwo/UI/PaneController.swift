@@ -496,7 +496,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         let titles = tabs.map { $0.currentURL.lastPathComponent.isEmpty ? "/" : $0.currentURL.lastPathComponent }
         let tooltips = tabs.map { $0.currentURL.path }
         tabStrip.setTabs(titles, activeIndex: activeTabIndex, tooltips: tooltips)
-        let multi = tabs.count > 1
+        let multi = tabs.count > 1 || Settings.alwaysShowTabBar
         tabStrip.isHidden = !multi
         tabStripHeightConstraint.constant = multi ? 26 : 0
     }
@@ -784,6 +784,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
                                       isMonospaced: true))
             }
         }
+        if Settings.gitIntegrationEnabled, Settings.showGitBranchInStatusBar, let git = activeTab.model.gitRepoInfo {
+            segments.append(.init("git: \(git.label)", isMonospaced: true, isMuted: false))
+        }
         segments.append(.init("\(freeStr) free", isMuted: true))
         statusBar.setSegments(segments)
 
@@ -828,7 +831,11 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         if item.isPackage {
             NSWorkspace.shared.open(item.url)   // launch the app/bundle
         } else if item.isDirectory {
-            navigate(to: item.url)
+            if Settings.doubleClickFolderOpensNewTab {
+                newTab(at: item.url)
+            } else {
+                navigate(to: item.url)
+            }
         } else if Archive.isArchive(item.url) {
             if let wc = view.window?.windowController as? BrowserWindowController {
                 ArchiveSheetController.show(for: wc, archive: item.url)
