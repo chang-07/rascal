@@ -1,5 +1,16 @@
 import AppKit
 
+/// NSBrowser reports a content-driven intrinsic size (≈ visible columns × column
+/// width), so pushing/popping columns changed the view's fitting size — a second
+/// path (besides the split controller's preferredContentSize) that could nudge
+/// the window. Returning noIntrinsicMetric decouples column count from layout
+/// size; the browser fills its host via edge constraints and scrolls instead.
+private final class FixedWidthBrowser: NSBrowser {
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+}
+
 /// NSBrowser-based Miller column view. The browser owns the per-column data
 /// (each column is the contents of one path component); we drive its delegate
 /// from the active tab's DirectoryModel for the root and use direct filesystem
@@ -7,7 +18,7 @@ import AppKit
 final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObserving {
 
     weak var pane: PaneController?
-    private let browser = NSBrowser()
+    private let browser = FixedWidthBrowser()
     /// For each column index, the directory URL whose contents that column shows.
     private var columnURLs: [URL] = []
 
