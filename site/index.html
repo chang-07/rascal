@@ -12,6 +12,7 @@
 <script type="module" src="/src/main.js"></script>
 </head>
 <body>
+<div class="grain" aria-hidden="true"></div>
 
 <!-- icon sprite -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -39,13 +40,13 @@
 
 <main id="top">
 <section class="hero">
-  <div class="blob blob-a"></div>
-  <div class="blob blob-b"></div>
+  <div class="glow glow-a"></div>
+  <div class="glow glow-b"></div>
 
   <div class="hero-inner">
     <img src="assets/rascal-logo.svg" alt="Rascal app icon" class="hero-logo" />
     <p class="eyebrow">a native macOS file manager</p>
-    <h1 class="hero-title">Meet <span class="grad">Rascal</span>.</h1>
+    <h1 class="hero-title">Meet <em>Rascal</em>.</h1>
     <p class="hero-sub">
       A keyboard-first Finder replacement for people who live in their files —
       quick, scriptable, and entirely yours.
@@ -57,24 +58,25 @@
         Download for macOS
       </a>
       <!-- Ko-fi support link -->
-      <a class="btn btn-kofi" href="https://ko-fi.com/chang07" target="_blank" rel="noopener">Support on Ko-fi</a>
+      <a class="btn btn-ghost" href="https://ko-fi.com/chang07" target="_blank" rel="noopener">Support on Ko-fi</a>
     </div>
     <p class="hero-meta">Apple&nbsp;Silicon &amp; Intel · macOS&nbsp;13+ · free &amp; open source</p>
   </div>
 
-  <figure class="hero-shot frame">
+  <figure class="hero-shot frame reveal">
     <img src="assets/hero.png" alt="The Rascal main window in its warm Light theme" loading="lazy" />
   </figure>
 </section>
 
-<p class="creed">Local-first &nbsp;·&nbsp; no account &nbsp;·&nbsp; no telemetry &nbsp;·&nbsp; no AI &nbsp;·&nbsp; open source</p>
+<p class="creed"><b>Local-first</b> &nbsp;·&nbsp; no account &nbsp;·&nbsp; no telemetry &nbsp;·&nbsp; <b>no&nbsp;AI</b> &nbsp;·&nbsp; open source</p>
+<div class="rule" aria-hidden="true"><span>✳</span></div>
 
 <!-- ── features ── -->
 <section id="features" class="section">
   <p class="kicker">Under the hood</p>
-  <h2 class="section-title">Small, sharp, and out of your way.</h2>
+  <h2 class="section-title">Small, sharp, and <em>out of your way</em>.</h2>
 
-  <div class="features">
+  <div class="features reveal">
     <article class="feat">
       <svg class="fic" aria-hidden="true"><use href="#i-key"/></svg>
       <h3>Keyboard-first</h3>
@@ -111,9 +113,9 @@
 <!-- ── demos ── -->
 <section id="demos" class="section section-tint">
   <p class="kicker">A few seconds of Rascal</p>
-  <h2 class="section-title">See it move.</h2>
+  <h2 class="section-title">See it <em>move</em>.</h2>
 
-  <div class="shots">
+  <div class="shots reveal">
     <figure class="shot frame"><img src="assets/palette.png" alt="The command palette filtering commands" loading="lazy" /><figcaption>Command palette — <code>⌘⇧P</code></figcaption></figure>
     <figure class="shot frame"><img src="assets/fuzzyfind.png" alt="Fuzzy filename finder showing matches" loading="lazy" /><figcaption>Fuzzy file finder — <code>⌘F</code></figcaption></figure>
     <figure class="shot frame"><img src="assets/nav.gif" alt="Browsing folders and switching view modes" loading="lazy" /><figcaption>Browse &amp; switch views</figcaption></figure>
@@ -124,8 +126,8 @@
 
 <!-- ── donate ── -->
 <section id="donate" class="section donate">
-  <div class="donate-card">
-    <h2>Free, and staying that way.</h2>
+  <div class="donate-card reveal">
+    <h2>Free, and <em>staying that way</em>.</h2>
     <p>No paywall, no upsell, no "pro" tier. If Rascal earns a spot in your dock,
        buying me a coffee is the whole business model.</p>
     <!-- Ko-fi support link -->
@@ -136,7 +138,7 @@
 <!-- ── download ── -->
 <section id="download" class="section download">
   <p class="kicker">Get Rascal</p>
-  <h2 class="section-title">One file. Drag to Applications. Done.</h2>
+  <h2 class="section-title">One file. Drag to Applications. <em>Done</em>.</h2>
   <p class="section-lead">Universal build for Apple Silicon &amp; Intel. macOS 13 Ventura or later.</p>
 
   <!-- Download: GitHub release asset (publish with make-dmg.sh) -->
