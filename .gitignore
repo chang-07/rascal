@@ -3,12 +3,25 @@
 .swiftpm/
 Package.resolved
 
-# Built app bundle
+# Built app bundle / installers
 build/
+*.dmg
 
 # macOS
 .DS_Store
 
-# Editor
+# Editor / local tooling
 .vscode/
+.idea/
+.claude/
 *.xcodeproj/
+
+# Node (site build dependencies)
+node_modules/
+
+# Local demo / recording kit — not part of the product
+demo/
+
+# Logs & scratch
+*.log
+*.tmp
