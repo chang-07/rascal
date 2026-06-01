@@ -13,6 +13,42 @@ private final class NonResizingSplitViewController: NSSplitViewController {
     }
 }
 
+/// The window only changes SIZE in response to a user gesture — dragging the
+/// resize edge (live resize), zoom, or a fullscreen transition. Every other
+/// resize is ignored: AppKit trying to grow the window to satisfy the Miller-
+/// column browser's constraints, AX clients, content layout, etc. So the window
+/// stays exactly the size the user set. Moving it (origin only) is always honored.
+final class UserResizeOnlyWindow: NSWindow {
+    /// Enabled once the initial frame is established (the content-view-controller
+    /// assignment and autosaved-frame restore must run first).
+    var sizeLockedToUser = false
+    /// Lifted around programmatic-but-wanted resizes (zoom / fullscreen transition).
+    var allowProgrammaticResize = false
+
+    private var sizeChangeAllowed: Bool {
+        !sizeLockedToUser || inLiveResize || allowProgrammaticResize
+    }
+
+    override func setContentSize(_ size: NSSize) {
+        guard sizeChangeAllowed else { return }
+        super.setContentSize(size)
+    }
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        if !sizeChangeAllowed,
+           abs(frameRect.width - frame.width) > 0.5 || abs(frameRect.height - frame.height) > 0.5 {
+            // Reject the size change but still honor a move (origin only).
+            super.setFrame(NSRect(origin: frameRect.origin, size: frame.size), display: flag)
+            return
+        }
+        super.setFrame(frameRect, display: flag)
+    }
+    override func zoom(_ sender: Any?) {
+        allowProgrammaticResize = true
+        super.zoom(sender)
+        allowProgrammaticResize = false
+    }
+}
+
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, ThemeObserving {
 
     let splitVC: NSSplitViewController = NonResizingSplitViewController()
@@ -31,10 +67,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         let style: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
         // Headless audit runs use a window that refuses screen-constraint, so it
         // can be parked far off-screen for AX presence without AppKit yanking it
-        // back onto a display (which would make it visible to the user).
+        // back onto a display (which would make it visible to the user). The real
+        // app uses a window that only resizes on a user gesture (see below).
         let window: NSWindow = headless
             ? OffscreenSafeWindow(contentRect: initialFrame, styleMask: style, backing: .buffered, defer: false)
-            : NSWindow(contentRect: initialFrame, styleMask: style, backing: .buffered, defer: false)
+            : UserResizeOnlyWindow(contentRect: initialFrame, styleMask: style, backing: .buffered, defer: false)
         window.title = rootURL.lastPathComponent
         window.titlebarAppearsTransparent = false
         window.titleVisibility = .visible
@@ -85,6 +122,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         } else {
             window.setContentSize(NSSize(width: 1100, height: 700))
         }
+        // Initial size is now set (default or autosaved). From here the window only
+        // resizes when the user drags its edge / zooms / goes fullscreen — content
+        // (e.g. Miller-view column navigation) can no longer auto-grow it.
+        (window as? UserResizeOnlyWindow)?.sizeLockedToUser = true
 
         sidebarVC.onSelect = { [weak self] url in
             self?.panesContainer.activePane?.navigate(to: url)
@@ -215,6 +256,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         // j/k from moving the file-list selection while a drawer has focus.
         if responder is NSTextView { return true }
         return responder is NSTextField
+    }
+
+    // Fullscreen resizes the window programmatically; permit it around the
+    // transition so the size lock doesn't trap the window in/out of fullscreen.
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        (window as? UserResizeOnlyWindow)?.allowProgrammaticResize = true
+    }
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        (window as? UserResizeOnlyWindow)?.allowProgrammaticResize = false
+    }
+    func windowWillExitFullScreen(_ notification: Notification) {
+        (window as? UserResizeOnlyWindow)?.allowProgrammaticResize = true
+    }
+    func windowDidExitFullScreen(_ notification: Notification) {
+        (window as? UserResizeOnlyWindow)?.allowProgrammaticResize = false
     }
 
     deinit {

@@ -9,6 +9,19 @@ private final class FixedWidthBrowser: NSBrowser {
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
+    /// NSBrowser.tile() grows the browser's OWN frame to fit every column, which —
+    /// through the window's constraint-based layout — widened the whole window as
+    /// columns were pushed (confirmed in the trace as
+    /// -[NSWindow _changeWindowFrameFromConstraintsIfNecessary]). Clamp the width to
+    /// the host so NSBrowser keeps its frame fixed and uses its horizontal scroller
+    /// instead of widening itself (and the window).
+    override func setFrameSize(_ newSize: NSSize) {
+        var size = newSize
+        if let cap = superview?.bounds.width, cap > 0 {
+            size.width = min(size.width, cap)
+        }
+        super.setFrameSize(size)
+    }
 }
 
 /// NSBrowser-based Miller column view. The browser owns the per-column data
@@ -29,20 +42,17 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
     required init?(coder: NSCoder) { fatalError() }
 
     override func loadView() {
-        browser.translatesAutoresizingMaskIntoConstraints = false
+        browser.translatesAutoresizingMaskIntoConstraints = true   // autoresizing, not constraints (see host setup)
         browser.delegate = self
         browser.cellPrototype = NSBrowserCell()
         browser.hasHorizontalScroller = true
         browser.minColumnWidth = 180
-        // Fixed per-column width. Columns previously sized-to-fit their longest
-        // filename (the sizeToFitWidthOfColumn delegate below, now removed), which
-        // made the browser's overall width content-driven: with a side panel open,
-        // every reload / selection / git repaint recomputed column widths and the
-        // panes & divider visibly oscillated ("lengths flicker based on the
-        // material inside"). A stable default width removes that flicker. Users can
-        // still drag a column divider to resize (.userColumnResizing); deep paths
-        // scroll horizontally.
-        browser.columnResizingType = .userColumnResizing
+        // Fixed-width columns, no user/auto column resizing. .userColumnResizing
+        // makes NSBrowser manage column widths dynamically, which imposes a
+        // content-driven width demand that pushed the window/panes around as you
+        // drilled. .noColumnResizing pins every column to defaultColumnWidth so the
+        // browser's width is constant; overflow scrolls horizontally.
+        browser.columnResizingType = .noColumnResizing
         browser.setDefaultColumnWidth(220)
         browser.allowsMultipleSelection = true
         browser.allowsEmptySelection = true
@@ -50,23 +60,29 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
         browser.action = #selector(handleSelection)
         browser.doubleAction = #selector(handleDoubleClick)
         browser.takesTitleFromPreviousColumn = true
-        browser.maxVisibleColumns = 4
-        browser.setContentCompressionResistancePriority(.defaultLow - 10, for: .horizontal)
-        browser.setContentHuggingPriority(.defaultLow - 10, for: .horizontal)
-
+        // No maxVisibleColumns target — NSBrowser uses the available width and the
+        // horizontal scroller, never asking to grow to show a fixed column count.
+        // Host the browser with autoresizing springs, NOT AutoLayout constraints.
+        // NSBrowser's columns impose a *required* minimum width; pinned to the host
+        // with required edge constraints, that demand propagated up and made AppKit
+        // grow the whole window to fit as columns were pushed — confirmed in the
+        // trace as -[NSWindow _changeWindowFrameFromConstraintsIfNecessary]. Springs
+        // keep the demand contained: the browser just fills the host (kept in sync in
+        // viewDidLayout) and scrolls columns horizontally instead of widening the
+        // window.
         let host = NSView()
+        browser.autoresizingMask = [.width, .height]
         host.addSubview(browser)
-        NSLayoutConstraint.activate([
-            browser.topAnchor.constraint(equalTo: host.topAnchor),
-            browser.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            browser.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            browser.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-        ])
         self.view = host
 
         applyTheme()
         subscribeToTheme(self)
         reload()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        browser.frame = view.bounds   // fill the host without participating in its constraints
     }
 
     @objc func applyTheme() {
@@ -126,6 +142,20 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
         cell.title = kid.url.lastPathComponent
         cell.isLeaf = !kid.isDir
     }
+
+    /// Verify hook: drill into the first subfolder of the deepest column (push a column).
+    @discardableResult
+    func testDrillIntoFirstFolder() -> Bool {
+        let col = max(0, columnURLs.count - 1)
+        guard columnURLs.indices.contains(col) else { return false }
+        let kids = entries(in: columnURLs[col])
+        guard let row = kids.firstIndex(where: { $0.isDir }) else { return false }
+        browser.selectRow(row, inColumn: col)
+        handleSelection()
+        return true
+    }
+    var testColumnCount: Int { columnURLs.count }
+    var testBrowserWidth: CGFloat { browser.frame.width }
 
     @objc private func handleSelection() {
         // When a row in column N is selected, push column N+1 if it's a folder.
