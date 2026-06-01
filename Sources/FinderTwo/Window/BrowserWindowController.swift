@@ -193,11 +193,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     /// editor, so we must let keystrokes through verbatim.
     private func firstResponderIsTextEditing() -> Bool {
         guard let responder = window?.firstResponder else { return false }
-        if let tv = responder as? NSTextView {
-            // A field editor is a shared NSTextView; treat any editable text view
-            // as "typing in progress".
-            return tv.isFieldEditor || tv.isEditable
-        }
+        // Any focused text view should handle its own keys and Vim must keep its
+        // hands off: an editable field editor (rename / search / path bar), OR a
+        // read-only text panel like the Git-Diff / terminal / notes drawers. The
+        // navigable views (file list, sidebar outline, icon/gallery) are never
+        // NSTextViews, so this never blocks real Vim navigation — but it stops
+        // j/k from moving the file-list selection while a drawer has focus.
+        if responder is NSTextView { return true }
         return responder is NSTextField
     }
 
@@ -315,23 +317,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
             r = current.nextResponder
         }
         return false
-    }
-
-    private func eventMatches(_ event: NSEvent, shortcut: KeyShortcut) -> Bool {
-        let eventKey: String
-        if event.keyCode == 48 {
-            eventKey = "\t"
-        } else if let chars = event.charactersIgnoringModifiers, !chars.isEmpty {
-            eventKey = chars.lowercased()
-        } else {
-            return false
-        }
-        
-        let shortcutKey = shortcut.key.lowercased()
-        let eventMods = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        let shortcutMods = shortcut.modifiers.intersection([.command, .option, .control, .shift])
-        let matches = eventKey == shortcutKey && eventMods == shortcutMods
-        return matches
     }
 
 

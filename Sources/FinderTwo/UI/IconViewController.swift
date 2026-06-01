@@ -9,6 +9,9 @@ final class IconViewController: NSViewController, NSCollectionViewDataSource,
     private(set) var items: [FileItem] = []
     var onOpen: ((FileItem) -> Void)?
     var onSelectionChange: (([FileItem]) -> Void)?
+    /// Files were dropped: (urls, the folder item dropped onto or nil for the
+    /// current directory, isCopy). The pane performs the transfer.
+    var onDrop: (([URL], FileItem?, Bool) -> Void)?
 
     private let scroll = NSScrollView()
     private let collection = NSCollectionView()
@@ -28,6 +31,11 @@ final class IconViewController: NSViewController, NSCollectionViewDataSource,
         collection.allowsEmptySelection = true
         collection.backgroundColors = [.clear]
         collection.register(IconGridItem.self, forItemWithIdentifier: IconViewController.itemId)
+        // Drag files out to Finder/other apps, and accept drops into the folder
+        // (or onto a subfolder item) — parity with the list view.
+        collection.registerForDraggedTypes([.fileURL])
+        collection.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: false)
+        collection.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: true)
 
         scroll.documentView = collection
         scroll.hasVerticalScroller = true
@@ -121,6 +129,36 @@ final class IconViewController: NSViewController, NSCollectionViewDataSource,
     // MARK: NSCollectionViewDelegate
     func collectionView(_ cv: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) { reportSelection() }
     func collectionView(_ cv: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) { reportSelection() }
+
+    // MARK: Drag & drop
+    func collectionView(_ cv: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>,
+                        with event: NSEvent) -> Bool { !indexPaths.isEmpty }
+
+    func collectionView(_ cv: NSCollectionView, pasteboardWriterForItemAt ip: IndexPath) -> NSPasteboardWriting? {
+        items.indices.contains(ip.item) ? (items[ip.item].url as NSURL) : nil
+    }
+
+    func collectionView(_ cv: NSCollectionView, validateDrop info: NSDraggingInfo,
+                        proposedIndexPath ip: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
+                        dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
+        // Drop ON a folder item → into it; otherwise into the current directory.
+        if proposedDropOperation.pointee == .on, items.indices.contains(ip.pointee.item),
+           items[ip.pointee.item].isDirectory {
+            return FileOps.dropIsCopy(info) ? .copy : .move
+        }
+        proposedDropOperation.pointee = .before   // "between items" → current dir
+        return FileOps.dropIsCopy(info) ? .copy : .move
+    }
+
+    func collectionView(_ cv: NSCollectionView, acceptDrop info: NSDraggingInfo,
+                        indexPath ip: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
+        guard let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+              !urls.isEmpty else { return false }
+        let folder: FileItem? = (dropOperation == .on && items.indices.contains(ip.item)
+                                 && items[ip.item].isDirectory) ? items[ip.item] : nil
+        onDrop?(urls, folder, FileOps.dropIsCopy(info))
+        return true
+    }
     private func reportSelection() {
         let sel = collection.selectionIndexPaths.compactMap { items.indices.contains($0.item) ? items[$0.item] : nil }
         onSelectionChange?(sel)

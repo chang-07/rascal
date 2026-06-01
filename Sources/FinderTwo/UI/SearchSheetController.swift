@@ -147,16 +147,21 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         SearchSheetController.bgQueue.async { [weak self] in
             var list: [URL] = []
             let fm = FileManager.default
+            // Only prune protected dirs when searching from OUTSIDE the protected
+            // tree (e.g. from ~/ we skip descending into ~/Documents to avoid a TCC
+            // prompt). When the search root is itself protected, the user explicitly
+            // chose to search inside it — pruning there would drop every nested
+            // result and return only the top-level files.
+            let pruneProtected = !PermissionsManager.hasFullDiskAccess
+                && !PermissionsManager.isProtectedPath(root.path)
             if let en = fm.enumerator(at: root,
                                       includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
                                       options: [.skipsHiddenFiles, .skipsPackageDescendants],
                                       errorHandler: nil) {
                 while let u = en.nextObject() as? URL {
-                    if !PermissionsManager.hasFullDiskAccess {
-                        if u.path != root.path && PermissionsManager.isProtectedPath(u.path) {
-                            if (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                                en.skipDescendants()
-                            }
+                    if pruneProtected && PermissionsManager.isProtectedPath(u.path) {
+                        if (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                            en.skipDescendants()
                         }
                     }
                     list.append(u)
@@ -379,15 +384,15 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         _ = window?.contentView
         let fm = FileManager.default
         var list: [URL] = []
+        let pruneProtected = !PermissionsManager.hasFullDiskAccess
+            && !PermissionsManager.isProtectedPath(rootURL.path)
         if let en = fm.enumerator(at: rootURL,
                                   includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
                                   options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
             while let u = en.nextObject() as? URL {
-                if !PermissionsManager.hasFullDiskAccess {
-                    if u.path != rootURL.path && PermissionsManager.isProtectedPath(u.path) {
-                        if (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                            en.skipDescendants()
-                        }
+                if pruneProtected && PermissionsManager.isProtectedPath(u.path) {
+                    if (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                        en.skipDescendants()
                     }
                 }
                 list.append(u)

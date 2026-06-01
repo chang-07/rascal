@@ -209,7 +209,15 @@ enum Settings {
     }
 
     static var terminalShell: String {
-        get { d.string(forKey: "FinderTwo.terminalShell") ?? "/bin/zsh" }
+        // Fall back to a sane default for a missing, empty, whitespace-only, or
+        // non-executable value, so a bad custom path can't make every terminal
+        // command silently fail to launch.
+        get {
+            let raw = (d.string(forKey: "FinderTwo.terminalShell") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !raw.isEmpty, FileManager.default.isExecutableFile(atPath: raw) { return raw }
+            return "/bin/zsh"
+        }
         set { d.set(newValue, forKey: "FinderTwo.terminalShell"); notify() }
     }
 

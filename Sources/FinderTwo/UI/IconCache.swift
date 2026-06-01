@@ -23,21 +23,36 @@ final class IconCache {
         if item.isDirectory && !item.isPackage {
             return folderIcon
         }
+        // Reading an item's OWN icon via icon(forFile:) opens that path, which fires a
+        // one-time TCC permission prompt for items in protected locations (Desktop/
+        // Documents/Downloads/Library/Movies/Music/Pictures, /Volumes) when Full Disk
+        // Access is off — the very prompt the onboarding flow exists to avoid. So per-file
+        // reads (packages + extensionless files) are guarded by `mayReadFile`; the common
+        // per-extension cached path below never reaches that check, keeping it hot.
         if item.isPackage {
-            let img = NSWorkspace.shared.icon(forFile: item.url.path)
+            if mayReadFile(item.url) {
+                let img = NSWorkspace.shared.icon(forFile: item.url.path)
+                img.size = NSSize(width: 16, height: 16)
+                thumbCache.setObject(img, forKey: item.url as NSURL)
+                return img
+            }
+            // Generic, type-based package icon (e.g. .app → generic app icon). Not
+            // cached per-URL so the real icon is read once FDA is granted this session.
+            let type = UTType(filenameExtension: item.ext) ?? .package
+            let img = NSWorkspace.shared.icon(for: type)
             img.size = NSSize(width: 16, height: 16)
-            thumbCache.setObject(img, forKey: item.url as NSURL)
             return img
         }
         let ext = item.ext
         if let cached = extCache.object(forKey: ext as NSString) {
-            return cached
+            return cached   // hot path: no TCC probe, no file read
         }
         // Per-extension generic icon derived from the UTType for the extension —
         // never opens the file, and shared across all files of that extension.
         let img: NSImage
         if ext.isEmpty {
-            img = NSWorkspace.shared.icon(forFile: item.url.path)
+            img = mayReadFile(item.url) ? NSWorkspace.shared.icon(forFile: item.url.path)
+                                        : NSWorkspace.shared.icon(for: .data)
         } else if let type = UTType(filenameExtension: ext) {
             img = NSWorkspace.shared.icon(for: type)
         } else {
@@ -46,6 +61,12 @@ final class IconCache {
         img.size = NSSize(width: 16, height: 16)
         extCache.setObject(img, forKey: ext as NSString)
         return img
+    }
+
+    /// Whether we're allowed to read this URL's own icon without risking a TCC
+    /// prompt. Only consulted off the cached hot path (packages / extensionless).
+    private func mayReadFile(_ url: URL) -> Bool {
+        PermissionsManager.hasFullDiskAccess || !PermissionsManager.isProtectedPath(url.path)
     }
 
     /// Insert a real thumbnail (from QL) for a URL — used by FileListController

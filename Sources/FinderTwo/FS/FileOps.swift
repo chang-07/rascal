@@ -87,18 +87,41 @@ enum FileOps {
     /// freeze the UI. Multi-item / folder operations show a cancellable progress
     /// sheet. "Merge" (offered only folder-into-folder) recursively unions the
     /// two trees; colliding files are replaced into the Trash (recoverable).
+    /// Resolve copy-vs-move for a drop from the *drag's* operation mask, honoring
+    /// an explicit Option-key override. Reading `info.draggingSourceOperationMask`
+    /// (instead of transient global modifier state) makes cross-app and
+    /// cross-volume drags do the right thing, and keeps the validate-drop feedback
+    /// consistent with what accept-drop actually performs.
+    static func dropIsCopy(_ info: NSDraggingInfo) -> Bool {
+        let mask = info.draggingSourceOperationMask
+        if NSEvent.modifierFlags.contains(.option), mask.contains(.copy) { return true }
+        if mask.contains(.move) { return false }
+        return mask.contains(.copy)
+    }
+
     static func transfer(_ urls: [URL], into destination: URL, move: Bool, from window: NSWindow? = nil) {
         let fm = FileManager.default
         // Phase 1 (main thread): resolve conflicts, build the work plan.
         var applyAll: Conflict?
         var plan: [(src: URL, dst: URL, merge: Bool)] = []
         var hasDirectory = false
+        let dstStd = destination.standardizedFileURL.path
         for src in urls {
-            if move && src.deletingLastPathComponent().path == destination.path { continue }
-            if destination.path == src.path || destination.path.hasPrefix(src.path + "/") { continue }
+            let srcStd = src.standardizedFileURL.path
+            // Never move/copy an item into itself or a descendant of itself (a
+            // folder dropped onto/into itself → macOS error). Standardize so
+            // trailing-slash / symlink / `..` variants all compare equal.
+            if dstStd == srcStd || dstStd.hasPrefix(srcStd + "/") { continue }
+            let sameParent = src.deletingLastPathComponent().standardizedFileURL.path == dstStd
+            // Move into the item's own directory is a no-op.
+            if sameParent && move { continue }
             var dst = destination.appendingPathComponent(src.lastPathComponent)
             var merge = false
-            if fm.fileExists(atPath: dst.path) {
+            if sameParent && !move {
+                // Copy into the same directory → unique-named duplicate (Finder
+                // behavior); don't raise a self-collision "already exists" prompt.
+                dst = uniqueDestination(dst)
+            } else if fm.fileExists(atPath: dst.path) {
                 let canMerge = isDir(src) && isDir(dst)
                 var res: Conflict
                 if let a = applyAll { res = a }

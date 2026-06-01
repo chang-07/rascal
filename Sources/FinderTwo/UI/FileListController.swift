@@ -572,15 +572,16 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo,
                    proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
         // Drop on a folder row → "on"; otherwise treat as drop into current dir
-        if dropOperation == .on, let mi = modelIndex(forRow: row), model.items[mi].isDirectory {
+        if dropOperation == .on, let mi = modelIndex(forRow: row),
+           model.items.indices.contains(mi), model.items[mi].isDirectory {
             armSpring(forModelIndex: mi)
-            return modifierIsOption(info) ? .copy : .move
+            return FileOps.dropIsCopy(info) ? .copy : .move
         }
         cancelSpring()
         if dropOperation == .above {
             tableView.setDropRow(-1, dropOperation: .on)  // map to current directory
         }
-        return modifierIsOption(info) ? .copy : .move
+        return FileOps.dropIsCopy(info) ? .copy : .move
     }
 
     /// Start (or keep) the spring-load timer for a model index. Hovering a
@@ -620,18 +621,15 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             return false
         }
         let target: URL
-        if dropOperation == .on, let mi = modelIndex(forRow: row), model.items[mi].isDirectory {
+        if dropOperation == .on, let mi = modelIndex(forRow: row),
+           model.items.indices.contains(mi), model.items[mi].isDirectory {
             target = model.items[mi].url
         } else {
             target = model.url
         }
-        let isCopy = modifierIsOption(info)
+        let isCopy = FileOps.dropIsCopy(info)
         FileOps.transfer(urls, into: target, move: !isCopy, from: view.window)
         return true
-    }
-
-    private func modifierIsOption(_ info: NSDraggingInfo) -> Bool {
-        NSEvent.modifierFlags.contains(.option)
     }
 
     // MARK: Cell helpers

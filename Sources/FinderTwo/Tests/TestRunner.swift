@@ -499,6 +499,45 @@ final class TestRunner {
                preSnapshot == postSnapshot,
                "pre=\(preSnapshot) post=\(postSnapshot)")
 
+        // --- T21b: drag self-drop guards (FileOps.transfer) ---
+        let dragRoot = sandbox.appendingPathComponent("dragsafe")
+        try? FileManager.default.createDirectory(at: dragRoot, withIntermediateDirectories: true)
+        let dgFile = dragRoot.appendingPathComponent("keep.txt")
+        try? "x".write(to: dgFile, atomically: true, encoding: .utf8)
+        FileOps.transfer([dgFile], into: dragRoot, move: true)     // move into own dir → no-op
+        assert("drag move into own folder is a no-op",
+               FileManager.default.fileExists(atPath: dgFile.path), "vanished")
+        FileOps.transfer([dgFile], into: dragRoot, move: false)    // copy into same dir → duplicate
+        let dgDup = dragRoot.appendingPathComponent("keep 2.txt")  // uniqueDestination naming
+        waitUntil { FileManager.default.fileExists(atPath: dgDup.path) }
+        assert("drag copy into same folder makes a duplicate (no self-collision prompt)",
+               FileManager.default.fileExists(atPath: dgDup.path), "no duplicate")
+        let selfDir = sandbox.appendingPathComponent("selfmove")
+        try? FileManager.default.createDirectory(at: selfDir, withIntermediateDirectories: true)
+        FileOps.transfer([selfDir], into: selfDir, move: true)     // folder into itself → blocked
+        wait(0.1)
+        assert("moving a folder into itself is blocked",
+               FileManager.default.fileExists(atPath: selfDir.path)
+                && !FileManager.default.fileExists(atPath: selfDir.appendingPathComponent("selfmove").path),
+               "self-nested")
+
+        // --- T21c: icon view exposes a file-URL drag source (drag-out works) ---
+        let iconDir = sandbox.appendingPathComponent("icongrid")
+        try? FileManager.default.createDirectory(at: iconDir, withIntermediateDirectories: true)
+        let icoA = iconDir.appendingPathComponent("a.txt")
+        try? "x".write(to: icoA, atomically: true, encoding: .utf8)
+        let iconVC = IconViewController()
+        _ = iconVC.view
+        iconVC.reload([icoA].compactMap { FileItem.load($0) })
+        let writer = iconVC.collectionView(NSCollectionView(),
+                                           pasteboardWriterForItemAt: IndexPath(item: 0, section: 0))
+        assert("icon view provides a file-URL pasteboard writer (drag-out)",
+               (writer as? NSURL)?.path == icoA.path, "got=\(String(describing: writer))")
+        var iconDropped: [URL] = []
+        iconVC.onDrop = { urls, _, _ in iconDropped = urls }
+        iconVC.onDrop?([icoA], nil, false)
+        assert("icon view onDrop is wired", iconDropped == [icoA], "got=\(iconDropped)")
+
         // --- T22: safety — filter with special regex/glob characters does not crash ---
         for needle in [".*", "[abc", "()|", "\\\\d", "%^&"] {
             pane.testSetFilter(needle)
@@ -1481,11 +1520,10 @@ final class TestRunner {
         // --- T47: viewAsList / viewAsColumns wire through to setViewMode ---
         pane.setViewMode(.columns)
         assert("setViewMode(.columns) honored", pane.viewMode == .columns, "got=\(pane.viewMode)")
-        if let colVC = pane.testColumnVC {
-            let browser = NSBrowser()
-            let width = colVC.browser(browser, sizeToFitWidthOfColumn: 0)
-            assert("column view sizeToFitWidthOfColumn returns bounded width", width >= 180 && width <= 400, "got width=\(width)")
-        }
+        // Columns are now fixed-width (no content-driven sizeToFit delegate, which
+        // caused the side-panel width flicker). The view must still install + reload.
+        assert("column view active in columns mode", pane.testColumnVC != nil, "no column VC")
+        pane.testColumnVC?.reload()
         pane.setViewMode(.icon)
         assert("setViewMode(.icon) honored", pane.viewMode == .icon, "got=\(pane.viewMode)")
         pane.setViewMode(.gallery)

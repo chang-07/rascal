@@ -98,6 +98,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         } else {
             terminalHeightConstraint.constant = 0
             terminalView.isHidden = true
+            terminalView.terminateRunning()   // don't keep a child running off-screen
         }
     }
 
@@ -304,6 +305,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         applyChromeVisibility()
         applyTopInset()
         fileList.settingsDidChange()   // Calculate-Sizes / type-to-select / Use Groups
+        updateTabStripVisibility()     // "Always show tab bar" toggle applies live
+        updateStatus()                 // git-branch status segment updates live
     }
 
     /// Show or hide the customizable hotbar per the user setting. Hidden by
@@ -641,6 +644,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         addChild(icon)
         icon.onOpen = { [weak self] item in self?.fileListOpenItem(item) }
         icon.onSelectionChange = { [weak self] items in self?.iconSelection = items; self?.updateStatus() }
+        icon.onDrop = { [weak self] urls, folder, isCopy in
+            guard let self else { return }
+            FileOps.transfer(urls, into: folder?.url ?? self.currentURL, move: !isCopy, from: self.view.window)
+        }
         pinAlternate(icon.view, in: host)
         iconVC = icon
         icon.reload(activeTab.model.items)
@@ -892,6 +899,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         // Items are unchanged — repaint badges in place, no full reload.
         if model === activeTab.model {
             fileList.refreshGitBadges()
+            updateStatus()   // refresh the "git: <branch>" status segment (incl. clearing it)
         }
     }
 

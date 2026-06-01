@@ -211,6 +211,13 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
         inputField.textColor = t.labelPrimary
     }
 
+    /// Terminate any in-flight command. Called when the drawer is hidden so a
+    /// long-running command (e.g. `tail -f`) doesn't keep running off-screen
+    /// until the next command, Ctrl-C, or window teardown.
+    func terminateRunning() {
+        if runningTask?.isRunning == true { runningTask?.terminate() }
+    }
+
     deinit {
         // Don't leave a child process running if the drawer/window is torn down.
         if runningTask?.isRunning == true { runningTask?.terminate() }
