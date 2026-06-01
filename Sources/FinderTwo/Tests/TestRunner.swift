@@ -1524,6 +1524,13 @@ final class TestRunner {
         // caused the side-panel width flicker). The view must still install + reload.
         assert("column view active in columns mode", pane.testColumnVC != nil, "no column VC")
         pane.testColumnVC?.reload()
+        // The window must NOT auto-resize from content (Miller-view column nav was
+        // resizing the whole window). The split controller pins preferredContentSize
+        // to .zero and ignores content-driven updates.
+        wc.splitVC.preferredContentSize = NSSize(width: 1234, height: 1234)
+        assert("split controller pins preferredContentSize → no window auto-resize on column nav",
+               wc.splitVC.preferredContentSize == .zero,
+               "got=\(wc.splitVC.preferredContentSize)")
         pane.setViewMode(.icon)
         assert("setViewMode(.icon) honored", pane.viewMode == .icon, "got=\(pane.viewMode)")
         pane.setViewMode(.gallery)

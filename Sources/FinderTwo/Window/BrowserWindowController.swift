@@ -1,8 +1,21 @@
 import AppKit
 
+/// NSSplitViewController drives the window size from `preferredContentSize`,
+/// recomputing it whenever content layout changes — which made the *window*
+/// auto-resize as Miller-view columns were pushed/popped (the "side panel"
+/// size flicker). Pinning it to .zero ("no size preference") stops content from
+/// ever resizing the window; initial sizing is done explicitly (setContentSize /
+/// the autosaved frame) and the user's manual resizes stick.
+private final class NonResizingSplitViewController: NSSplitViewController {
+    override var preferredContentSize: NSSize {
+        get { .zero }
+        set { /* ignore content-driven updates */ }
+    }
+}
+
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, ThemeObserving {
 
-    let splitVC = NSSplitViewController()
+    let splitVC: NSSplitViewController = NonResizingSplitViewController()
     let sidebarVC: SidebarController
     private let panesContainer: PanesContainerController
     private var vimKeyMonitor: Any?
@@ -49,9 +62,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         splitVC.addSplitViewItem(mainItem)
 
         window.contentViewController = splitVC
-        // NSSplitViewController auto-sizes the window via preferredContentSize.
-        // Setting it explicitly keeps us at 1100×700 instead of full-screen.
-        splitVC.preferredContentSize = NSSize(width: 1100, height: 700)
+        // Initial size is set explicitly below; splitVC.preferredContentSize is
+        // pinned to .zero (NonResizingSplitViewController) so neither the initial
+        // contentViewController assignment nor later column navigation can
+        // auto-resize the window.
         let isHeadless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1"
         if !isHeadless {
             windowFrameAutosaveName = "FinderTwo.BrowserWindow"
