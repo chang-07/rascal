@@ -248,3 +248,7 @@ Pick via Settings or run "Cycle Theme" from the Command Palette.
 - Vim enabled → `UserDefaults["FinderTwo.vimEnabled"]`
 - Hotbar order → `UserDefaults["FinderTwo.hotbar.v1"]`
 - Custom shortcuts → `UserDefaults["FinderTwo.shortcuts"]`
+
+## License
+
+[MIT](LICENSE) © 2026 chang — free and open source. No cloud, no account, no telemetry.
