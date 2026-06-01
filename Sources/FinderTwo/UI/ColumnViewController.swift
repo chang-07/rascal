@@ -23,6 +23,7 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
         browser.cellPrototype = NSBrowserCell()
         browser.hasHorizontalScroller = true
         browser.minColumnWidth = 180
+        browser.columnResizingType = .userColumnResizing
         browser.allowsMultipleSelection = true
         browser.allowsEmptySelection = true
         browser.target = self
@@ -102,6 +103,27 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
         let kid = kids[row]
         cell.title = kid.url.lastPathComponent
         cell.isLeaf = !kid.isDir
+    }
+
+    func browser(_ sender: NSBrowser, sizeToFitWidthOfColumn column: Int) -> CGFloat {
+        guard columnURLs.indices.contains(column) else { return 180 }
+        let url = columnURLs[column]
+        let kids = entries(in: url)
+        if kids.isEmpty { return 180 }
+        
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        var maxWidth: CGFloat = 0
+        for kid in kids {
+            let name = kid.url.lastPathComponent
+            let size = (name as NSString).size(withAttributes: [.font: font])
+            if size.width > maxWidth {
+                maxWidth = size.width
+            }
+        }
+        
+        // Add padding for folder arrow, icon, and margins
+        let width = maxWidth + 45
+        return max(180, min(width, 400))
     }
 
     @objc private func handleSelection() {

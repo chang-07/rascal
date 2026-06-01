@@ -947,6 +947,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         activeTab.model.reload(sync: true)
     }
     var testFileList: FileListController { fileList }
+    var testColumnVC: ColumnViewController? { columnVC }
     var testToolbarVisible: Bool { !toolbar.isHidden }
     var testHotbarVisible: Bool { !hotbar.isHidden }
     var testTabStripVisible: Bool { !tabStrip.isHidden }

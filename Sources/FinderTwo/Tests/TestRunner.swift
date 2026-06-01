@@ -1481,6 +1481,11 @@ final class TestRunner {
         // --- T47: viewAsList / viewAsColumns wire through to setViewMode ---
         pane.setViewMode(.columns)
         assert("setViewMode(.columns) honored", pane.viewMode == .columns, "got=\(pane.viewMode)")
+        if let colVC = pane.testColumnVC {
+            let browser = NSBrowser()
+            let width = colVC.browser(browser, sizeToFitWidthOfColumn: 0)
+            assert("column view sizeToFitWidthOfColumn returns bounded width", width >= 180 && width <= 400, "got width=\(width)")
+        }
         pane.setViewMode(.icon)
         assert("setViewMode(.icon) honored", pane.viewMode == .icon, "got=\(pane.viewMode)")
         pane.setViewMode(.gallery)
