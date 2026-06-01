@@ -13,14 +13,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+# Optional ARCH env produces a per-arch image, e.g. ARCH=arm64 → Rascal-arm64.dmg.
+ARCH="${ARCH:-}"
+SUFFIX=""
+[[ -n "$ARCH" ]] && SUFFIX="-$ARCH"
 APP="$ROOT/build/Rascal.app"
-DMG="$ROOT/build/Rascal.dmg"
+DMG="$ROOT/build/Rascal${SUFFIX}.dmg"
 VOL="Rascal"
 
-# Always compile a fresh release bundle.
-echo "→ Building fresh release bundle…"
+# Always compile a fresh release bundle (optionally for a specific arch).
+echo "→ Building fresh release bundle${ARCH:+ ($ARCH)}…"
 rm -rf "$APP"
-"$ROOT/build.sh" release >/dev/null
+ARCH="$ARCH" "$ROOT/build.sh" release >/dev/null
 
 echo "→ Staging disk image contents…"
 STAGE="$(mktemp -d)"

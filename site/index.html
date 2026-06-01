@@ -146,13 +146,26 @@
 <section id="download" class="section download">
   <p class="kicker">Get Rascal</p>
   <h2 class="section-title">One file. Drag to Applications. <em>Done</em>.</h2>
-  <p class="section-lead">Universal build for Apple Silicon &amp; Intel. macOS 13 Ventura or later.</p>
+  <p class="section-lead">Native builds for Apple Silicon &amp; Intel. macOS 13 Ventura or later.</p>
 
-  <!-- Download: GitHub release asset (publish with make-dmg.sh) -->
-  <a class="btn btn-primary btn-lg" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal.dmg">
-    <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
-    Download Rascal.dmg
-  </a>
+  <!-- Download: Apple Silicon by default; Intel (x86_64) via the dropdown.
+       Per-arch release assets are published with ARCH=… ./make-dmg.sh -->
+  <div class="dl">
+    <a class="btn btn-primary btn-lg" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">
+      <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
+      Download for macOS
+    </a>
+    <details class="dl-more">
+      <summary class="btn btn-ghost btn-lg" aria-label="Choose Apple Silicon or Intel">
+        <svg class="btn-ico dl-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+      </summary>
+      <div class="dl-pop">
+        <a href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg"><strong>Apple Silicon</strong><span>M1–M4 · 2020 &amp; newer</span></a>
+        <a href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-x86_64.dmg"><strong>Intel</strong><span>x86_64 · 2019 &amp; earlier</span></a>
+      </div>
+    </details>
+  </div>
+  <p class="dl-pick">The button gets the Apple&nbsp;Silicon build; on an Intel Mac, pick <strong>Intel</strong> from the dropdown. <span class="dl-pick-q">(Apple&nbsp;menu → About This Mac.)</span></p>
 
   <div class="download-tip">
     <h3>Important: Running on macOS</h3>

@@ -213,7 +213,26 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 
 /* ── download ── */
 .download { text-align: center; }
-.download .btn-primary { margin-top: 32px; }
+/* per-arch download: a primary button + an Intel dropdown (JS-free <details>) */
+.dl { display: inline-flex; gap: 8px; margin-top: 32px; }
+.dl-more { position: relative; }
+.dl-more > summary { list-style: none; cursor: pointer; padding-left: 15px; padding-right: 15px; }
+.dl-more > summary::-webkit-details-marker { display: none; }
+.dl-more > summary::marker { content: ""; }
+.dl-caret { transition: transform .18s ease; }
+.dl-more[open] > summary .dl-caret { transform: rotate(180deg); }
+.dl-pop {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; min-width: 236px;
+  text-align: left; background: #fff; border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow); padding: 6px;
+}
+.dl-pop a { display: flex; flex-direction: column; gap: 1px; padding: 9px 14px; border-radius: 10px; transition: background .15s; }
+.dl-pop a:hover { background: var(--paper-2); }
+.dl-pop a strong { font-weight: 600; font-size: 15px; color: var(--ink); }
+.dl-pop a span { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.dl-pick { margin-top: 16px; font-size: 13.5px; color: var(--muted); }
+.dl-pick strong { color: var(--ink-2); font-weight: 600; }
+.dl-pick-q { white-space: nowrap; }
 .download-tip {
   max-width: 580px; margin: 36px auto 0; text-align: left;
   background: #fff; border: 1px solid var(--line); padding: 26px 28px; border-radius: 18px;

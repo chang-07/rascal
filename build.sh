@@ -10,12 +10,21 @@ SWIFT_BUILD_DIR="$ROOT/.build/$CONFIG"
 
 cd "$ROOT"
 
-echo "→ Building Swift package ($CONFIG)..."
-swift build -c "$CONFIG"
+# Optional ARCH env selects a target architecture (e.g. ARCH=arm64 or
+# ARCH=x86_64); unset builds for the host. Used by make-dmg.sh to cut per-arch
+# disk images.
+ARCHFLAGS=()
+if [[ -n "${ARCH:-}" ]]; then
+    ARCHFLAGS=(--arch "$ARCH")
+    echo "→ Building Swift package ($CONFIG, arch=$ARCH)..."
+else
+    echo "→ Building Swift package ($CONFIG)..."
+fi
+swift build -c "$CONFIG" "${ARCHFLAGS[@]}"
 
-BIN="$SWIFT_BUILD_DIR/FinderTwo"
+# Ask SwiftPM for the exact product dir (handles arch-triple subdirs cleanly).
+BIN="$(swift build -c "$CONFIG" "${ARCHFLAGS[@]}" --show-bin-path)/FinderTwo"
 if [[ ! -x "$BIN" ]]; then
-    # SwiftPM puts release binaries under .build/release, arch-specific subdirs sometimes:
     BIN=$(find "$ROOT/.build" -type f -name FinderTwo -perm +111 | head -n1)
 fi
 if [[ -z "${BIN:-}" || ! -x "$BIN" ]]; then
