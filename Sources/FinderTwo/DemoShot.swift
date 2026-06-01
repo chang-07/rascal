@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -103,6 +104,226 @@ enum DemoShot {
         writeGIF(tmFrames.map { scaled($0, toWidth: 1040) },
                  out.appendingPathComponent("treemap.gif"), delay: 0.9)
         tmHost.orderOut(nil)
+    }
+
+    // MARK: - demo video (short guided walkthrough → .mp4)
+
+    /// Render a short, simple product walkthrough as an .mp4 — entirely off-screen.
+    /// Each "beat" is a real captured Rascal state, composited onto a warm ivory
+    /// canvas with a caption, then cross-faded and encoded with AVAssetWriter.
+    static func renderWalkthrough(to outPath: String) {
+        let sample = makeSampleTree()
+        defer { try? FileManager.default.removeItem(at: sample) }
+        setTheme("rascal-light"); NSApp.appearance = NSAppearance(named: .aqua)
+
+        let wc = BrowserWindowController(rootURL: sample)
+        guard let win = wc.window, let content = win.contentView else { return }
+        win.setContentSize(NSSize(width: 1280, height: 800))
+        win.setFrameOrigin(NSPoint(x: -60000, y: -60000))
+        win.makeKeyAndOrderFront(nil)
+        spin(2.2)
+        if let split = win.contentViewController as? NSSplitViewController, split.splitViewItems.count > 1 {
+            split.splitViewItems[0].isCollapsed = false
+            split.splitView.setPosition(214, ofDividerAt: 0)
+        }
+        spin(0.4)
+
+        var keys: [NSBitmapImageRep] = []
+        func beat(_ caption: String?) { if let r = windowShot(win, content) { keys.append(composeFrame(r, caption: caption)) } }
+
+        // 1 — browse
+        wc.testActivePane?.setViewMode(.list)
+        wc.testActivePane?.select(url: sample.appendingPathComponent("Q3-report.pdf")); spin(0.6)
+        beat("Browse your files")
+        // 2 — view modes
+        wc.testActivePane?.setViewMode(.icon); spin(0.8); beat("Four built-in views")
+        wc.testActivePane?.setViewMode(.columns); spin(0.8); beat("List · Icon · Column · Gallery")
+        wc.testActivePane?.setViewMode(.list); spin(0.4)
+
+        // 3 + 4 — command palette and fuzzy finder, composited over the window
+        let base = windowShot(win, content)
+        if let base {
+            let palette = CommandPaletteController(target: wc); palette.demoSetQuery("new")
+            if let pc = palette.window?.contentView, let pr = panelShot(pc, size: NSSize(width: 720, height: 432)) {
+                keys.append(composeFrame(overlayPanel(base, pr), caption: "Command palette · ⌘⇧P"))
+            }
+            let finder = SearchSheetController(target: wc, mode: .fuzzyFilenames, rootURL: sample); finder.demoPopulate(query: "re")
+            if let fc = finder.window?.contentView, let fr = panelShot(fc, size: NSSize(width: 720, height: 432)) {
+                keys.append(composeFrame(overlayPanel(base, fr), caption: "Fuzzy file finder · ⌘F"))
+            }
+        }
+
+        // 5 — preview pane
+        wc.testActivePane?.select(url: sample.appendingPathComponent("Q3-report.pdf")); spin(0.3)
+        wc.testActivePane?.togglePreviewDrawer(); spin(1.2); beat("Preview anything inline")
+        wc.testActivePane?.togglePreviewDrawer(); spin(0.3)
+        win.orderOut(nil)
+
+        // 6 — disk-usage treemap
+        let scanned = DiskScan(root: sample).runSync()
+        let tm = TreemapView(frame: NSRect(x: 0, y: 0, width: 1180, height: 740))
+        let tmHost = hostWindow(tm)
+        tm.setRoot(scanned); tm.layoutSubtreeIfNeeded(); spin(0.4)
+        if let r = snapshot(tm) { keys.append(composeFrame(r, caption: "See where your space goes")) }
+        tmHost.orderOut(nil)
+
+        // end card
+        keys.append(endCard(1280, 800))
+        guard keys.count > 1 else { return }
+
+        // ── assemble timeline: hold each key state, cross-fade between them ──
+        let fps = 30, hold = 42, fade = 9
+        var frames: [NSBitmapImageRep] = []
+        for (i, k) in keys.enumerated() {
+            if i > 0 { frames += crossfade(keys[i - 1], k, count: fade) }
+            for _ in 0..<hold { frames.append(k) }
+        }
+        for _ in 0..<24 { frames.append(keys[keys.count - 1]) }   // linger on the end card
+        writeVideo(frames, to: URL(fileURLWithPath: outPath), fps: fps)
+    }
+
+    /// Compose one captured rep onto a 1280×800 ivory canvas: the app window
+    /// floats with a soft shadow, a caption pill sits at the bottom.
+    private static func composeFrame(_ src: NSBitmapImageRep, caption: String?, w: Int = 1280, h: Int = 800) -> NSBitmapImageRep {
+        let canvas = newRep(w, h)
+        drawInto(canvas) {
+            NSColor(srgbRed: 0.984, green: 0.965, blue: 0.933, alpha: 1).setFill()
+            NSRect(x: 0, y: 0, width: w, height: h).fill()
+            let topInset: CGFloat = 30, bottomInset: CGFloat = 96, side: CGFloat = 34
+            let availW = CGFloat(w) - 2 * side, availH = CGFloat(h) - topInset - bottomInset
+            let aspect = CGFloat(src.pixelsHigh) / CGFloat(max(src.pixelsWide, 1))
+            var dw = availW, dh = availW * aspect
+            if dh > availH { dh = availH; dw = availH / aspect }
+            let rect = NSRect(x: (CGFloat(w) - dw) / 2, y: CGFloat(h) - topInset - dh, width: dw, height: dh)
+            let sh = NSShadow(); sh.shadowColor = NSColor.black.withAlphaComponent(0.22); sh.shadowBlurRadius = 42; sh.shadowOffset = NSSize(width: 0, height: -14)
+            NSGraphicsContext.saveGraphicsState(); sh.set(); src.draw(in: rect); NSGraphicsContext.restoreGraphicsState()
+            if let caption { drawCaption(caption, canvasW: w, bottomY: 30) }
+        }
+        return canvas
+    }
+
+    private static func drawCaption(_ text: String, canvasW: Int, bottomY: CGFloat) {
+        let para = NSMutableParagraphStyle(); para.alignment = .center
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 25, weight: .semibold),
+            .foregroundColor: NSColor(srgbRed: 0.14, green: 0.10, blue: 0.07, alpha: 1),
+            .paragraphStyle: para,
+        ]
+        let s = NSAttributedString(string: text, attributes: attrs)
+        let ts = s.size()
+        let padX: CGFloat = 28, padY: CGFloat = 13
+        let pw = ts.width + padX * 2, ph = ts.height + padY * 2
+        let pill = NSRect(x: (CGFloat(canvasW) - pw) / 2, y: bottomY, width: pw, height: ph)
+        let path = NSBezierPath(roundedRect: pill, xRadius: ph / 2, yRadius: ph / 2)
+        let sh = NSShadow(); sh.shadowColor = NSColor.black.withAlphaComponent(0.16); sh.shadowBlurRadius = 22; sh.shadowOffset = NSSize(width: 0, height: -6)
+        NSGraphicsContext.saveGraphicsState(); sh.set()
+        NSColor.white.withAlphaComponent(0.94).setFill(); path.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor(srgbRed: 0.91, green: 0.86, blue: 0.79, alpha: 1).setStroke(); path.lineWidth = 1; path.stroke()
+        s.draw(in: NSRect(x: pill.minX + padX, y: bottomY + padY - 1, width: ts.width, height: ts.height))
+    }
+
+    private static func endCard(_ w: Int, _ h: Int) -> NSBitmapImageRep {
+        let canvas = newRep(w, h)
+        drawInto(canvas) {
+            NSColor(srgbRed: 0.984, green: 0.965, blue: 0.933, alpha: 1).setFill()
+            NSRect(x: 0, y: 0, width: w, height: h).fill()
+            let cx = CGFloat(w) / 2
+            if let icon = NSApp.applicationIconImage {
+                icon.draw(in: NSRect(x: cx - 64, y: CGFloat(h) * 0.56, width: 128, height: 128))
+            }
+            func center(_ str: String, font: NSFont, color: NSColor, y: CGFloat) {
+                let p = NSMutableParagraphStyle(); p.alignment = .center
+                let a = NSAttributedString(string: str, attributes: [.font: font, .foregroundColor: color, .paragraphStyle: p])
+                a.draw(in: NSRect(x: 0, y: y, width: CGFloat(w), height: font.pointSize * 1.5))
+            }
+            let serif = NSFont(name: "Georgia-Bold", size: 70) ?? NSFont.systemFont(ofSize: 70, weight: .bold)
+            center("Rascal", font: serif, color: NSColor(srgbRed: 0.14, green: 0.10, blue: 0.07, alpha: 1), y: CGFloat(h) * 0.40)
+            let ital = NSFont(name: "Georgia-Italic", size: 27) ?? NSFont.systemFont(ofSize: 27)
+            center("your files, finally yours.", font: ital, color: NSColor(srgbRed: 0.54, green: 0.47, blue: 0.40, alpha: 1), y: CGFloat(h) * 0.32)
+            center("github.com/chang-07/finder-2", font: NSFont.monospacedSystemFont(ofSize: 18, weight: .medium), color: NSColor(srgbRed: 0.75, green: 0.27, blue: 0.05, alpha: 1), y: CGFloat(h) * 0.22)
+        }
+        return canvas
+    }
+
+    private static func crossfade(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, count: Int) -> [NSBitmapImageRep] {
+        var out: [NSBitmapImageRep] = []
+        let rect = NSRect(x: 0, y: 0, width: a.pixelsWide, height: a.pixelsHigh)
+        for i in 1...count {
+            let t = CGFloat(i) / CGFloat(count + 1)
+            let f = newRep(a.pixelsWide, a.pixelsHigh)
+            drawInto(f) {
+                a.draw(in: rect, from: .zero, operation: .copy, fraction: 1, respectFlipped: false, hints: nil)
+                b.draw(in: rect, from: .zero, operation: .sourceOver, fraction: t, respectFlipped: false, hints: nil)
+            }
+            out.append(f)
+        }
+        return out
+    }
+
+    private static func newRep(_ w: Int, _ h: Int) -> NSBitmapImageRep {
+        NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8,
+                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    }
+    private static func drawInto(_ rep: NSBitmapImageRep, _ body: () -> Void) {
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        body()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private static func writeVideo(_ frames: [NSBitmapImageRep], to url: URL, fps: Int) {
+        guard let first = frames.first else { return }
+        let w = first.pixelsWide, h = first.pixelsHigh
+        try? FileManager.default.removeItem(at: url)
+        guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) else { return }
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: w, AVVideoHeightKey: h,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: 9_000_000,
+                AVVideoMaxKeyFrameIntervalKey: fps * 2,
+            ],
+        ])
+        input.expectsMediaDataInRealTime = false
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: w, kCVPixelBufferHeightKey as String: h,
+        ])
+        guard writer.canAdd(input) else { return }
+        writer.add(input)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        let dur = CMTime(value: 1, timescale: CMTimeScale(fps))
+        var t = CMTime.zero
+        for rep in frames {
+            while !input.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.004) }
+            if let pb = pixelBuffer(rep, w, h) { adaptor.append(pb, withPresentationTime: t) }
+            t = CMTimeAdd(t, dur)
+        }
+        input.markAsFinished()
+        let sem = DispatchSemaphore(value: 0)
+        writer.finishWriting { sem.signal() }
+        sem.wait()
+    }
+
+    private static func pixelBuffer(_ rep: NSBitmapImageRep, _ w: Int, _ h: Int) -> CVPixelBuffer? {
+        guard let cg = rep.cgImage else { return nil }
+        var pb: CVPixelBuffer?
+        CVPixelBufferCreate(nil, w, h, kCVPixelFormatType_32BGRA,
+                            [kCVPixelBufferCGImageCompatibilityKey: true,
+                             kCVPixelBufferCGBitmapContextCompatibilityKey: true] as CFDictionary, &pb)
+        guard let buffer = pb else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        guard let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: w, height: h,
+                                  bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return buffer
     }
 
     // MARK: - infrastructure

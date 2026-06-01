@@ -152,8 +152,9 @@ body > *:not(.grain) { position: relative; z-index: 1; }
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
 }
-.frame img { width: 100%; height: auto; display: block; }
+.frame img, .frame video { width: 100%; height: auto; display: block; }
 .hero-shot { position: relative; z-index: 1; max-width: 980px; margin: 50px auto 0; }
+.section-tint .demo-video { max-width: 980px; margin: 52px auto 0; }
 
 /* ── ornamental rule ── */
 .rule { display: flex; align-items: center; justify-content: center; gap: 18px; color: var(--line-2); margin: 0 auto; max-width: 240px; }

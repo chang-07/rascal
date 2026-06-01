@@ -72,6 +72,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        if let p = ProcessInfo.processInfo.environment["FT_DEMO_VIDEO"] {
+            DispatchQueue.main.async {
+                DemoShot.renderWalkthrough(to: p)
+                NSApp.terminate(nil)
+            }
+            return
+        }
         // Headless treemap screenshot generator (no window shown) — for demos and
         // off-screen visual verification. FT_TREEMAP_SHOT=<out.png> [FT_TREEMAP_ROOT=<dir>].
         if let shot = ProcessInfo.processInfo.environment["FT_TREEMAP_SHOT"] {
