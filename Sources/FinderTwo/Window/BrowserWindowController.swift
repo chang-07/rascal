@@ -48,10 +48,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         mainItem.holdingPriority = .defaultLow + 1
         splitVC.addSplitViewItem(mainItem)
 
-        window.contentViewController = splitVC
         // NSSplitViewController auto-sizes the window via preferredContentSize.
         // Setting it explicitly keeps us at 1100×700 instead of full-screen.
         splitVC.preferredContentSize = NSSize(width: 1100, height: 700)
+        window.contentViewController = splitVC
         let isHeadless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1"
         if !isHeadless {
             windowFrameAutosaveName = "FinderTwo.BrowserWindow"
@@ -123,13 +123,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     /// top inset so its rows clear the traffic lights.
     private func applyTitleBarVisibility() {
         guard let window = window else { return }
+        var mask = window.styleMask
+        mask.insert(.resizable)
         if Settings.showTitleBar {
-            window.styleMask.remove(.fullSizeContentView)
+            mask.remove(.fullSizeContentView)
+            window.styleMask = mask
             window.titlebarAppearsTransparent = false
             window.titleVisibility = .visible
             sidebarVC.setTopInset(0)
         } else {
-            window.styleMask.insert(.fullSizeContentView)
+            mask.insert(.fullSizeContentView)
+            window.styleMask = mask
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             sidebarVC.setTopInset(PaneController.hiddenTitleBarInset)

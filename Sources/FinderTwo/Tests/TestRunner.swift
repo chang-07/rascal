@@ -2003,6 +2003,8 @@ final class TestRunner {
         wait(0.02)
         assert("title hidden → fullSizeContentView",
                wc.window?.styleMask.contains(.fullSizeContentView) ?? false, "no fullSize")
+        assert("title hidden → resizable",
+               wc.window?.styleMask.contains(.resizable) ?? false, "lost resizable")
         assert("title hidden → titleVisibility .hidden",
                wc.window?.titleVisibility == .hidden, "vis=\(String(describing: wc.window?.titleVisibility))")
         assert("title hidden → sidebar top inset \(inset)",
@@ -2013,6 +2015,8 @@ final class TestRunner {
         wait(0.02)
         assert("title shown → no fullSizeContentView",
                !(wc.window?.styleMask.contains(.fullSizeContentView) ?? true), "still fullSize")
+        assert("title shown → resizable",
+               wc.window?.styleMask.contains(.resizable) ?? false, "lost resizable")
         assert("title shown → titleVisibility .visible",
                wc.window?.titleVisibility == .visible, "vis=\(String(describing: wc.window?.titleVisibility))")
         assert("title shown → sidebar top inset 0",
