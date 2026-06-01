@@ -2121,6 +2121,13 @@ final class TestRunner {
         assert("plugin JS handler actually ran (wrote marker file)",
                FileManager.default.fileExists(atPath: firedMarker),
                "handler never fired — empty-snapshot bug regressed")
+        // Plugin actions must be reachable by the user — verify the loaded
+        // action surfaces in the command palette's entry list (regression
+        // guard: the palette read ActionRegistry.all, which omits plugins).
+        let echoInPalette = CommandPaletteController.testEntries(for: wc)
+            .contains { $0.title == "Echo Run" }
+        assert("plugin action surfaces in command palette",
+               echoInPalette, "plugin action not in palette — user can't trigger it")
 
         // --- T60: construct every sheet/window controller (catches layout +
         // constraint crashes that off-screen menu tests miss). We force

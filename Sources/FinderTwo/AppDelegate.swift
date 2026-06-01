@@ -419,6 +419,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         goItem("Utilities", "/Applications/Utilities", "u", [.command, .shift])
         attach(goMenu, to: mainMenu)
 
+        // ---- Plugins ---- (one item per plugin-contributed action; the menu
+        // only appears when a loaded plugin declares actions). Giving plugin
+        // actions a real menu item is what lets a user-assigned keyboard
+        // shortcut actually fire — dispatchAction resolves the id through
+        // ActionRegistry.action(id:), which includes plugin actions.
+        let pluginActionItems = PluginHost.shared.plugins.flatMap { $0.manifest.actions ?? [] }
+        if !pluginActionItems.isEmpty {
+            let pluginMenu = NSMenu(title: "Plugins")
+            for a in pluginActionItems { pluginMenu.addItem(routed(a.id, title: a.title)) }
+            attach(pluginMenu, to: mainMenu)
+        }
+
         // ---- Window ----
         let windowMenu = NSMenu(title: "Window")
         NSApp.windowsMenu = windowMenu

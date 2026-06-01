@@ -271,10 +271,14 @@ file into the active pane's folder.
 
 Drop a `<name>.ftplugin/` folder in
 `~/Library/Application Support/FinderTwo/Plugins/` containing `manifest.json`
-and `main.js`. Declared actions appear in the Command Palette. The JS bridge
+and `main.js`, then **Settings ▸ Advanced ▸ Reload Plugins** (or relaunch).
+Declared actions become first-class commands: they show up in the **Command
+Palette** (`⌘⇧P`) and a dedicated **Plugins** menu, can be bound to a keyboard
+shortcut (Settings ▸ Keyboard), and can be added to the hotbar. Each action's
+handler receives the current selection as an array of paths. The JS bridge
 exposes: `ft.onAction(id, fn)`, `ft.notify(msg)`, `ft.readFile(path)`,
 `ft.writeFile(path, text)`, `ft.run([cmd, args…])`, `ft.currentURL()`,
-`ft.selectedURLs()`.
+`ft.selectedURLs()`. See the full guide on the website.
 
 ---
 

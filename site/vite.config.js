@@ -1,4 +1,8 @@
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
+
+// Resolve an entry HTML relative to this config (ESM-safe — no __dirname).
+const entry = (p) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineConfig({
   // Relative asset paths — the site is published from /docs on GitHub Pages at
@@ -8,5 +12,12 @@ export default defineConfig({
   build: {
     outDir: '../docs',
     emptyOutDir: true,
+    // Multi-page: the marketing landing page + the handbook / guide.
+    rollupOptions: {
+      input: {
+        main: entry('./index.html'),
+        guide: entry('./guide.html'),
+      },
+    },
   }
 });

@@ -9,8 +9,8 @@ final class KeyboardPane: NSViewController, NSTableViewDataSource, NSTableViewDe
     private let search = NSSearchField()
     private let table = NSTableView()
     private let scroll = NSScrollView()
-    private var actions: [Action] = ActionRegistry.all
-    private var filtered: [Action] = ActionRegistry.all
+    private var actions: [Action] = ActionRegistry.allIncludingPlugins()
+    private var filtered: [Action] = ActionRegistry.allIncludingPlugins()
 
     override func loadView() {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 460))
@@ -92,7 +92,7 @@ final class KeyboardPane: NSViewController, NSTableViewDataSource, NSTableViewDe
         if let w = view.window {
             alert.beginSheetModal(for: w) { resp in
                 guard resp == .alertFirstButtonReturn else { return }
-                for a in ActionRegistry.all { ActionRegistry.setShortcut(nil, forId: a.id) }
+                for a in ActionRegistry.allIncludingPlugins() { ActionRegistry.setShortcut(nil, forId: a.id) }
                 self.table.reloadData()
             }
         }
@@ -303,7 +303,7 @@ final class HotbarPane: NSViewController, NSTableViewDataSource, NSTableViewDele
     @objc private func toggleShowHotbar(_ s: NSButton) { Settings.showHotbar = s.state == .on }
 
     private func availableActions() -> [Action] {
-        ActionRegistry.all.filter { !ids.contains($0.id) }
+        ActionRegistry.allIncludingPlugins().filter { !ids.contains($0.id) }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
     private func rebuildAddPopup() {
