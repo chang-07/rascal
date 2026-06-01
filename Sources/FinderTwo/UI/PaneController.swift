@@ -521,18 +521,22 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     /// Put keyboard focus on this pane's file list (used by pane-switching).
     func focusFileList() {
+        becomeActive()
         view.window?.makeFirstResponder(fileList.tableView)
     }
 
     func focusTerminal() {
+        becomeActive()
         terminalView.focusInput()
     }
 
     func focusGitDiff() {
+        becomeActive()
         gitDiffView.focus()
     }
 
     func focusNotes() {
+        becomeActive()
         notesView.focus()
     }
 

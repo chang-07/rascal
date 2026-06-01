@@ -46,8 +46,8 @@ numbered jumps also live in the **Window** menu.
 | Shortcut | Action |
 |---|---|
 | `⌘\` | Toggle extra pane (single-pane by default; opens a second pane) |
-| `⌘⌥→` | Focus the next pane |
-| `⌘⌥←` | Focus the previous pane |
+| `⌘⌥→` or `⌃Tab` | Focus the next pane |
+| `⌘⌥←` or `⌃⇧Tab` | Focus the previous pane |
 | click a pane | Make it the active pane (accent border shows which is active) |
 
 Drag files between panes to copy/move them.

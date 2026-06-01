@@ -2139,6 +2139,27 @@ final class TestRunner {
         _ = disk.window?.contentView
         assert("DiskAnalyzerWindowController builds", disk.window?.contentView != nil, "nil")
 
+        // Help Guide window
+        let helpGuide = HelpGuideController()
+        _ = helpGuide.window?.contentView
+        assert("HelpGuideController builds", helpGuide.window?.contentView != nil, "nil")
+        assert("Vim guide starts hidden", helpGuide.vimGuideContainer.isHidden == true, "")
+        helpGuide.toggleButton.performClick(nil)
+        assert("Vim guide is shown after click", helpGuide.vimGuideContainer.isHidden == false, "")
+        helpGuide.toggleButton.performClick(nil)
+        assert("Vim guide is hidden again", helpGuide.vimGuideContainer.isHidden == true, "")
+
+        // Check Help Menu
+        if let menu = NSApp.mainMenu,
+           let helpItem = menu.items.first(where: { $0.title == "Help" }),
+           let sub = helpItem.submenu,
+           let guideItem = sub.items.first(where: { $0.title == "Rascal Help Guide" }) {
+            assert("Help menu and guide item exist", true, "")
+            assert("Help menu item selector matches", guideItem.action == #selector(AppDelegate.showHelpGuide(_:)), "")
+        } else {
+            assert("Help menu and guide item exist", false, "Help menu not found")
+        }
+
         // --- Cinematic treemap: type palette + squarified layout + view tiles ---
         func mkNode(_ path: String, dir: Bool, size: Int64 = 0) -> DiskScan.Node {
             let n = DiskScan.Node(url: URL(fileURLWithPath: path), name: (path as NSString).lastPathComponent, isDirectory: dir)
@@ -2386,32 +2407,20 @@ final class TestRunner {
         assert("buffer targets include sidebar, file list, terminal, diff",
                targets.count >= 4, "got=\(targets.count)")
                
-        // Focus the file list first
-        pane.focusFileList()
+        // Open the second pane
+        wc.toggleExtraPane(nil)
+        wait(0.05)
+        assert("dual pane is active", wc.testPaneCount == 2, "")
+        
+        let panes = wc.testAllPanes
+        let paneA = panes[0]
+        let paneB = panes[1]
+        
+        // Focus the file list of Pane A first
+        paneA.focusFileList()
         wait(0.05)
         
-        // Focus next buffer should focus terminal
-        wc.focusNextBuffer()
-        wait(0.05)
-        assert("focusNextBuffer focused the terminal",
-               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.terminalView),
-               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
-               
-        // Focus next buffer should focus git diff
-        wc.focusNextBuffer()
-        wait(0.05)
-        assert("focusNextBuffer focused the git diff view",
-               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.gitDiffView.textView),
-               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
-               
-        // Focus prev buffer should focus terminal again
-        wc.focusPrevBuffer()
-        wait(0.05)
-        assert("focusPrevBuffer focused the terminal again",
-               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.terminalView),
-               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
-
-        // Simulate Control-Tab key event while in terminal
+        // Simulate Control-Tab key event
         let controlTabEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
                                                modifierFlags: [.control], timestamp: 0,
                                                windowNumber: currentWindow?.windowNumber ?? 0, context: nil,
@@ -2419,9 +2428,27 @@ final class TestRunner {
                                                isARepeat: false, keyCode: 48)!
         NSApp.sendEvent(controlTabEvent)
         wait(0.05)
-        assert("Control-Tab switches focus out of terminal to next buffer",
-               wc.isResponder(currentWindow?.firstResponder, descendingFrom: pane.gitDiffView.textView),
-               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+        
+        assert("Control-Tab switches focus to Pane B",
+               wc.testActivePane === paneB,
+               "activePane=\(String(describing: wc.testActivePane))")
+               
+        // Simulate Control-Shift-Tab key event
+        let controlShiftTabEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
+                                                    modifierFlags: [.control, .shift], timestamp: 0,
+                                                    windowNumber: currentWindow?.windowNumber ?? 0, context: nil,
+                                                    characters: "\t", charactersIgnoringModifiers: "\t",
+                                                    isARepeat: false, keyCode: 48)!
+        NSApp.sendEvent(controlShiftTabEvent)
+        wait(0.05)
+        
+        assert("Control-Shift-Tab switches focus back to Pane A",
+               wc.testActivePane === paneA,
+               "activePane=\(String(describing: wc.testActivePane))")
+               
+        // Close the second pane to clean up
+        wc.toggleExtraPane(nil)
+        wait(0.05)
                
         // Focus terminal again before starting directional focus checks
         pane.focusTerminal()
@@ -2472,37 +2499,49 @@ final class TestRunner {
         pane.toggleGitDiffDrawer()
         wait(0.05)
         
-        // --- T63: VimMode Ctrl-w command integrations ---
-        VimMode.shared.setEnabled(true)
-        pane.focusFileList()
+        // --- T63: VimMode Ctrl-b command integrations ---
+        // Open the second pane
+        wc.toggleExtraPane(nil)
         wait(0.05)
         
-        // Simulate Ctrl-w key event
-        let ctrlWEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
+        let panesSplit = wc.testAllPanes
+        let paneFirst = panesSplit[0]
+        let paneSecond = panesSplit[1]
+        
+        VimMode.shared.setEnabled(true)
+        paneFirst.focusFileList()
+        wait(0.05)
+        
+        // Simulate Ctrl-b key event
+        let ctrlBEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
                                           modifierFlags: [.control], timestamp: 0,
                                           windowNumber: 0, context: nil,
-                                          characters: "w", charactersIgnoringModifiers: "w",
+                                          characters: "b", charactersIgnoringModifiers: "b",
                                           isARepeat: false, keyCode: 0)!
         
-        // Handle Ctrl-w in VimMode
-        let handledCtrlW = VimMode.shared.handle(event: ctrlWEvent, in: pane, fileList: pane.fileList)
-        assert("VimMode handled Ctrl-w event", handledCtrlW == true, "not handled")
+        // Handle Ctrl-b in VimMode
+        let handledCtrlB = VimMode.shared.handle(event: ctrlBEvent, in: paneFirst, fileList: paneFirst.fileList)
+        assert("VimMode handled Ctrl-b event", handledCtrlB == true, "not handled")
         
-        // Now simulate pressing 'w' (without modifiers) to cycle to next buffer (sidebar)
-        let wEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
+        // Now simulate pressing 'b' (without modifiers) to cycle to next pane
+        let bEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
                                       modifierFlags: [], timestamp: 0,
                                       windowNumber: 0, context: nil,
-                                      characters: "w", charactersIgnoringModifiers: "w",
+                                      characters: "b", charactersIgnoringModifiers: "b",
                                       isARepeat: false, keyCode: 0)!
-        let handledW = VimMode.shared.handle(event: wEvent, in: pane, fileList: pane.fileList)
-        assert("VimMode handled 'w' event after Ctrl-w", handledW == true, "not handled")
+        let handledB = VimMode.shared.handle(event: bEvent, in: paneFirst, fileList: paneFirst.fileList)
+        assert("VimMode handled 'b' event after Ctrl-b", handledB == true, "not handled")
         wait(0.05)
         
-        assert("VimMode Ctrl-w w shifted focus to sidebar outline",
-               wc.isResponder(currentWindow?.firstResponder, descendingFrom: wc.sidebarVC.outline),
-               "firstResponder=\(String(describing: currentWindow?.firstResponder))")
+        assert("VimMode Ctrl-b b shifted focus to second pane",
+               wc.testActivePane === paneSecond,
+               "activePane=\(String(describing: wc.testActivePane))")
         
         VimMode.shared.setEnabled(false)
+        
+        // Close the second pane to clean up
+        wc.toggleExtraPane(nil)
+        wait(0.05)
     }
 
     /// Dismiss any sheets on the window + its children so the next action's

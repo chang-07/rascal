@@ -338,8 +338,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(routed("pane.toggle-extra", title: "Open Extra Pane"))
         viewMenu.addItem(routed("pane.focus-next"))
         viewMenu.addItem(routed("pane.focus-prev"))
-        viewMenu.addItem(routed("buffer.focus-next"))
-        viewMenu.addItem(routed("buffer.focus-prev"))
         viewMenu.addItem(routed("pane.copy-to-other"))
         viewMenu.addItem(routed("pane.move-to-other"))
         let syncItem = routed("pane.sync-browsing")
@@ -446,6 +444,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                       action: #selector(NSApplication.arrangeInFront(_:)),
                                       key: ""))
         attach(windowMenu, to: mainMenu)
+        
+        // ---- Help ----
+        let helpMenu = NSMenu(title: "Help")
+        let helpItem = item(title: "Rascal Help Guide", action: #selector(showHelpGuide(_:)), key: "?", mods: [.command])
+        helpItem.target = self
+        helpMenu.addItem(helpItem)
+        attach(helpMenu, to: mainMenu)
 
         disableAutoenable(mainMenu)
         NSApp.mainMenu = mainMenu
@@ -513,6 +518,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         SettingsController.show()
+    }
+
+    @objc func showHelpGuide(_ sender: Any?) {
+        HelpGuideController.show(parent: currentBrowserWC()?.window)
     }
 
     /// Manual re-entry for the permissions flow (the one-time onboarding only

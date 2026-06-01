@@ -144,18 +144,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         vimKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             
-            // Global buffer switching hotkeys (works even when text editing)
-            if event.window === self.window,
-               let nextShortcut = ActionRegistry.shortcut(for: "buffer.focus-next"),
-               self.eventMatches(event, shortcut: nextShortcut) {
-                self.focusNextBuffer()
-                return nil
-            }
-            if event.window === self.window,
-               let prevShortcut = ActionRegistry.shortcut(for: "buffer.focus-prev"),
-               self.eventMatches(event, shortcut: prevShortcut) {
-                self.focusPrevBuffer()
-                return nil
+            if event.window === self.window, event.keyCode == 48 {
+                let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+                if mods == .control {
+                    self.focusNextPane(nil)
+                    return nil
+                } else if mods == [.control, .shift] {
+                    self.focusPrevPane(nil)
+                    return nil
+                }
             }
 
             // Orthodox-commander function keys (work regardless of Vim mode):
@@ -337,35 +334,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         return matches
     }
 
-    func focusNextBuffer() {
-        let targets = getBufferTargets()
-        guard !targets.isEmpty else { return }
-        
-        let firstResp = window?.firstResponder
-        let currentIdx = targets.firstIndex { isResponder(firstResp, descendingFrom: $0.view) }
-        let nextIdx: Int
-        if let currentIdx = currentIdx {
-            nextIdx = (currentIdx + 1) % targets.count
-        } else {
-            nextIdx = 0
-        }
-        targets[nextIdx].focus()
-    }
 
-    func focusPrevBuffer() {
-        let targets = getBufferTargets()
-        guard !targets.isEmpty else { return }
-        
-        let firstResp = window?.firstResponder
-        let currentIdx = targets.firstIndex { isResponder(firstResp, descendingFrom: $0.view) }
-        let nextIdx: Int
-        if let currentIdx = currentIdx {
-            nextIdx = (currentIdx - 1 + targets.count) % targets.count
-        } else {
-            nextIdx = targets.count - 1
-        }
-        targets[nextIdx].focus()
-    }
 
     func focusBufferLeft() {
         let targets = getBufferTargets()
@@ -459,8 +428,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
 
     @objc func focusNextPane(_ sender: Any?) { panesContainer.focusPane(by: 1) }
     @objc func focusPrevPane(_ sender: Any?) { panesContainer.focusPane(by: -1) }
-    @objc func focusNextBuffer(_ sender: Any?) { focusNextBuffer() }
-    @objc func focusPrevBuffer(_ sender: Any?) { focusPrevBuffer() }
+
     @objc func toggleSidebarItem(_ sender: Any?) { splitVC.toggleSidebar(sender) }
     @objc func toggleStatusBarItem(_ sender: Any?) { Settings.showStatusBar.toggle() }
     @objc func toggleUseGroups(_ sender: Any?) { Settings.useGroups.toggle() }
@@ -724,6 +692,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
 
     // MARK: Test accessors
 
+    var testAllPanes: [PaneController] { panesContainer.allPanes }
     var testActivePane: PaneController? { panesContainer.activePane }
     var testPaneCount: Int { panesContainer.testPaneCount }
     func testToggleExtraPane() { panesContainer.toggleExtraPane() }

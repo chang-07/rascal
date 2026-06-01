@@ -49,8 +49,8 @@ final class VimMode {
     func handle(event: NSEvent, in pane: PaneController, fileList: FileListController) -> Bool {
         guard enabled else { return false }
         let mods = event.modifierFlags.intersection([.command, .option, .control])
-        let isCtrlW = mods == .control && event.charactersIgnoringModifiers == "w"
-        if !mods.isEmpty && !isCtrlW && pending != "ctrl-w" { return false }
+        let isCtrlB = mods == .control && event.charactersIgnoringModifiers == "b"
+        if !mods.isEmpty && !isCtrlB && pending != "ctrl-b" { return false }
         guard let chars = event.charactersIgnoringModifiers, !chars.isEmpty else { return false }
 
         // Esc cancels everything
@@ -59,22 +59,22 @@ final class VimMode {
             return true
         }
 
-        // Handle Ctrl-w window command when it's pending
-        if pending == "ctrl-w" {
+        // Handle Ctrl-b window command when it's pending
+        if pending == "ctrl-b" {
             pending = ""
             reset()
             if let wc = fileList.view.window?.windowController as? BrowserWindowController {
                 let char = chars.lowercased()
                 let scalar = chars.unicodeScalars.first
                 
-                let isNextCtrlW = event.modifierFlags.contains(.control) && event.charactersIgnoringModifiers == "w"
+                let isNextCtrlB = event.modifierFlags.contains(.control) && event.charactersIgnoringModifiers == "b"
                 let isShift = event.modifierFlags.contains(.shift)
                 
-                if char == "w" || isNextCtrlW {
+                if char == "b" || isNextCtrlB {
                     if isShift {
-                        wc.focusPrevBuffer()
+                        wc.focusPrevPane(nil)
                     } else {
-                        wc.focusNextBuffer()
+                        wc.focusNextPane(nil)
                     }
                 } else if char == "h" || scalar?.value == 0xF702 { // NSLeftArrowFunctionKey
                     wc.focusBufferLeft()
@@ -89,9 +89,9 @@ final class VimMode {
             return true
         }
 
-        // Initiate Ctrl-w sequence
-        if isCtrlW {
-            pending = "ctrl-w"
+        // Initiate Ctrl-b sequence
+        if isCtrlB {
+            pending = "ctrl-b"
             return true
         }
         // Return / Enter — open the selection (enter a folder or open a file).
