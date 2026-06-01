@@ -31,6 +31,8 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
         browser.doubleAction = #selector(handleDoubleClick)
         browser.takesTitleFromPreviousColumn = true
         browser.maxVisibleColumns = 4
+        browser.setContentCompressionResistancePriority(.defaultLow - 10, for: .horizontal)
+        browser.setContentHuggingPriority(.defaultLow - 10, for: .horizontal)
 
         let host = NSView()
         host.addSubview(browser)
