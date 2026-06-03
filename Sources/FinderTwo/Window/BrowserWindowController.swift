@@ -296,6 +296,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
             pane.toggleGitDiffDrawer()
         } else if let pane = activePane, pane.isTerminalVisible {
             pane.toggleTerminalDrawer()
+        } else if let pane = activePane, pane.isNotesVisible {
+            pane.toggleNotesDrawer()   // close the notes drawer before the last tab/window
         } else if panesContainer.allPanes.count > 1, let pane = activePane {
             panesContainer.closePane(pane)
         } else {

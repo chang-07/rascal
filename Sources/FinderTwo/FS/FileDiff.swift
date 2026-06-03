@@ -16,6 +16,10 @@ enum FileDiff {
         p.waitUntilExit()
         // diff exit status: 0 = identical, 1 = differences, 2 = trouble.
         if p.terminationStatus == 2 { return nil }
-        return String(data: data, encoding: .utf8) ?? ""
+        let text = String(data: data, encoding: .utf8) ?? ""
+        // `diff` reports binary files as a one-line "Binary files … differ" on
+        // stdout (exit 1), not a unified diff — surface it as "can't compare".
+        if text.hasPrefix("Binary files ") { return nil }
+        return text
     }
 }

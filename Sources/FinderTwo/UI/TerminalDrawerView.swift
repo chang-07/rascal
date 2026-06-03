@@ -139,7 +139,8 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
             } else {
                 target = cwd.appendingPathComponent(arg)
             }
-            if FileManager.default.fileExists(atPath: target.path) {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: target.path, isDirectory: &isDir), isDir.boolValue {
                 cwd = target.standardizedFileURL
                 append("\(shortPrompt(for: cwd)) ❯ cd \(arg)\n", color: ThemeChrome.secondary)
             } else {
