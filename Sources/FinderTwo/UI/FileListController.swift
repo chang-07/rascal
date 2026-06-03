@@ -139,6 +139,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     /// that fires `springLoadDelay` after the hover settles. When it fires we
     /// navigate into that folder so the user can drop deeper (Finder behavior).
     private var springRow = -1
+    private var springTargetURL: URL?
     private var springTimer: Timer?
 
     init(model: DirectoryModel) {
@@ -602,6 +603,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         if i == springRow, springTimer != nil { return }
         cancelSpring()
         springRow = i
+        springTargetURL = model.items.indices.contains(i) ? model.items[i].url : nil
         let t = Timer(timeInterval: Settings.springLoadDelay, repeats: false) { [weak self] _ in
             self?.springFire()
         }
@@ -616,13 +618,16 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         springTimer?.invalidate()
         springTimer = nil
         springRow = -1
+        springTargetURL = nil
     }
 
     private func springFire() {
-        let row = springRow
+        let url = springTargetURL
         cancelSpring()
-        guard model.items.indices.contains(row), model.items[row].isDirectory else { return }
-        delegate?.fileListOpenItem(model.items[row])
+        // Re-resolve against the CURRENT model — an FSEvents reload during the
+        // spring delay can shift indices, so act on the captured URL, not the row.
+        guard let url, let item = model.items.first(where: { $0.url == url }), item.isDirectory else { return }
+        delegate?.fileListOpenItem(item)
     }
 
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo,

@@ -64,8 +64,22 @@ final class IconViewController: NSViewController, NSCollectionViewDataSource,
     }
 
     func reload(_ items: [FileItem]) {
+        // Preserve the selection by URL across the reload. NSCollectionView's
+        // reloadData() silently clears selection with NO deselect callback, so
+        // without this the pane's cached selection goes stale + invisible — and a
+        // destructive command could act on an item that's no longer shown selected.
+        let selectedURLs = Set(collection.selectionIndexPaths.compactMap {
+            self.items.indices.contains($0.item) ? self.items[$0.item].url : nil
+        })
         self.items = items
         collection.reloadData()
+        if !selectedURLs.isEmpty {
+            let ips = items.indices
+                .filter { selectedURLs.contains(items[$0].url) }
+                .map { IndexPath(item: $0, section: 0) }
+            collection.selectionIndexPaths = Set(ips)
+        }
+        reportSelection()   // rebuild the pane's selection from the real post-reload state
     }
 
     // MARK: Keyboard navigation (vim j/k/gg/G + open)

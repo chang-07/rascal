@@ -120,13 +120,18 @@ enum SFTPClient {
             // Match the typical sftp `ls -la` output line:
             //   drwxr-xr-x   3 user  staff  4096 Jan  1 12:00 name
             //   -rw-r--r--   1 user  staff   123 Jan  1 12:00 file
-            let parts = s.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-            guard parts.count >= 9, parts[0].count == 10 else { continue }
+            // 8 fields (perms links owner group size  Mon D time) then the name;
+            // maxSplits keeps spaces in the name intact.
+            let parts = s.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: true).map(String.init)
+            guard parts.count >= 9, parts[0].count >= 10 else { continue }   // >=10: allow trailing @/+ (xattr/ACL)
             let perm = parts[0]
             let isDir = perm.hasPrefix("d")
+            let isLink = perm.hasPrefix("l")
             let size = Int64(parts[4]) ?? 0
-            let name = parts[8...].joined(separator: " ")
-            if name == "." || name == ".." { continue }
+            var name = parts[8]
+            // A symlink line is "name -> target" — keep just the link's own name.
+            if isLink, let r = name.range(of: " -> ") { name = String(name[..<r.lowerBound]) }
+            if name == "." || name == ".." || name.isEmpty { continue }
             out.append(Entry(name: name, isDirectory: isDir,
                              size: isDir ? -1 : size))
         }

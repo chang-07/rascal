@@ -85,16 +85,26 @@ enum Archive {
     /// or nil on failure.
     @discardableResult
     static func extract(_ entry: Entry, from archive: URL, to destination: URL) -> URL? {
-        let outFile = destination.appendingPathComponent((entry.path as NSString).lastPathComponent)
         guard let kind = Kind.detect(archive) else { return nil }
+        let fm = FileManager.default
+        var outFile = destination.appendingPathComponent((entry.path as NSString).lastPathComponent)
+        // Don't clobber a same-basename sibling already extracted from this archive.
+        if fm.fileExists(atPath: outFile.path) { outFile = uniquify(outFile, in: destination) }
+        guard fm.createFile(atPath: outFile.path, contents: nil),
+              let outHandle = try? FileHandle(forWritingTo: outFile) else { return nil }
+        defer { try? outHandle.close() }
+
         let proc = Process()
-        let outPipe = Pipe()
-        proc.standardOutput = outPipe
+        proc.standardOutput = outHandle      // stream straight to disk — no whole-file RAM buffer
         proc.standardError = FileHandle.nullDevice
+        // The entry name is a literal path, but unzip/tar treat * ? [ ] in the
+        // member argument as a glob — escape them so we extract exactly this entry
+        // (an unescaped `a*b.txt` could match and concatenate sibling members).
+        let pattern = escapeGlobPattern(entry.path)
         switch kind {
         case .zip:
             proc.launchPath = "/usr/bin/unzip"
-            proc.arguments = ["-p", archive.path, entry.path]
+            proc.arguments = ["-p", archive.path, pattern]
         case .tar, .tarGz, .tarBz2:
             proc.launchPath = "/usr/bin/tar"
             let flag: String
@@ -103,13 +113,11 @@ enum Archive {
             case .tarBz2: flag = "-xjOf"
             default: flag = "-xOf"
             }
-            proc.arguments = [flag, archive.path, entry.path]
+            proc.arguments = [flag, archive.path, pattern]
         }
-        do { try proc.run() } catch { return nil }
-        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        do { try proc.run() } catch { try? fm.removeItem(at: outFile); return nil }
         proc.waitUntilExit()
-        guard proc.terminationStatus == 0 else { return nil }
-        try? data.write(to: outFile)
+        guard proc.terminationStatus == 0 else { try? fm.removeItem(at: outFile); return nil }
         return outFile
     }
 
@@ -235,9 +243,10 @@ enum Archive {
         formatter.dateFormat = "MM-dd-yyyy HH:mm"
         for line in raw.split(separator: "\n") {
             let s = String(line)
-            // Skip header & footer
-            if s.contains("Archive:") || s.contains("Length") || s.contains("---")
-               || s.contains("files") || s.isEmpty { continue }
+            // Header/footer lines fail the `Int64(parts[0])` size parse below and
+            // are rejected there — don't substring-match "files"/"Length"/"---",
+            // which would wrongly drop real entries named e.g. "my files.txt".
+            if s.isEmpty { continue }
             // Strip leading whitespace; first token = size
             let parts = s.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
             guard parts.count >= 4, let size = Int64(parts[0]) else { continue }
@@ -262,18 +271,46 @@ enum Archive {
             // Example: -rw-r--r-- 0 chang staff 1234 Jan  1 12:00 path/to/file
             let s = String(line)
             if s.isEmpty { continue }
-            let parts = s.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            // Limit to 8 splits so the name (field 9) keeps any internal spaces.
+            let parts = s.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: true).map(String.init)
             guard parts.count >= 9 else { continue }
             let perm = parts[0]
             let isDir = perm.hasPrefix("d") || s.hasSuffix("/")
             let size = Int64(parts[4]) ?? 0
-            let name = parts[8...].joined(separator: " ")
-            // Strip trailing slash from directory names so it matches zip output.
-            let cleanName = name.hasSuffix("/") ? String(name.dropLast()) : name
+            let name = parts[8]
+            // Strip a trailing slash + a leading "./" (from `tar -c .`-style archives).
+            var cleanName = name.hasSuffix("/") ? String(name.dropLast()) : name
+            if cleanName.hasPrefix("./") { cleanName = String(cleanName.dropFirst(2)) }
+            if cleanName.isEmpty || cleanName == "." { continue }
             entries.append(Entry(path: cleanName, isDirectory: isDir,
                                  size: isDir ? -1 : size, modified: nil))
         }
         return entries
+    }
+
+    /// Backslash-escape glob metacharacters so unzip/tar match a member name
+    /// literally instead of treating * ? [ ] as wildcards.
+    private static func escapeGlobPattern(_ s: String) -> String {
+        var out = ""
+        for ch in s {
+            if "\\*?[]".contains(ch) { out.append("\\") }
+            out.append(ch)
+        }
+        return out
+    }
+
+    /// Return a non-existing URL by inserting " 2", " 3", … before the extension.
+    private static func uniquify(_ url: URL, in dir: URL) -> URL {
+        let fm = FileManager.default
+        let stem = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+        var n = 2
+        var candidate = url
+        while fm.fileExists(atPath: candidate.path) {
+            let nm = ext.isEmpty ? "\(stem) \(n)" : "\(stem) \(n).\(ext)"
+            candidate = dir.appendingPathComponent(nm); n += 1
+        }
+        return candidate
     }
 
     private static func runForOutput(_ tool: String, _ args: [String]) -> String? {

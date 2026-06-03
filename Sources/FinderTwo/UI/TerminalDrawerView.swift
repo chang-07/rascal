@@ -181,6 +181,12 @@ final class TerminalDrawerView: NSView, NSTextFieldDelegate, ThemeObserving {
 
         do { try p.run() }
         catch {
+            // Clear the readability handlers so the pipe FDs + dispatch sources
+            // don't leak when the shell fails to launch (they're otherwise only
+            // cleared on the success path's waitUntilExit).
+            outPipe.fileHandleForReading.readabilityHandler = nil
+            errPipe.fileHandleForReading.readabilityHandler = nil
+            runningTask = nil
             append("failed to launch: \(error)\n", color: .systemRed)
             return
         }

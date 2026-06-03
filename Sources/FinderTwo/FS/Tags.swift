@@ -87,6 +87,11 @@ enum Tags {
     static func invalidateColorCache() { colorCache.removeAllObjects() }
 
     static func write(_ tags: [Tag], to url: URL) {
+        // Reads are suppressed on protected paths without Full Disk Access, so a
+        // read-modify-write (addTag/removeTag) here would write back an incomplete
+        // set and silently destroy tags we couldn't see — refuse instead. (This is
+        // the choke-point for every tag mutation, incl. /Volumes/ external drives.)
+        if PermissionsManager.isProtectedPath(url.path) && !PermissionsManager.hasFullDiskAccess { return }
         colorCache.removeObject(forKey: url.path as NSString)
         if tags.isEmpty {
             removeXAttr(at: url, name: xattrName)
