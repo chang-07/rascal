@@ -13,9 +13,15 @@ struct Workspace: Codable {
 enum WorkspaceStore {
     private static let key = "FinderTwo.workspaces.v1"
 
+    /// Decode element-by-element so one corrupt/incompatible entry can't wipe
+    /// EVERY saved workspace (the next save would otherwise persist from an empty base).
+    private struct LossyWorkspace: Decodable {
+        let value: Workspace?
+        init(from decoder: Decoder) throws { value = try? Workspace(from: decoder) }
+    }
     static func all() -> [Workspace] {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let arr = try? JSONDecoder().decode([Workspace].self, from: data) else { return [] }
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+        let arr = ((try? JSONDecoder().decode([LossyWorkspace].self, from: data)) ?? []).compactMap { $0.value }
         return arr.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 

@@ -88,6 +88,7 @@ final class GetInfoSheetController: NSWindowController, ThemeObserving {
         let owner = (attrs?[.ownerAccountName] as? String) ?? "—"
         let group = (attrs?[.groupOwnerAccountName] as? String) ?? "—"
         let mode = (attrs?[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        originalSpecialBits = mode & 0o7000   // keep setuid/setgid/sticky when editing the 9 perm bits
         let whereStr = (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
 
         let grid = NSGridView()
@@ -176,6 +177,8 @@ final class GetInfoSheetController: NSWindowController, ThemeObserving {
         return g
     }
 
+    private var originalSpecialBits: UInt16 = 0   // setuid/setgid/sticky, preserved across edits
+
     private func currentMode() -> UInt16 {
         var m: UInt16 = 0
         for box in permBoxes where box.state == .on { m |= (1 << UInt16(box.tag)) }
@@ -191,7 +194,7 @@ final class GetInfoSheetController: NSWindowController, ThemeObserving {
     }
 
     @objc private func permsChanged() {
-        let m = currentMode()
+        let m = currentMode() | originalSpecialBits   // don't drop setuid/setgid/sticky
         try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: m)], ofItemAtPath: url.path)
         // Re-read truth and resync (a rejected chmod leaves the old mode).
         let actual = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.posixPermissions]

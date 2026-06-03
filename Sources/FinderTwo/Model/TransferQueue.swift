@@ -201,19 +201,29 @@ final class TransferQueue {
         // FileActionLog is thread-safe, so record straight from the worker.
         FileActionLog.shared.record(name,
             undo: {
-                if move {
-                    done.forEach { try? fm.moveItem(at: $0.dst, to: $0.src) }
-                } else {
-                    done.forEach { try? fm.trashItem(at: $0.dst, resultingItemURL: nil) }
+                var ok = true
+                for d in done {
+                    if move {
+                        // Re-create the source's parent if it vanished, then move back.
+                        try? fm.createDirectory(at: d.src.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        if (try? fm.moveItem(at: d.dst, to: d.src)) == nil { ok = false }
+                    } else {
+                        if (try? fm.trashItem(at: d.dst, resultingItemURL: nil)) == nil { ok = false }
+                    }
                 }
-                return true
+                return ok   // report REAL success so a failed undo doesn't corrupt the stack
             },
             redo: {
-                done.forEach {
-                    if move { try? fm.moveItem(at: $0.src, to: $0.dst) }
-                    else { try? fm.copyItem(at: $0.src, to: $0.dst) }
+                var ok = true
+                for d in done {
+                    if move {
+                        try? fm.createDirectory(at: d.dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        if (try? fm.moveItem(at: d.src, to: d.dst)) == nil { ok = false }
+                    } else {
+                        if (try? fm.copyItem(at: d.src, to: d.dst)) == nil { ok = false }
+                    }
                 }
-                return true
+                return ok
             })
     }
 

@@ -38,6 +38,8 @@ enum FileOps {
                 var ok = true
                 for t in trashed {
                     if fm.fileExists(atPath: t.original.path) { continue }
+                    // Re-create the parent if it was removed since, else restore fails.
+                    try? fm.createDirectory(at: t.original.deletingLastPathComponent(), withIntermediateDirectories: true)
                     if (try? fm.moveItem(at: t.inTrash, to: t.original)) == nil { ok = false }
                 }
                 return ok
@@ -168,16 +170,24 @@ enum FileOps {
             includingPropertiesForKeys: [.isDirectoryKey], options: [])) ?? []
         for child in children {
             let target = dst.appendingPathComponent(child.lastPathComponent)
+            var dest = target
             if fm.fileExists(atPath: target.path) {
                 if isDir(child) && isDir(target) {
                     failures += mergeDirectory(src: child, into: target, move: move, fm: fm)
                     continue
                 }
-                try? fm.trashItem(at: target, resultingItemURL: nil)
+                // Same-type file collision → replace into the Trash (recoverable).
+                // Type mismatch (file vs dir) → keep both rather than send a whole
+                // directory to the Trash just to drop a file in its place.
+                if isDir(child) == isDir(target) {
+                    try? fm.trashItem(at: target, resultingItemURL: nil)
+                } else {
+                    dest = uniqueDestination(target)
+                }
             }
             do {
-                if move { try fm.moveItem(at: child, to: target) }
-                else { try fm.copyItem(at: child, to: target) }
+                if move { try fm.moveItem(at: child, to: dest) }
+                else { try fm.copyItem(at: child, to: dest) }
             } catch { failures += 1 }
         }
         // When moving, drop the source dir only if we emptied it (never nuke

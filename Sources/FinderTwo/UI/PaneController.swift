@@ -375,9 +375,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         guard parent.path != activeTab.currentURL.path else { NSSound.beep(); return }
         let childName = activeTab.currentURL.lastPathComponent
         navigate(to: parent)
+        let tab = activeTab
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            if let item = self.activeTab.model.items.first(where: { $0.name == childName }) {
+            guard let self, self.activeTab === tab else { return }   // bail if the user switched tabs
+            if let item = tab.model.items.first(where: { $0.name == childName }) {
                 self.fileList.select(item: item, scroll: true)
             }
         }
@@ -459,8 +460,12 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         let fm = FileManager.default
         let valid = urls.filter { fm.fileExists(atPath: $0) }
         guard !valid.isEmpty else { return }
-        // Replace the single initial tab with the first saved URL
+        // Replace ALL existing tabs — this is also called for workspace / git-branch
+        // restore into an already-populated pane, where appending would accumulate
+        // tabs and leak each dropped tab's model + FSEvents watcher.
         tabs[0].navigate(to: URL(fileURLWithPath: valid[0]))
+        if tabs.count > 1 { tabs.removeLast(tabs.count - 1) }   // drop tabs[1...]; their models/watchers dealloc
+        activeTabIndex = 0
         for path in valid.dropFirst() {
             let t = TabState(url: URL(fileURLWithPath: path))
             t.model.delegate = self
