@@ -12,18 +12,17 @@ cd "$ROOT"
 
 # Optional ARCH env selects a target architecture (e.g. ARCH=arm64 or
 # ARCH=x86_64); unset builds for the host. Used by make-dmg.sh to cut per-arch
-# disk images.
-ARCHFLAGS=()
+# disk images. Branch explicitly so an empty array never trips `set -u` on
+# macOS's stock bash 3.2.
 if [[ -n "${ARCH:-}" ]]; then
-    ARCHFLAGS=(--arch "$ARCH")
     echo "→ Building Swift package ($CONFIG, arch=$ARCH)..."
+    swift build -c "$CONFIG" --arch "$ARCH"
+    BIN="$(swift build -c "$CONFIG" --arch "$ARCH" --show-bin-path)/FinderTwo"
 else
     echo "→ Building Swift package ($CONFIG)..."
+    swift build -c "$CONFIG"
+    BIN="$(swift build -c "$CONFIG" --show-bin-path)/FinderTwo"
 fi
-swift build -c "$CONFIG" "${ARCHFLAGS[@]}"
-
-# Ask SwiftPM for the exact product dir (handles arch-triple subdirs cleanly).
-BIN="$(swift build -c "$CONFIG" "${ARCHFLAGS[@]}" --show-bin-path)/FinderTwo"
 if [[ ! -x "$BIN" ]]; then
     BIN=$(find "$ROOT/.build" -type f -name FinderTwo -perm +111 | head -n1)
 fi

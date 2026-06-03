@@ -17,6 +17,13 @@ struct FileItem: Hashable {
     /// True for app/bundle "packages" — directories the Finder treats as a
     /// single opaque item (double-click launches; "Show Package Contents"
     /// browses inside). Computed so the memberwise init is unchanged.
+    /// Bounded memo for the expensive fallback branch below (a per-URL
+    /// filesystem probe) so re-rendering a dotted-name folder row on scroll
+    /// doesn't stat each time.
+    private static let packageProbeCache: NSCache<NSURL, NSNumber> = {
+        let c = NSCache<NSURL, NSNumber>(); c.countLimit = 4096; return c
+    }()
+
     var isPackage: Bool {
         guard isDirectory else { return false }
         if ext.isEmpty { return false }
@@ -28,7 +35,12 @@ struct FileItem: Hashable {
            t.conforms(to: .package) || t.conforms(to: .bundle) || t.conforms(to: .application) {
             return true
         }
-        return (try? url.resourceValues(forKeys: [.isPackageKey]).isPackage) == true
+        // Expensive fallback (resourceValues = a stat) — memoize per URL.
+        let key = url as NSURL
+        if let cached = FileItem.packageProbeCache.object(forKey: key) { return cached.boolValue }
+        let probed = (try? url.resourceValues(forKeys: [.isPackageKey]).isPackage) == true
+        FileItem.packageProbeCache.setObject(NSNumber(value: probed), forKey: key)
+        return probed
     }
 
     static func load(_ url: URL) -> FileItem? {

@@ -51,6 +51,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     /// `reload()` and used to make async thumbnail callbacks O(1) instead of
     /// O(n) (matters once items.count gets into the tens of thousands).
     private var urlToRowIndex: [URL: Int] = [:]
+    /// Inverse of displayRows: model index → table row. Built in
+    /// rebuildDisplayRows so reload()'s map stays O(n) even with Use Groups on.
+    private var modelIndexToTableRow: [Int] = []
 
     // MARK: "Use Groups" (visual section grouping)
     /// When grouping is active, the table shows header rows interleaved with
@@ -65,16 +68,21 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     /// setting. Groups by the current sort key; identical adjacent group titles
     /// stay in one section (items are contiguous because they're pre-sorted).
     private func rebuildDisplayRows() {
-        guard Settings.useGroups, !model.items.isEmpty else { displayRows = []; return }
+        guard Settings.useGroups, !model.items.isEmpty else {
+            displayRows = []; modelIndexToTableRow = []; return
+        }
         let key = model.sort.key
         var rows: [DisplayRow] = []
+        var inverse = [Int](repeating: 0, count: model.items.count)
         var last: String? = nil
         for (i, item) in model.items.enumerated() {
             let title = Self.groupTitle(for: item, key: key)
             if title != last { rows.append(.header(title)); last = title }
+            inverse[i] = rows.count        // table row this item lands on
             rows.append(.item(i))
         }
         displayRows = rows
+        modelIndexToTableRow = inverse
     }
 
     /// Model index for a table row (nil for header rows). Identity when off.
@@ -86,8 +94,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     /// Table row showing a given model index. Identity when off.
     private func tableRow(forModelIndex i: Int) -> Int {
         if displayRows.isEmpty { return i }
-        for (r, dr) in displayRows.enumerated() { if case .item(let j) = dr, j == i { return r } }
-        return 0
+        return modelIndexToTableRow.indices.contains(i) ? modelIndexToTableRow[i] : 0
     }
     private func displayRowCount() -> Int { displayRows.isEmpty ? model.items.count : displayRows.count }
 
@@ -397,18 +404,22 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     // Folder-size cache for "Calculate all sizes". Computed off-main per visible
     // folder and the row repainted when the result lands (like git badges).
     private static let folderSizeQueue = DispatchQueue(label: "FinderTwo.folderSize", qos: .utility)
-    private var folderSizeCache: [URL: Int64] = [:]
+    // Bounded so browsing thousands of folders with "calculate sizes" on can't
+    // grow this without limit (it persists across in-place reloads of the same dir).
+    private let folderSizeCache: NSCache<NSURL, NSNumber> = {
+        let c = NSCache<NSURL, NSNumber>(); c.countLimit = 4096; return c
+    }()
     private var folderSizeInFlight: Set<URL> = []
 
     private func folderSizeText(for url: URL) -> String {
-        if let bytes = folderSizeCache[url] { return SizeFormatter.string(bytes) }
+        if let n = folderSizeCache.object(forKey: url as NSURL) { return SizeFormatter.string(n.int64Value) }
         if !folderSizeInFlight.contains(url) {
             folderSizeInFlight.insert(url)
             FileListController.folderSizeQueue.async { [weak self] in
                 let bytes = FileListController.recursiveSize(url)
                 DispatchQueue.main.async {
                     guard let self else { return }
-                    self.folderSizeCache[url] = bytes
+                    self.folderSizeCache.setObject(NSNumber(value: bytes), forKey: url as NSURL)
                     self.folderSizeInFlight.remove(url)
                     if let idx = self.urlToRowIndex[url], idx < self.tableView.numberOfRows {
                         self.tableView.reloadData(forRowIndexes: IndexSet(integer: idx),

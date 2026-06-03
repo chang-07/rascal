@@ -633,6 +633,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         // Try iTerm2, then default Terminal. Escape backslash FIRST, then the
         // quote — otherwise a directory name containing a backslash or quote can
         // break out of the AppleScript string and inject shell via `do script`.
+        // Control characters (esp. newline) can't be escaped inside an AppleScript
+        // string literal and would terminate it early, injecting statements — so a
+        // folder named with a newline + payload is refused outright.
+        guard !dir.path.unicodeScalars.contains(where: { $0.value < 0x20 }) else {
+            NSSound.beep(); return
+        }
         let path = dir.path
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")

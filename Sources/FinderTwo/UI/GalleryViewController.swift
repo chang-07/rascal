@@ -92,6 +92,7 @@ final class GalleryViewController: NSViewController, ThemeObserving {
             b.translatesAutoresizingMaskIntoConstraints = false
             b.widthAnchor.constraint(equalToConstant: 72).isActive = true
             b.toolTip = item.name
+            b.setAccessibilityLabel(item.name)   // toolTip alone isn't an AX label
             let dbl = NSClickGestureRecognizer(target: self, action: #selector(thumbDoubleClicked(_:)))
             dbl.numberOfClicksRequired = 2
             b.addGestureRecognizer(dbl)
