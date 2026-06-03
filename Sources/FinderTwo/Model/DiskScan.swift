@@ -1,4 +1,5 @@
 import Foundation
+import os   // OSAllocatedUnfairLock
 
 /// Recursive disk-usage scanner. Walks a directory tree in the background and
 /// reports progress + a hierarchical size summary. Cancellable.
@@ -21,7 +22,7 @@ final class DiskScan {
     let root: Node
     private(set) var totalFiles: Int = 0
     private(set) var totalSize: Int64 = 0
-    private var cancelled = false
+    private let cancelledFlag = OSAllocatedUnfairLock(initialState: false)
     private let queue = DispatchQueue(label: "FinderTwo.DiskScan", qos: .userInitiated)
 
     /// Identifies a physical file by (device, inode) so a hard-linked file —
@@ -54,16 +55,16 @@ final class DiskScan {
         return root
     }
 
-    func cancel() { cancelled = true }
+    func cancel() { cancelledFlag.withLock { $0 = true } }
 
     // MARK: - Internals
 
     private func walk(_ node: Node, lastReportAt: TimeInterval, onUpdate: @escaping (Int, Int64) -> Void) {
-        if cancelled { return }
+        if cancelledFlag.withLock({ $0 }) { return }
         let entries = FastDirScan.list(node.url)
         var lastReport = lastReportAt
         for e in entries {
-            if cancelled { return }
+            if cancelledFlag.withLock({ $0 }) { return }
             // A symlink is NOT a real directory for usage purposes: we count the
             // link's own (tiny) footprint and never recurse through it. This is
             // what `du` does, and it stops framework `Current → A` symlinks (and

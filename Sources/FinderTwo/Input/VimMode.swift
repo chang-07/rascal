@@ -184,6 +184,9 @@ final class VimMode {
             return true
         case "v":
             if mode == .normal {
+                // selectedRow is -1 with no selection; entering visual mode then
+                // would build IndexSet(integersIn:) from a negative bound and trap.
+                guard fileList.tableView.selectedRow >= 0 else { NSSound.beep(); return true }
                 mode = .visual
                 visualAnchor = fileList.tableView.selectedRow
             } else {
@@ -206,8 +209,9 @@ final class VimMode {
     }
 
     private func applyVisualExtend(fileList: FileListController) {
-        guard mode == .visual, let anchor = visualAnchor else { return }
+        guard mode == .visual, let anchor = visualAnchor, anchor >= 0 else { return }
         let now = fileList.tableView.selectedRow
+        guard now >= 0 else { return }
         let lo = min(anchor, now)
         let hi = max(anchor, now)
         fileList.tableView.selectRowIndexes(IndexSet(integersIn: lo...hi), byExtendingSelection: false)

@@ -49,7 +49,15 @@ final class PreviewDrawerView: NSView, ThemeObserving {
         infoLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(infoLabel)
 
-        let qlView = ql ?? NSView()
+        // If QLPreviewView's failable init returned nil, the fallback must still be
+        // in the view hierarchy — activating constraints against an unparented view
+        // (no common ancestor) throws NSGenericException.
+        let qlView: NSView = ql ?? {
+            let v = NSView()
+            v.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(v)
+            return v
+        }()
         NSLayoutConstraint.activate([
             line.topAnchor.constraint(equalTo: topAnchor),
             line.bottomAnchor.constraint(equalTo: bottomAnchor),

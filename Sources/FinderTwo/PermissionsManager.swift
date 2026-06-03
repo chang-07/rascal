@@ -33,7 +33,28 @@ enum PermissionsManager {
     /// check POSIX bits and would lie here, so we open a file handle: TCC
     /// denies the `open()` with EPERM, which surfaces as a nil handle. This
     /// never triggers a prompt (FDA is grant-only, never promptable).
+    /// CACHED: the file list reads this per row (tag colors, icons) on every
+    /// reload and scroll, and the raw probe is 3 syscalls (open/read/close of
+    /// TCC.db). The result only changes when the user toggles FDA in System
+    /// Settings, so we memoize it and re-probe on app activation (AppDelegate).
+    private static let fdaLock = NSLock()
+    private static var fdaCache: Bool?
+
     static var hasFullDiskAccess: Bool {
+        fdaLock.lock(); defer { fdaLock.unlock() }
+        if let cached = fdaCache { return cached }
+        let value = probeFullDiskAccess()
+        fdaCache = value
+        return value
+    }
+
+    /// Drop the cached FDA result so the next read re-probes — call when the
+    /// grant may have changed (e.g. the user returned from System Settings).
+    static func invalidateFullDiskAccessCache() {
+        fdaLock.lock(); fdaCache = nil; fdaLock.unlock()
+    }
+
+    private static func probeFullDiskAccess() -> Bool {
         let tcc = (NSHomeDirectory() as NSString)
             .appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db")
         guard FileManager.default.fileExists(atPath: tcc) else { return false }

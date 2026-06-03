@@ -54,7 +54,7 @@ enum Tags {
     }
 
     static func read(_ url: URL) -> [Tag] {
-        if !PermissionsManager.hasFullDiskAccess && PermissionsManager.isProtectedPath(url.path) {
+        if PermissionsManager.isProtectedPath(url.path) && !PermissionsManager.hasFullDiskAccess {
             return []
         }
         guard let data = readXAttr(at: url, name: xattrName) else { return [] }
@@ -72,7 +72,7 @@ enum Tags {
     private static let colorCache = NSCache<NSString, NSArray>()
 
     static func cachedColors(for url: URL) -> [Color] {
-        if !PermissionsManager.hasFullDiskAccess && PermissionsManager.isProtectedPath(url.path) {
+        if PermissionsManager.isProtectedPath(url.path) && !PermissionsManager.hasFullDiskAccess {
             return []
         }
         let key = url.path as NSString

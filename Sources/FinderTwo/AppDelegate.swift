@@ -22,6 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
         PluginHost.shared.loadAll()
         ThemeStore.ensureDirectory()   // so users have a place to drop themes
+        // Re-probe Full Disk Access on activation (the user may have just granted
+        // it in System Settings); the value is cached for the file-list hot path.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in PermissionsManager.invalidateFullDiskAccessCache() }
         NotificationCenter.default.addObserver(
             forName: ThemeManager.themeDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.rebuildThemeMenu() }
@@ -184,11 +189,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             wc.window?.makeKeyAndOrderFront(nil)
         }
         windowControllers.append(wc)
-        NotificationCenter.default.addObserver(
+        var token: NSObjectProtocol?
+        token = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: wc.window, queue: .main
         ) { [weak self, weak wc] _ in
-            guard let self, let wc else { return }
-            self.windowControllers.removeAll { $0 === wc }
+            if let self, let wc { self.windowControllers.removeAll { $0 === wc } }
+            if let token { NotificationCenter.default.removeObserver(token) }   // one-shot
         }
     }
 
