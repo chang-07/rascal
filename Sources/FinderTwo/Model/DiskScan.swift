@@ -59,8 +59,9 @@ final class DiskScan {
 
     // MARK: - Internals
 
-    private func walk(_ node: Node, lastReportAt: TimeInterval, onUpdate: @escaping (Int, Int64) -> Void) {
+    private func walk(_ node: Node, depth: Int = 0, lastReportAt: TimeInterval, onUpdate: @escaping (Int, Int64) -> Void) {
         if cancelledFlag.withLock({ $0 }) { return }
+        if depth > 4096 { return }   // guard against pathological nesting → stack overflow on the bg queue
         let entries = FastDirScan.list(node.url)
         var lastReport = lastReportAt
         for e in entries {
@@ -73,7 +74,7 @@ final class DiskScan {
             let childNode = Node(url: e.url, name: e.name, isDirectory: isRealDir)
             childNode.parent = node
             if isRealDir {
-                walk(childNode, lastReportAt: lastReport, onUpdate: onUpdate)
+                walk(childNode, depth: depth + 1, lastReportAt: lastReport, onUpdate: onUpdate)
                 node.children.append(childNode)
                 node.size += childNode.size
                 node.fileCount += childNode.fileCount
