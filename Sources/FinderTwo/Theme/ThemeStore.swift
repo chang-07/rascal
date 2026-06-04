@@ -150,7 +150,11 @@ enum ThemeStore {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? enc.encode(theme.spec) else { return nil }
-        let url = folder.appendingPathComponent("\(theme.id).json")
+        // Sanitize the id into a bare filename so a crafted theme id (e.g. an
+        // imported theme with id "../x") can't write the export outside Themes.
+        let bare = (theme.id as NSString).lastPathComponent.replacingOccurrences(of: "/", with: "_")
+        let safeName = (bare.isEmpty || bare == "." || bare == "..") ? "theme" : bare
+        let url = folder.appendingPathComponent("\(safeName).json")
         return (try? data.write(to: url)) != nil ? url : nil
     }
 }
