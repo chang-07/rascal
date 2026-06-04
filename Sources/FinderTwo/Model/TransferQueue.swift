@@ -28,9 +28,25 @@ final class TransferOp {
     private var _bytesDone: Int64 = 0
     private var _currentName: String = ""
     private var _failures = 0
+    // Throughput/ETA bookkeeping: accumulate only time the op is actually
+    // running (so pauses and queue-wait don't deflate the rate). `_startedAt`
+    // marks the current running segment; `_accumulatedActive` banks prior ones.
+    private var _startedAt: Date?
+    private var _accumulatedActive: TimeInterval = 0
     var state: State {
         get { lock.lock(); defer { lock.unlock() }; return _state }
-        set { lock.lock(); _state = newValue; lock.unlock() }
+        set {
+            lock.lock()
+            let was = _state
+            _state = newValue
+            if newValue == .running {
+                if _startedAt == nil { _startedAt = Date() }
+            } else if was == .running, let s = _startedAt {
+                _accumulatedActive += Date().timeIntervalSince(s)
+                _startedAt = nil
+            }
+            lock.unlock()
+        }
     }
     var totalBytes: Int64 {
         get { lock.lock(); defer { lock.unlock() }; return _totalBytes }
@@ -56,6 +72,40 @@ final class TransferOp {
     var fraction: Double {
         lock.lock(); defer { lock.unlock() }
         return _totalBytes > 0 ? min(1, Double(_bytesDone) / Double(_totalBytes)) : (_state == .done ? 1 : 0)
+    }
+
+    /// Seconds spent actually running. Caller must hold `lock`.
+    private var activeElapsedLocked: TimeInterval {
+        var t = _accumulatedActive
+        if _state == .running, let s = _startedAt { t += Date().timeIntervalSince(s) }
+        return t
+    }
+
+    /// Average copy throughput in bytes/sec, or 0 before there's a stable sample
+    /// (first 250 ms are ignored to avoid wild early numbers).
+    var bytesPerSecond: Double {
+        lock.lock(); defer { lock.unlock() }
+        let t = activeElapsedLocked
+        return t > 0.25 ? Double(_bytesDone) / t : 0
+    }
+
+    /// Estimated seconds remaining while running, or nil if not computable yet.
+    var eta: TimeInterval? {
+        lock.lock(); defer { lock.unlock() }
+        guard _state == .running, _totalBytes > _bytesDone else { return nil }
+        let t = activeElapsedLocked
+        guard t > 0.25 else { return nil }
+        let rate = Double(_bytesDone) / t
+        guard rate > 0 else { return nil }
+        return Double(_totalBytes - _bytesDone) / rate
+    }
+
+    /// Compact ETA label: "8s", "3m 04s", "1h 02m".
+    static func etaLabel(_ seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds.rounded()))
+        if s < 60 { return "\(s)s" }
+        if s < 3600 { return "\(s / 60)m \(String(format: "%02d", s % 60))s" }
+        return "\(s / 3600)h \(String(format: "%02d", (s % 3600) / 60))m"
     }
 }
 

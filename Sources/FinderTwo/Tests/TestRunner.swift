@@ -966,6 +966,23 @@ final class TestRunner {
         FolderViewPrefs.clearAll()
         assert("clearAll empties the store", FolderViewPrefs.count == 0, "count=\(FolderViewPrefs.count)")
 
+        // --- T-eta: transfer throughput + ETA ---
+        let etaOp = TransferOp(id: 1, move: false, plan: [])
+        assert("a waiting op has no throughput", etaOp.bytesPerSecond == 0, "got \(etaOp.bytesPerSecond)")
+        assert("a waiting op has no ETA", etaOp.eta == nil, "expected nil")
+        etaOp.totalBytes = 1_000_000
+        etaOp.state = .running
+        etaOp.bytesDone = 400_000
+        // Rate/ETA depend on wall-clock elapsed; within the first 250ms both are
+        // suppressed, so just assert they're well-formed when present.
+        if let e = etaOp.eta { assert("running ETA is non-negative", e >= 0, "got \(e)") }
+        assert("etaLabel formats seconds", TransferOp.etaLabel(8) == "8s", "got \(TransferOp.etaLabel(8))")
+        assert("etaLabel formats minutes", TransferOp.etaLabel(184) == "3m 04s", "got \(TransferOp.etaLabel(184))")
+        assert("etaLabel formats hours", TransferOp.etaLabel(3720) == "1h 02m", "got \(TransferOp.etaLabel(3720))")
+        // Pause banks active time without resetting; ETA clears when not running.
+        etaOp.state = .paused
+        assert("a paused op reports no ETA", etaOp.eta == nil, "expected nil while paused")
+
         // --- T42d3: 2-way folder sync (union, newer wins, nothing deleted) ---
         let twA = sandbox.appendingPathComponent("twoway/A")
         let twB = sandbox.appendingPathComponent("twoway/B")
