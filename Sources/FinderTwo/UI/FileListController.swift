@@ -1575,12 +1575,14 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
         }
         name.font = ThemeManager.shared.font()   // live font size + monospaced themes
         applyGitState(gitState)
-        applyTagDots(for: item.url)
+        applyTagDots(for: item)
     }
 
     /// Show up to 3 colored dots for the file's color tags (Finder-style).
-    private func applyTagDots(for url: URL) {
-        let colors = Tags.cachedColors(for: url)   // memoized — no getxattr per cell
+    private func applyTagDots(for item: FileItem) {
+        // Pass the known mod-date so the cache invalidates when a new file reuses
+        // a moved/deleted file's path (no extra stat — the item already has it).
+        let colors = Tags.cachedColors(for: item.url, modified: item.modified)   // memoized — no getxattr per cell
         guard !colors.isEmpty else { tagDots.attributedStringValue = NSAttributedString(string: ""); return }
         let s = NSMutableAttributedString()
         for c in colors.prefix(3) {
