@@ -2748,6 +2748,186 @@ final class TestRunner {
         // Close the second pane to clean up
         wc.toggleExtraPane(nil)
         wait(0.05)
+
+        runGUIInteractionAudit(sandbox)
+    }
+
+    /// Off-screen GUI interaction audit: adversarial multi-step user flows driven
+    /// through the real panes/views/menu-actions/filter/undo, asserting the
+    /// CORRECT outcome (so a failure reproduces a real bug).
+    private func runGUIInteractionAudit(_ sandbox: URL) {
+        let fm = FileManager.default
+        let gi = sandbox.appendingPathComponent("gui")
+        try? fm.createDirectory(at: gi, withIntermediateDirectories: true)
+        func mkdir(_ name: String) -> URL {
+            let u = gi.appendingPathComponent(name)
+            try? fm.createDirectory(at: u, withIntermediateDirectories: true)
+            return u
+        }
+        @discardableResult func mkfile(_ dir: URL, _ name: String) -> URL {
+            let u = dir.appendingPathComponent(name)
+            try? "x".write(to: u, atomically: true, encoding: .utf8)
+            return u
+        }
+
+        // --- GI-1 (S14): filter must NOT stay sticky into a subfolder ---
+        let d14 = mkdir("s14"); mkfile(d14, "alpha_x.txt")
+        let d14sub = mkdir("s14/subdir"); mkfile(d14sub, "nested_file.txt")
+        let wc14 = BrowserWindowController(rootURL: d14); _ = wc14.window
+        if let p = wc14.testActivePane {
+            p.testReloadSync()
+            p.testSetFilter("alpha"); wait(0.05)
+            p.navigate(to: d14sub); p.testReloadSync(); wait(0.05)
+            assert("entering a subfolder clears the filter (its contents show)",
+                   p.testCurrentItems.contains { $0.name == "nested_file.txt" },
+                   "stale filter hid subfolder; items=\(p.testCurrentItems.map{$0.name})")
+        }
+        wc14.window?.close()
+
+        // --- GI-2 (S3): an attempted copy cancels a pending cut ---
+        let d3 = mkdir("s3"); let f3 = mkfile(d3, "fileZ.txt")
+        let wc3 = BrowserWindowController(rootURL: d3); _ = wc3.window
+        if let p = wc3.testActivePane {
+            p.setViewMode(.list); p.testReloadSync()
+            if let it = p.testCurrentItems.first(where: { $0.name == "fileZ.txt" }) { p.testSelectItem(it) }
+            p.cutSelection()
+            assert("precondition: fileZ is cut", FileOps.isCut(f3), "not cut")
+            p.setViewMode(.columns)            // column selection is empty here
+            p.copySelection()                  // empty-selection copy
+            assert("a copy keypress cancels the pending cut (no surprise move on next paste)",
+                   !FileOps.isCutActive(for: .general), "cut survived an empty copy → next paste would MOVE")
+        }
+        FileOps.clearCut(); wc3.window?.close()
+
+        // --- GI-3 (S5): closing the active (middle) pane keeps focus + identity ---
+        let dp = (0..<4).map { mkdir("s5/d\($0)") }
+        for (i, d) in dp.enumerated() { mkfile(d, "marker\(i).txt") }
+        let wc5 = BrowserWindowController(rootURL: dp[0]); _ = wc5.window
+        wc5.testAddPane(); wc5.testAddPane(); wc5.testAddPane()   // 4 panes
+        if wc5.testPaneCount == 4 {
+            let panes = wc5.testAllPanes
+            for (i, p) in panes.enumerated() {
+                p.navigate(to: dp[i]); p.testReloadSync()
+                if let it = p.testCurrentItems.first(where: { $0.name == "marker\(i).txt" }) { p.testSelectItem(it) }
+            }
+            wc5.focusPrevPane(nil); wc5.focusPrevPane(nil)        // active 3 → 1 (middle)
+            let middleIsActive = wc5.testActivePane === panes[1]
+            assert("focus reached the middle pane", middleIsActive, "active=\(String(describing: wc5.testActivePane))")
+            wc5.testCloseActivePane()
+            assert("closing the active pane leaves 3 panes", wc5.testPaneCount == 3, "count=\(wc5.testPaneCount)")
+            // Survivor at index 1 is the old pane index 2 → marker2.
+            let sel = wc5.testActivePane?.selectedURLs().map { $0.lastPathComponent } ?? []
+            assert("survivor selection is the next pane (marker2), not a stale/removed pane",
+                   sel == ["marker2.txt"], "got=\(sel)")
+            if let survivor = wc5.testActivePane, survivor.viewMode == .list {
+                assert("keyboard focus survives closing the active pane",
+                       wc5.window?.firstResponder === survivor.testFileList.tableView,
+                       "firstResponder=\(String(describing: wc5.window?.firstResponder))")
+            }
+        }
+        wc5.window?.close()
+
+        // --- GI-4 (S8): per-folder view memory across navigate-away-and-back ---
+        let a8 = mkdir("s8/A"); mkfile(a8, "a.txt")
+        let b8 = mkdir("s8/B"); mkfile(b8, "b.txt")
+        let wc8 = BrowserWindowController(rootURL: a8); _ = wc8.window
+        if let p = wc8.testActivePane {
+            p.navigate(to: a8); p.testReloadSync()
+            assert("folder A opens in default list view", p.viewMode == .list, "got=\(p.viewMode)")
+            p.navigate(to: b8); p.testReloadSync()
+            p.setViewMode(.columns)
+            p.navigate(to: a8); p.testReloadSync()
+            assert("returning to A restores list (default)", p.viewMode == .list, "got=\(p.viewMode)")
+            p.navigate(to: b8); p.testReloadSync()
+            assert("returning to B restores its remembered columns view", p.viewMode == .columns, "got=\(p.viewMode)")
+        }
+        wc8.window?.close()
+
+        // --- GI-5 (S9): filter→select→clear filter→trash hits the RIGHT file ---
+        let d9 = mkdir("s9")
+        for n in ["alpha_one.txt", "alpha_two.txt", "beta.txt", "gamma.md"] { mkfile(d9, n) }
+        let wc9 = BrowserWindowController(rootURL: d9); _ = wc9.window
+        if let p = wc9.testActivePane {
+            p.setViewMode(.list); p.testReloadSync()
+            p.testSetFilter("alpha"); wait(0.05)
+            if let it = p.testCurrentItems.first(where: { $0.name == "alpha_two.txt" }) { p.testSelectItem(it) }
+            p.testSetFilter(""); wait(0.05)
+            wc9.moveToTrash(nil); wait(0.05)
+            let remaining = Set((try? fm.contentsOfDirectory(atPath: d9.path)) ?? [])
+            assert("trash after clearing filter removes exactly the selected file",
+                   !remaining.contains("alpha_two.txt") && remaining.contains("alpha_one.txt")
+                     && remaining.contains("beta.txt") && remaining.contains("gamma.md"),
+                   "remaining=\(remaining)")
+        }
+        wc9.window?.close()
+
+        // --- GI-6 (S10): New Folder while a non-matching filter is active ---
+        let d10 = mkdir("s10"); mkfile(d10, "keep.txt")
+        let wc10 = BrowserWindowController(rootURL: d10); _ = wc10.window
+        if let p = wc10.testActivePane {
+            p.setViewMode(.list); p.testReloadSync()
+            p.testSetFilter("zzzz"); wait(0.05)
+            assert("precondition: filter hides everything", p.testCurrentItems.isEmpty, "not empty")
+            wc10.newFolder(nil); wait(0.1)
+            let onDisk = Set((try? fm.contentsOfDirectory(atPath: d10.path)) ?? [])
+            assert("New Folder creates the folder on disk even under a filter",
+                   onDisk.contains("untitled folder"), "disk=\(onDisk)")
+            p.testSetFilter(""); p.testReloadSync(); wait(0.1)
+            assert("the new folder is visible after clearing the filter",
+                   p.testCurrentItems.contains { $0.name == "untitled folder" }, "items=\(p.testCurrentItems.map{$0.name})")
+        }
+        wc10.window?.close()
+
+        // --- GI-7 (S2): cut in LIST → switch to COLUMNS → paste MOVES ---
+        let src2 = mkdir("s2/src"); let f2 = mkfile(src2, "fileY.txt")
+        let dst2 = mkdir("s2/dst")
+        let wc2 = BrowserWindowController(rootURL: src2); _ = wc2.window
+        if let p = wc2.testActivePane {
+            p.setViewMode(.list); p.navigate(to: src2); p.testReloadSync()
+            if let it = p.testCurrentItems.first(where: { $0.name == "fileY.txt" }) { p.testSelectItem(it) }
+            p.cutSelection()
+            p.setViewMode(.columns)
+            p.navigate(to: dst2); p.testReloadSync()
+            p.pasteHere()
+            let moved = waitUntil(3) { fm.fileExists(atPath: dst2.appendingPathComponent("fileY.txt").path) }
+            assert("cross-view cut→paste MOVES the file into the destination", moved, "fileY not in dst")
+            assert("cross-view cut→paste removes the source (move, not copy)",
+                   !fm.fileExists(atPath: f2.path), "source still present")
+        }
+        FileOps.clearCut(); wc2.window?.close()
+
+        // --- GI-8 (S12/S13): paste with a missing source / deleted dest must not crash ---
+        let d12 = mkdir("s12"); let f12 = mkfile(d12, "fileR.txt")
+        let d12a = mkdir("s12/d1"); let d12b = mkdir("s12/d2")
+        let wc12 = BrowserWindowController(rootURL: d12); _ = wc12.window
+        if let p = wc12.testActivePane {
+            p.setViewMode(.list); p.navigate(to: d12); p.testReloadSync()
+            if let it = p.testCurrentItems.first(where: { $0.name == "fileR.txt" }) { p.testSelectItem(it) }
+            p.cutSelection()
+            p.navigate(to: d12a); p.testReloadSync(); p.pasteHere()
+            _ = waitUntil(3) { fm.fileExists(atPath: d12a.appendingPathComponent("fileR.txt").path) }
+            // Second paste: source is gone (already moved). Must not crash / must not leave a stub.
+            p.navigate(to: d12b); p.testReloadSync(); p.pasteHere(); wait(0.2)
+            assert("double-paste after a cut-move leaves no stub in the 2nd destination",
+                   !fm.fileExists(atPath: d12b.appendingPathComponent("fileR.txt").path), "stub created")
+            _ = f12
+        }
+        FileOps.clearCut()
+        // Paste into a destination deleted out from under the pane.
+        let s13 = mkdir("s13"); let f13 = mkfile(s13, "fileS.txt")
+        let gone = mkdir("s13/gone")
+        let wc13 = BrowserWindowController(rootURL: s13); _ = wc13.window
+        if let p = wc13.testActivePane {
+            p.setViewMode(.list); p.navigate(to: s13); p.testReloadSync()
+            if let it = p.testCurrentItems.first(where: { $0.name == "fileS.txt" }) { p.testSelectItem(it) }
+            p.copySelection()
+            p.navigate(to: gone); p.testReloadSync()
+            try? fm.removeItem(at: gone)
+            p.pasteHere(); wait(0.2)
+            assert("paste into a deleted destination doesn't crash and keeps the source",
+                   fm.fileExists(atPath: f13.path), "source lost")
+        }
+        FileOps.clearCut(); wc12.window?.close(); wc13.window?.close()
     }
 
     /// Dismiss any sheets on the window + its children so the next action's

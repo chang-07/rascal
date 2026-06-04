@@ -67,6 +67,7 @@ final class DirectoryModel {
     func navigate(to url: URL) {
         guard url != self.url else { return }
         self.url = url
+        filterText = ""   // a freshly-entered folder starts unfiltered (Finder behavior)
         if SidebarController.isRecentsURL(url) {
             // Recents smart folder: recently-modified files via Spotlight.
             watcher?.stop()

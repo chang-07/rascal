@@ -770,12 +770,15 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     /// Copy currently selected files to the general pasteboard as file URLs.
     func copySelection() {
+        // A copy keypress supersedes any pending cut — even with an empty
+        // selection, so a stray ⌘C can't leave a cut live for the next paste
+        // (which would then silently MOVE instead of copy).
+        FileOps.clearCut()
         let urls = selectedURLs()
         guard !urls.isEmpty else { NSSound.beep(); return }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects(urls.map { $0 as NSURL })
-        FileOps.clearCut()   // a plain copy supersedes any pending cut
     }
 
     /// ⌘X — mark the selected files as cut: they render dimmed, and the next
@@ -888,6 +891,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         toolbar.canGoBack = activeTab.canGoBack
         toolbar.canGoForward = activeTab.canGoForward
         toolbar.pathText = activeTab.currentURL.path
+        toolbar.syncFilterDisplay(activeTab.model.filterText)   // field follows the (nav-reset) filter
         if announce { onURLChange?(activeTab.currentURL) }
         if notesVisible { notesView.folderURL = activeTab.currentURL }
         if terminalVisible { terminalView.cwd = activeTab.currentURL }

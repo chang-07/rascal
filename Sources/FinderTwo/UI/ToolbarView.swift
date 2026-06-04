@@ -139,6 +139,13 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
         onSearchChanged?("")
     }
 
+    /// Update the field's displayed text to match the model WITHOUT propagating
+    /// (the model filter was already set elsewhere — e.g. reset on navigation —
+    /// so re-firing onSearchChanged would just recompute redundantly).
+    func syncFilterDisplay(_ value: String) {
+        if searchField.stringValue != value { searchField.stringValue = value }
+    }
+
     @objc private func handleBack() { onBack?() }
     @objc private func handleForward() { onForward?() }
     @objc private func handleUp() { onUp?() }

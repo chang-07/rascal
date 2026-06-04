@@ -164,8 +164,12 @@ enum FileOps {
         return mask.contains(.copy)
     }
 
-    static func transfer(_ urls: [URL], into destination: URL, move: Bool, from window: NSWindow? = nil) {
+    static func transfer(_ allURLs: [URL], into destination: URL, move: Bool, from window: NSWindow? = nil) {
         let fm = FileManager.default
+        // Skip sources that no longer exist (e.g. a stale cut/copy whose file was
+        // already moved away); copying a missing source would leave an empty stub.
+        let urls = allURLs.filter { fm.fileExists(atPath: $0.path) }
+        guard !urls.isEmpty else { return }
         // Phase 1 (main thread): resolve conflicts, build the work plan.
         var applyAll: Conflict?
         var plan: [(src: URL, dst: URL, merge: Bool)] = []

@@ -303,7 +303,7 @@ final class TransferQueue {
             waitWhilePaused(op)
             if op.cancelFlag.value { try? fm.removeItem(at: dst); return false }
             let n = input.read(&buf, maxLength: cap)
-            if n < 0 { return false }
+            if n < 0 { try? fm.removeItem(at: dst); return false }   // read error → don't leave a stub
             if n == 0 { break }
             do { try out.write(contentsOf: Data(buf[0..<n])) } catch { return false }
             op.bytesDone += Int64(n)
