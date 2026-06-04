@@ -433,7 +433,7 @@ enum ActionRegistry {
               title: "Select by Pattern…",
               category: .edit,
               icon: "wand.and.stars",
-              defaultShortcut: KeyShortcut("a", [.command, .control])) { $0.selectByPattern(nil) },
+              defaultShortcut: KeyShortcut("a", [.command, .option])) { $0.selectByPattern(nil) },   // ⌥⌘A (⌃⌘A collided with file.make-alias)
         .init(id: "net.connect-server",
               title: "Connect to Server…",
               category: .navigation,
@@ -496,7 +496,7 @@ enum ActionRegistry {
     /// Returns the id of an action already bound to `shortcut`, other than
     /// `excluding`. Used by the editor to flag conflicts before assigning.
     static func conflictingActionId(for target: KeyShortcut, excluding id: String) -> String? {
-        for a in all where a.id != id {
+        for a in allIncludingPlugins() where a.id != id {
             if shortcut(for: a.id) == target { return a.id }
         }
         return nil

@@ -113,7 +113,7 @@ enum Archive {
             case .tarBz2: flag = "-xjOf"
             default: flag = "-xOf"
             }
-            proc.arguments = [flag, archive.path, pattern]
+            proc.arguments = [flag, archive.path, "--", pattern]   // -- so a member named like -x isn't read as a flag
         }
         do { try proc.run() } catch { try? fm.removeItem(at: outFile); return nil }
         proc.waitUntilExit()

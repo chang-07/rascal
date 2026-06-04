@@ -293,7 +293,7 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
             for sub in ignores {
                 args.append(contentsOf: ["--glob", "!\(sub)"])
             }
-            args.append(contentsOf: [pattern, rootURL.path])
+            args.append(contentsOf: ["--", pattern, rootURL.path])   // -- so a pattern starting with '-' can't be read as a flag
             task.arguments = args
         } else if let g = grepPath {
             task.executableURL = URL(fileURLWithPath: g)
@@ -301,7 +301,7 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
             for sub in ignores {
                 args.append("--exclude-dir=\(sub)")
             }
-            args.append(contentsOf: [pattern, rootURL.path])
+            args.append(contentsOf: ["--", pattern, rootURL.path])   // -- so a pattern starting with '-' can't be read as a flag
             task.arguments = args
         } else {
             statusLabel.stringValue = "No grep/rg available"

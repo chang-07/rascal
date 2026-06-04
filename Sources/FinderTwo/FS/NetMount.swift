@@ -48,7 +48,12 @@ enum NetMount {
             } else {
                 // Hand off to the system connect flow (handles interactive auth).
                 DispatchQueue.main.async {
-                    if NSWorkspace.shared.open(url) { completion(.systemHandoff) }
+                    // Strip any embedded credentials before handing the URL to the
+                    // system (NSWorkspace may surface/log the full URL).
+                    var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                    comps?.user = nil; comps?.password = nil
+                    let safeURL = comps?.url ?? url
+                    if NSWorkspace.shared.open(safeURL) { completion(.systemHandoff) }
                     else { completion(.failure("Could not connect to the server (error \(status)).")) }
                 }
             }
