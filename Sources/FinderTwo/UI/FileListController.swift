@@ -779,6 +779,17 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
 
     /// Programmatic rename without requiring keyboard focus — useful for tests and
     /// future automation. Renames the currently selected item to `newName`.
+    /// True when both URLs resolve to the SAME on-disk item (same inode). Lets a
+    /// case-only rename (report.txt → Report.txt) through on case-insensitive
+    /// volumes, where fileExists() otherwise reports the item colliding with
+    /// itself. Correct on case-sensitive volumes too (distinct inodes → blocked).
+    private func refersToSameItem(_ a: URL, _ b: URL) -> Bool {
+        guard let ia = (try? a.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier,
+              let ib = (try? b.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier
+        else { return false }
+        return ia.isEqual(ib)
+    }
+
     func commitInlineRename(to newName: String) {
         guard let mi = modelIndex(forRow: tableView.selectedRow),
               model.items.indices.contains(mi) else { NSSound.beep(); return }
@@ -787,7 +798,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         guard !trimmed.isEmpty, !trimmed.contains("/") else { NSSound.beep(); return }
         let newURL = item.url.deletingLastPathComponent().appendingPathComponent(trimmed)
         if newURL == item.url { return }
-        if FileManager.default.fileExists(atPath: newURL.path) { NSSound.beep(); return }
+        if FileManager.default.fileExists(atPath: newURL.path), !refersToSameItem(newURL, item.url) {
+            NSSound.beep(); return
+        }
         do {
             try FileManager.default.moveItem(at: item.url, to: newURL)
             FileActionLog.shared.recordMove(from: item.url, to: newURL, name: "Rename")
@@ -808,7 +821,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         }
         let newURL = item.url.deletingLastPathComponent().appendingPathComponent(trimmed)
         if newURL == item.url { return }
-        if FileManager.default.fileExists(atPath: newURL.path) {
+        if FileManager.default.fileExists(atPath: newURL.path), !refersToSameItem(newURL, item.url) {
             NSSound.beep()
             cell.name.stringValue = item.name
             return

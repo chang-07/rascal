@@ -684,6 +684,22 @@ final class TestRunner {
         pane.setViewMode(.list)
         pane.navigate(to: sandbox); pane.testReloadSync()
 
+        // --- T31c: case-only rename (report.txt → Report.txt) must work ---
+        let caseRen = sandbox.appendingPathComponent("caseRen")
+        try? FileManager.default.createDirectory(at: caseRen, withIntermediateDirectories: true)
+        try? "x".write(to: caseRen.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
+        pane.navigate(to: caseRen); pane.testReloadSync()
+        if let rep = pane.testCurrentItems.first(where: { $0.name == "report.txt" }) {
+            pane.testSelectItem(rep)
+            pane.testFileList.commitInlineRename(to: "Report.txt")
+            let names = Set((try? FileManager.default.contentsOfDirectory(atPath: caseRen.path)) ?? [])
+            assert("case-only rename succeeds (report.txt → Report.txt)",
+                   names.contains("Report.txt"), "got=\(names)")
+        } else {
+            assert("case-rename precondition: report.txt present", false, "missing")
+        }
+        pane.navigate(to: sandbox); pane.testReloadSync()
+
         // --- T32: Hotbar default config has 10 items ---
         let hotbarIds = HotbarView.defaultIds()
         assert("hotbar default has 10 buttons",
