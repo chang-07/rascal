@@ -728,11 +728,24 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects(urls.map { $0 as NSURL })
+        FileOps.clearCut()   // a plain copy supersedes any pending cut
     }
 
-    /// Paste file URLs from pasteboard into current directory (copy semantics).
+    /// ⌘X — mark the selected files as cut: they render dimmed, and the next
+    /// paste MOVES them into the destination instead of copying. A later copy
+    /// (or another cut) cancels this one.
+    func cutSelection() {
+        let urls = selectedURLs()
+        guard !urls.isEmpty else { NSSound.beep(); return }
+        FileOps.markCut(urls, to: NSPasteboard.general)
+    }
+
+    /// Paste file URLs from the pasteboard into the current directory. If the
+    /// pasteboard still holds an active cut, this moves; otherwise it copies.
     func pasteHere() {
-        FileOps.paste(NSPasteboard.general, into: currentURL, move: false, from: view.window)
+        let pb = NSPasteboard.general
+        let move = FileOps.consumeCutFlag(for: pb)
+        FileOps.paste(pb, into: currentURL, move: move, from: view.window)
     }
 
     /// Paste file URLs from pasteboard into current directory (move semantics).

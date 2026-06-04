@@ -309,7 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editMenu.addItem(undoItem); editMenu.addItem(redoItem)
         undoMenuItem = undoItem; redoMenuItem = redoItem
         editMenu.addItem(NSMenuItem.separator())
-        editMenu.addItem(systemItem(title: "Cut", action: #selector(NSText.cut(_:)), key: "x"))
+        editMenu.addItem(routed("edit.cut"))
         editMenu.addItem(routed("edit.copy"))
         editMenu.addItem(routed("edit.paste"))
         editMenu.addItem(routed("edit.paste-move"))

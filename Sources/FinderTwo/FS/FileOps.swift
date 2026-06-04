@@ -1,6 +1,60 @@
 import AppKit
 
 enum FileOps {
+    // MARK: - Cut / paste-as-move clipboard state
+    //
+    // macOS Finder has no true "cut"; the #1 user complaint. We add one: ⌘X
+    // writes the URLs to the pasteboard (so ⌘V still works) AND remembers them
+    // plus the pasteboard's changeCount. While that changeCount is still current
+    // (nothing else was copied), the next ⌘V MOVES instead of copies and the cut
+    // rows render dimmed. Any later copy bumps changeCount, which transparently
+    // invalidates the cut — no stale state to clean up.
+    private static var cutChangeCount: Int = -1
+    private static var cutPaths: Set<String> = []
+
+    /// Posted when the cut set changes so file lists can redraw dimmed rows.
+    static let clipboardDidChange = Notification.Name("FinderTwo.clipboardDidChange")
+
+    /// ⌘X: mark `urls` as cut. Writes them to `pasteboard` so a plain paste still
+    /// works, and remembers them for move-on-paste + dimming.
+    static func markCut(_ urls: [URL], to pasteboard: NSPasteboard) {
+        guard !urls.isEmpty else { return }
+        pasteboard.clearContents()
+        pasteboard.writeObjects(urls.map { $0 as NSURL })
+        cutChangeCount = pasteboard.changeCount
+        cutPaths = Set(urls.map { $0.standardizedFileURL.path })
+        NotificationCenter.default.post(name: clipboardDidChange, object: nil)
+    }
+
+    /// True while `pasteboard` still holds the most recent cut (nothing copied since).
+    static func isCutActive(for pasteboard: NSPasteboard) -> Bool {
+        pasteboard.changeCount == cutChangeCount && !cutPaths.isEmpty
+    }
+
+    /// For row dimming: is `url` part of the still-live cut set? Tied to the live
+    /// general-pasteboard changeCount, so a subsequent copy auto-un-dims.
+    static func isCut(_ url: URL) -> Bool {
+        guard NSPasteboard.general.changeCount == cutChangeCount, !cutPaths.isEmpty else { return false }
+        return cutPaths.contains(url.standardizedFileURL.path)
+    }
+
+    /// If `pasteboard` holds an active cut, clear the marker and return true (so
+    /// the caller pastes as a MOVE). Otherwise false (paste as a copy).
+    static func consumeCutFlag(for pasteboard: NSPasteboard) -> Bool {
+        guard isCutActive(for: pasteboard) else { return false }
+        clearCut()
+        return true
+    }
+
+    /// Drop the cut marker (after a plain copy, or once a cut-move is underway)
+    /// and refresh any dimmed rows.
+    static func clearCut() {
+        guard !cutPaths.isEmpty || cutChangeCount != -1 else { return }
+        cutChangeCount = -1
+        cutPaths = []
+        NotificationCenter.default.post(name: clipboardDidChange, object: nil)
+    }
+
     /// Move to Trash, optionally behind a confirmation alert (Settings.confirmTrash).
     static func trashWithConfirmation(_ urls: [URL]) {
         guard !urls.isEmpty else { return }

@@ -544,6 +544,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
 
     @objc func pasteMove(_ sender: Any?) { activePane?.pasteMoveHere() }
     @objc func copyFiles(_ sender: Any?) { activePane?.copySelection() }
+    /// ⌘X — file-cut only when THIS browser window is frontmost and the file
+    /// list (not a text field) has focus; otherwise fall through to the standard
+    /// text cut so editing a filename / search / settings field still works in
+    /// any window. (The menu item is app-wide, so we must not hijack ⌘X.)
+    @objc func cutFiles(_ sender: Any?) {
+        let fr = window?.firstResponder
+        if NSApp.keyWindow === window, !(fr is NSText), !(fr is NSTextView) {
+            activePane?.cutSelection()
+        } else {
+            NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: sender)
+        }
+    }
     @objc func pasteFiles(_ sender: Any?) { activePane?.pasteHere() }
     @objc func duplicate(_ sender: Any?) { activePane?.duplicateSelection() }
 

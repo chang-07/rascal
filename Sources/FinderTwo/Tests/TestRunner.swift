@@ -921,6 +921,31 @@ final class TestRunner {
             assert("compress(.tarGz) of a flag-named file returns a URL", false, "nil — tar parsed the name as a flag")
         }
 
+        // --- T-cut: true cut (⌘X) clipboard state machine (move-vs-copy) ---
+        // Uses a NAMED test pasteboard so it never touches the user's clipboard.
+        let cutPB = NSPasteboard(name: NSPasteboard.Name("FinderTwo.cutTest"))
+        cutPB.clearContents()
+        let cutA = sandbox.appendingPathComponent("cutA.txt")
+        try? "a".write(to: cutA, atomically: true, encoding: .utf8)
+        FileOps.markCut([cutA], to: cutPB)
+        assert("markCut makes the cut active", FileOps.isCutActive(for: cutPB), "expected active")
+        // A copy = a new write bumps changeCount → cut no longer active → paste copies.
+        cutPB.clearContents(); cutPB.writeObjects([cutA as NSURL])
+        assert("a later copy cancels the cut", !FileOps.isCutActive(for: cutPB), "cut survived a copy")
+        // Re-cut, then consume: first paste moves; the flag is one-shot.
+        FileOps.markCut([cutA], to: cutPB)
+        assert("consumeCutFlag returns true once (paste moves)", FileOps.consumeCutFlag(for: cutPB), "expected move")
+        assert("consumeCutFlag is one-shot (next paste copies)", !FileOps.consumeCutFlag(for: cutPB), "cut not consumed")
+        // clearCut resets.
+        FileOps.markCut([cutA], to: cutPB)
+        FileOps.clearCut()
+        assert("clearCut deactivates the cut", !FileOps.isCutActive(for: cutPB), "still active after clear")
+        // The action is registered at ⌘X.
+        assert("edit.cut action exists", ActionRegistry.action(id: "edit.cut") != nil, "missing")
+        if let sc = ActionRegistry.shortcut(for: "edit.cut") {
+            assert("edit.cut defaults to ⌘X", sc.key == "x" && sc.modifiers == [.command], "got \(sc.key)/\(sc.modifiers)")
+        } else { assert("edit.cut has a shortcut", false, "nil") }
+
         // --- T42d3: 2-way folder sync (union, newer wins, nothing deleted) ---
         let twA = sandbox.appendingPathComponent("twoway/A")
         let twB = sandbox.appendingPathComponent("twoway/B")

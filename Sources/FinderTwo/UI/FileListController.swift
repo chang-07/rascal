@@ -145,8 +145,23 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     init(model: DirectoryModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(clipboardDidChangeNote),
+                                               name: FileOps.clipboardDidChange, object: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    /// Redraw cut-marked rows (dim) / cleared rows (restore) after any cut/copy.
+    @objc private func clipboardDidChangeNote() {
+        tableView.enumerateAvailableRowViews { [weak self] rowView, row in
+            guard let self else { return }
+            if let mi = self.modelIndex(forRow: row), self.model.items.indices.contains(mi) {
+                rowView.alphaValue = FileOps.isCut(self.model.items[mi].url) ? 0.45 : 1.0
+            } else {
+                rowView.alphaValue = 1.0
+            }
+        }
+    }
 
     override func loadView() {
         tableView.listController = self
@@ -571,6 +586,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         v.pill = false          // full-width band, classic list selection
         v.isEmphasized = true
         v.alternating = true
+        // Dim rows marked for cut (⌘X) until they're pasted or the cut is cleared.
+        if let mi = modelIndex(forRow: row), model.items.indices.contains(mi) {
+            v.alphaValue = FileOps.isCut(model.items[mi].url) ? 0.45 : 1.0
+        }
         return v
     }
 
@@ -858,6 +877,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         }
         m.addItem(NSMenuItem.separator())
         m.addItem(NSMenuItem(title: "Get Info", action: #selector(menuGetInfo), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Cut", action: #selector(menuCut), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Copy", action: #selector(menuCopy), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Copy Path", action: #selector(menuCopyPath), keyEquivalent: ""))
         if selectedItems().contains(where: { !$0.isDirectory }) {
@@ -1202,6 +1222,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects(selectedItems().map { $0.url as NSURL })
+        FileOps.clearCut()   // a plain copy supersedes any pending cut
+    }
+    @objc private func menuCut() {
+        FileOps.markCut(selectedItems().map { $0.url }, to: NSPasteboard.general)
     }
     @objc private func menuCopyPath() {
         let paths = selectedItems().map { $0.url.path }
@@ -1309,7 +1333,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
 
     /// Entry points usable from menus & the command palette.
     @objc private func menuPaste() {
-        FileOps.paste(NSPasteboard.general, into: model.url, move: false, from: view.window)
+        let pb = NSPasteboard.general
+        let move = FileOps.consumeCutFlag(for: pb)
+        FileOps.paste(pb, into: model.url, move: move, from: view.window)
     }
     @objc private func menuNewFolderWithSelection() {
         let sel = selectedItems().map { $0.url }
