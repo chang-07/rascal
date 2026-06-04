@@ -780,7 +780,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     }
     func restoreFromSnapshot(_ snap: [String: Any]) {
         guard let panes = snap["panes"] as? [[String: Any]], !panes.isEmpty else { return }
-        // First pane is the one created in init; restore it
+        // Restore REPLACES the layout: prune any surplus panes down to one, then
+        // rebuild exactly the snapshot's pane set (otherwise a saved 1-pane
+        // workspace would leave a live 3-pane window at 3 panes).
+        while panesContainer.testPaneCount > 1 { panesContainer.removeLastPane() }
         panesContainer.allPanes.first?.restoreFromSnapshot(panes[0])
         for p in panes.dropFirst() {
             panesContainer.addPaneForRestore(snap: p)

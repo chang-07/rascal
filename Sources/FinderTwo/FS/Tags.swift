@@ -69,18 +69,26 @@ enum Tags {
     // scroll jank, so memoize the non-`.none` colors and only invalidate when a
     // tag is actually written (file add/remove can't change an existing file's
     // tags, so the cache survives directory reloads).
-    private static let colorCache = NSCache<NSString, NSArray>()
+    /// Cached colors tagged with the file's mod-date, so a NEW file that reuses a
+    /// moved/deleted file's exact path doesn't inherit its (stale) cached colors.
+    private final class CacheEntry {
+        let stamp: TimeInterval
+        let colors: [NSNumber]
+        init(_ stamp: TimeInterval, _ colors: [NSNumber]) { self.stamp = stamp; self.colors = colors }
+    }
+    private static let colorCache = NSCache<NSString, CacheEntry>()
 
-    static func cachedColors(for url: URL) -> [Color] {
+    static func cachedColors(for url: URL, modified: Date) -> [Color] {
         if PermissionsManager.isProtectedPath(url.path) && !PermissionsManager.hasFullDiskAccess {
             return []
         }
         let key = url.path as NSString
-        if let nums = colorCache.object(forKey: key) as? [NSNumber] {
-            return nums.compactMap { Color(rawValue: $0.intValue) }
+        let stamp = modified.timeIntervalSince1970
+        if let entry = colorCache.object(forKey: key), entry.stamp == stamp {
+            return entry.colors.compactMap { Color(rawValue: $0.intValue) }
         }
         let colors = read(url).map { $0.color }.filter { $0 != .none }
-        colorCache.setObject(colors.map { NSNumber(value: $0.rawValue) } as NSArray, forKey: key)
+        colorCache.setObject(CacheEntry(stamp, colors.map { NSNumber(value: $0.rawValue) }), forKey: key)
         return colors
     }
 

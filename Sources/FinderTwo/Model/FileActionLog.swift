@@ -87,9 +87,20 @@ final class FileActionLog {
     /// redo can't reliably recreate arbitrary content, so it's a no-op that
     /// simply keeps the stack consistent.
     func recordCreate(_ url: URL, name: String) {
+        var trashed: URL?   // captured on undo so redo can restore from the Trash
         record(name,
-            undo: { (try? Self.fm.trashItem(at: url, resultingItemURL: nil)) != nil },
-            redo: { true })
+            undo: {
+                var out: NSURL?
+                guard (try? Self.fm.trashItem(at: url, resultingItemURL: &out)) != nil else { return false }
+                trashed = out as URL?
+                return true
+            },
+            redo: {
+                // Re-create by restoring the item we trashed on undo (so undo-all
+                // → redo-all brings New Folder / New File / Duplicate back).
+                guard let t = trashed else { return false }
+                return Self.safeMove(t, url)
+            })
     }
 
     /// Record a move-to-trash: `original` was trashed to `trashedURL`.

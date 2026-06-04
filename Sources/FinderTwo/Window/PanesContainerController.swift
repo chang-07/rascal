@@ -86,6 +86,12 @@ final class PanesContainerController: NSSplitViewController {
         closePane(active)
     }
 
+    /// Remove the rightmost pane (used by layout restore to prune surplus panes).
+    func removeLastPane() {
+        guard panes.count > 1 else { return }
+        closePane(panes[panes.count - 1])
+    }
+
     @discardableResult
     private func addPane(at url: URL, activate: Bool) -> PaneController {
         let pane = PaneController(url: url)

@@ -109,6 +109,12 @@ final class DropStackController: NSWindowController, NSTableViewDataSource, NSTa
     @objc private func moveAllHere() { transferAll(move: true) }
     private func transferAll(move: Bool) {
         guard !items.isEmpty, let dest = frontFolder else { NSSound.beep(); return }
+        // Don't empty the shelf if the destination is gone — the move can't
+        // succeed, so the collected references must survive.
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dest.path, isDirectory: &isDir), isDir.boolValue else {
+            NSSound.beep(); return
+        }
         FileOps.transfer(items, into: dest, move: move, from: BrowserWindowController.frontmost?.window)
         if move { DropStack.clear() }
     }

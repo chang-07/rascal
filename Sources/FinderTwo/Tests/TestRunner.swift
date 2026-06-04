@@ -2928,6 +2928,101 @@ final class TestRunner {
                    fm.fileExists(atPath: f13.path), "source lost")
         }
         FileOps.clearCut(); wc12.window?.close(); wc13.window?.close()
+
+        // --- GI-9 (S-A1): undo-all → redo-all over a mixed chain loses nothing ---
+        let a1 = mkdir("a1"); mkfile(a1, "r.txt"); mkfile(a1, "dup.txt")
+        let wcA1 = BrowserWindowController(rootURL: a1); _ = wcA1.window
+        if let p = wcA1.testActivePane {
+            p.setViewMode(.list); p.testReloadSync()
+            FileActionLog.shared.clear()
+            _ = FileOps.newFolder(in: a1)                                   // op1 create
+            let r = a1.appendingPathComponent("r.txt"); let r2 = a1.appendingPathComponent("r2.txt")
+            try? fm.moveItem(at: r, to: r2); FileActionLog.shared.recordMove(from: r, to: r2, name: "Rename")  // op2
+            p.testReloadSync()
+            if let it = p.testCurrentItems.first(where: { $0.name == "dup.txt" }) { p.testSelectItem(it) }
+            p.duplicateSelection(); wait(0.05)                             // op3 create (dup copy.txt)
+            FileOps.moveToTrash([r2]); wait(0.05)                          // op4 trash
+            let afterOps = Set((try? fm.contentsOfDirectory(atPath: a1.path)) ?? [])
+            while FileActionLog.shared.canUndo { _ = FileActionLog.shared.performUndo() }; wait(0.05)
+            assert("undo-all returns to the original files",
+                   Set((try? fm.contentsOfDirectory(atPath: a1.path)) ?? []) == ["r.txt", "dup.txt"],
+                   "got=\(Set((try? fm.contentsOfDirectory(atPath: a1.path)) ?? []))")
+            while FileActionLog.shared.canRedo { _ = FileActionLog.shared.performRedo() }; wait(0.05)
+            assert("redo-all restores New Folder + Duplicate (no data loss)",
+                   Set((try? fm.contentsOfDirectory(atPath: a1.path)) ?? []) == afterOps,
+                   "redo=\(Set((try? fm.contentsOfDirectory(atPath: a1.path)) ?? [])) expected=\(afterOps)")
+            FileActionLog.shared.clear()
+        }
+        wcA1.window?.close()
+
+        // --- GI-10 (S-A8): restoring a 1-pane workspace prunes a 3-pane window ---
+        let x8 = mkdir("a8b/X"); mkfile(x8, "x.txt"); let y8 = mkdir("a8b/Y"); mkfile(y8, "y.txt")
+        let wcS1 = BrowserWindowController(rootURL: x8); _ = wcS1.window
+        let snap1 = wcS1.sessionSnapshot()
+        let wcS2 = BrowserWindowController(rootURL: y8); _ = wcS2.window
+        wcS2.testAddPane(); wcS2.testAddPane()
+        assert("precondition: 3 panes before restore", wcS2.testPaneCount == 3, "count=\(wcS2.testPaneCount)")
+        wcS2.restoreFromSnapshot(snap1); wait(0.1)
+        assert("restoring a 1-pane layout prunes back to 1 pane", wcS2.testPaneCount == 1, "count=\(wcS2.testPaneCount)")
+        wcS1.window?.close(); wcS2.window?.close()
+
+        // --- GI-11 (S-A5): closing the active MIDDLE tab activates the correct neighbor ---
+        let td = (0..<4).map { mkdir("a5b/d\($0)") }
+        for (i, d) in td.enumerated() { mkfile(d, "marker\(i).txt") }
+        let wc5b = BrowserWindowController(rootURL: td[0]); _ = wc5b.window
+        if let p = wc5b.testActivePane {
+            p.newTab(at: td[1]); p.newTab(at: td[2]); p.newTab(at: td[3])
+            assert("4 tabs open", p.testTabCount == 4, "count=\(p.testTabCount)")
+            p.selectTab(at: 1); p.closeActiveTab(); wait(0.05)
+            assert("closing a middle tab leaves 3 tabs", p.testTabCount == 3, "count=\(p.testTabCount)")
+            p.testReloadSync()
+            assert("the next tab (d2) becomes active after closing the middle",
+                   p.currentURL.lastPathComponent == "d2", "cur=\(p.currentURL.lastPathComponent)")
+            assert("active tab shows d2's contents",
+                   p.testCurrentItems.contains { $0.name == "marker2.txt" }, "items=\(p.testCurrentItems.map{$0.name})")
+        }
+        wc5b.window?.close()
+
+        // --- GI-12 (S-A6): closing the last tab routes to window close (no crash) ---
+        let a6 = mkdir("a6"); mkfile(a6, "z.txt")
+        let wc6 = BrowserWindowController(rootURL: a6); _ = wc6.window
+        if let p = wc6.testActivePane {
+            assert("single-tab precondition", p.testTabCount == 1, "count=\(p.testTabCount)")
+            p.closeActiveTab(); wait(0.1)
+            assert("closing the last tab doesn't crash", true, "")
+        }
+
+        // --- GI-13 (S-A11): tag follows a moved file; old-path cache doesn't leak ---
+        let ta = mkdir("a11/A"); let tb = mkdir("a11/B"); let tf = mkfile(ta, "doc.txt")
+        Tags.write([Tags.Tag(name: "Urgent", color: .red)], to: tf)
+        assert("tag written + read back", Tags.read(tf).contains { $0.name == "Urgent" }, "tag not read")
+        func modOf(_ u: URL) -> Date { (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast }
+        _ = Tags.cachedColors(for: tf, modified: modOf(tf))
+        let movedURL = tb.appendingPathComponent("doc.txt")
+        try? fm.moveItem(at: tf, to: movedURL)
+        assert("tag follows the moved file", Tags.read(movedURL).contains { $0.name == "Urgent" }, "tag lost on move")
+        mkfile(ta, "doc.txt")   // new, untagged file at the vacated path
+        let newDoc = ta.appendingPathComponent("doc.txt")
+        assert("old-path tag cache doesn't leak onto a new file",
+               Tags.cachedColors(for: newDoc, modified: modOf(newDoc)).isEmpty,
+               "stale=\(Tags.cachedColors(for: newDoc, modified: modOf(newDoc)))")
+
+        // --- GI-14 (S-A13): pattern-select + trash under grouping hits exactly the set ---
+        let g13 = mkdir("a13"); for n in ["one.png", "two.png", "three.txt", "four.txt"] { mkfile(g13, n) }
+        let wc13b = BrowserWindowController(rootURL: g13); _ = wc13b.window
+        let prevGroups = Settings.useGroups
+        Settings.useGroups = true
+        if let p = wc13b.testActivePane {
+            p.setViewMode(.list); p.navigate(to: g13); p.testReloadSync()
+            let n = p.testSelectMatching("*.png")
+            assert("pattern-select under grouping selects 2 PNGs", n == 2, "n=\(n)")
+            assert("trash under grouping removes exactly the matched PNGs", {
+                wc13b.moveToTrash(nil); wait(0.1)
+                return Set((try? fm.contentsOfDirectory(atPath: g13.path)) ?? []) == ["three.txt", "four.txt"]
+            }(), "left=\(Set((try? fm.contentsOfDirectory(atPath: g13.path)) ?? []))")
+        }
+        Settings.useGroups = prevGroups
+        wc13b.window?.close()
     }
 
     /// Dismiss any sheets on the window + its children so the next action's
