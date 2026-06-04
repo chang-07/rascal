@@ -660,6 +660,30 @@ final class TestRunner {
         pane.setViewMode(.list)
         assert("switched back to list", pane.viewMode == .list, "viewMode=\(pane.viewMode)")
 
+        // --- T31b: column-view selection routes through selectedURLs() ---
+        // Regression: previously `.columns` fell through to the hidden list's
+        // selection, so cut/copy/Get-Info acted on the wrong items.
+        let colDir = sandbox.appendingPathComponent("colsel")
+        try? FileManager.default.createDirectory(at: colDir, withIntermediateDirectories: true)
+        try? "x".write(to: colDir.appendingPathComponent("colfile.txt"), atomically: true, encoding: .utf8)
+        pane.navigate(to: colDir); pane.testReloadSync()
+        pane.setViewMode(.list)
+        if let item = pane.testCurrentItems.first { pane.testSelectItem(item) }
+        assert("list selection is non-empty (precondition)", !pane.selectedURLs().isEmpty, "no list selection")
+        pane.setViewMode(.columns)
+        assert("column mode ignores the hidden list's selection",
+               pane.selectedURLs().isEmpty, "leaked list selection: \(pane.selectedURLs())")
+        // Positive path (NSBrowser selection may not register headless — guarded).
+        if let cvc = pane.testColumnVC {
+            let sel = cvc.testSelectFirstRow()
+            if !sel.isEmpty {
+                assert("pane.selectedURLs reflects the column selection",
+                       pane.selectedURLs() == sel, "got=\(pane.selectedURLs())")
+            }
+        }
+        pane.setViewMode(.list)
+        pane.navigate(to: sandbox); pane.testReloadSync()
+
         // --- T32: Hotbar default config has 10 items ---
         let hotbarIds = HotbarView.defaultIds()
         assert("hotbar default has 10 buttons",

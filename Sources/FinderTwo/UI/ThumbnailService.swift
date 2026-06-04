@@ -27,9 +27,11 @@ final class ThumbnailService {
         if inFlight.contains(url) { return nil }
         inFlight.insert(url)
 
+        // NSScreen is main-thread-only; sample the backing scale here (this method
+        // runs on main, from the cell render path) rather than off the work queue.
+        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
         queue.async { [weak self] in
             guard let self else { return }
-            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
             let request = QLThumbnailGenerator.Request(
                 fileAt: url,
                 size: size,

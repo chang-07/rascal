@@ -117,7 +117,7 @@ final class TransferQueue {
     static let shared = TransferQueue()
 
     var onChange: (() -> Void)?            // always delivered on main
-    private(set) var ops: [TransferOp] = []
+    private var ops: [TransferOp] = []   // read externally only via `snapshot` (locked)
     var snapshot: [TransferOp] { lock.lock(); defer { lock.unlock() }; return ops }
     var activeCount: Int { snapshot.filter { $0.state == .running || $0.state == .waiting || $0.state == .paused }.count }
 

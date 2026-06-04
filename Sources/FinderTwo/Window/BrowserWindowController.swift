@@ -410,16 +410,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
             return
         }
         
-        // If we are in Pane 1 (right pane) file list/terminal, move Left to Pane 0 (left pane) file list
-        if panesContainer.allPanes.count > 1, let active = activePane {
-            let all = panesContainer.allPanes
-            if active === all[1] {
-                all[0].focusFileList()
-                return
-            }
+        // Move Left to the previous pane by index (works for 3-4 panes too).
+        if let active = activePane,
+           let idx = panesContainer.allPanes.firstIndex(where: { $0 === active }), idx > 0 {
+            panesContainer.allPanes[idx - 1].focusFileList()
+            return
         }
-        
-        // If we are in Pane 0 (left pane/only pane) file list/terminal, move Left to Sidebar
+
+        // Leftmost (or only) pane → move Left to the Sidebar.
         if !splitVC.splitViewItems[0].isCollapsed {
             window?.makeFirstResponder(sidebarVC.outline)
         }
@@ -442,14 +440,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
             return
         }
         
-        // If we are in Pane 0 (left pane), move Right to Pane 1 (right pane) file list if it exists,
-        // otherwise to the active pane's Git Diff or Notes if visible
-        if panesContainer.allPanes.count > 1, let active = activePane {
-            let all = panesContainer.allPanes
-            if active === all[0] {
-                all[1].focusFileList()
-                return
-            }
+        // Move Right to the next pane by index, if one exists (works for 3-4 panes).
+        if let active = activePane,
+           let idx = panesContainer.allPanes.firstIndex(where: { $0 === active }),
+           idx < panesContainer.allPanes.count - 1 {
+            panesContainer.allPanes[idx + 1].focusFileList()
+            return
         }
         
         // Move to Git Diff or Notes drawer if they are visible

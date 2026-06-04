@@ -157,24 +157,51 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
     var testColumnCount: Int { columnURLs.count }
     var testBrowserWidth: CGFloat { browser.frame.width }
 
+    /// Reports the URLs selected in the active (deepest selected) column so the
+    /// pane can run file commands (cut/copy/Get Info/…) on the real selection.
+    var onSelectionChange: (([URL]) -> Void)?
+
+    /// URLs currently highlighted in the active column (supports multi-select).
+    func selectedURLs() -> [URL] {
+        let col = browser.selectedColumn
+        guard col >= 0, columnURLs.indices.contains(col) else { return [] }
+        let kids = entries(in: columnURLs[col])
+        return (browser.selectedRowIndexes(inColumn: col) ?? IndexSet()).compactMap {
+            kids.indices.contains($0) ? kids[$0].url : nil
+        }
+    }
+
     @objc private func handleSelection() {
         // When a row in column N is selected, push column N+1 if it's a folder.
         let col = browser.selectedColumn
-        let row = browser.selectedRow(inColumn: col)
-        guard col >= 0, row >= 0,
-              columnURLs.indices.contains(col) else { return }
+        guard col >= 0, columnURLs.indices.contains(col) else { onSelectionChange?([]); return }
         let kids = entries(in: columnURLs[col])
-        guard kids.indices.contains(row) else { return }
-        let sel = kids[row]
-        // Trim deeper columns
-        if columnURLs.count > col + 1 {
-            columnURLs = Array(columnURLs.prefix(col + 1))
+        let selUrls = (browser.selectedRowIndexes(inColumn: col) ?? IndexSet()).compactMap {
+            kids.indices.contains($0) ? kids[$0].url : nil
         }
-        if sel.isDir {
-            columnURLs.append(sel.url)
-            browser.addColumn()
-            browser.scrollColumnToVisible(col + 1)
+        // The single highlighted row drills into a folder (push column N+1).
+        let row = browser.selectedRow(inColumn: col)
+        if row >= 0, kids.indices.contains(row) {
+            let sel = kids[row]
+            if columnURLs.count > col + 1 {
+                columnURLs = Array(columnURLs.prefix(col + 1))
+            }
+            if sel.isDir {
+                columnURLs.append(sel.url)
+                browser.addColumn()
+                browser.scrollColumnToVisible(col + 1)
+            }
         }
+        onSelectionChange?(selUrls)
+    }
+
+    /// Test hook: select row 0 of column 0 and return the resulting selection.
+    @discardableResult
+    func testSelectFirstRow() -> [URL] {
+        guard browser(browser, numberOfRowsInColumn: 0) > 0 else { return [] }
+        browser.selectRow(0, inColumn: 0)
+        handleSelection()
+        return selectedURLs()
     }
 
     @objc private func handleDoubleClick() {

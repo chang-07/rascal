@@ -624,18 +624,26 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     /// The `!=` guards make this safe to call on every navigation: nothing
     /// happens unless the saved view actually differs from the current one.
     private func applyFolderPrefs() {
-        guard Settings.rememberFolderViews,
-              let p = FolderViewPrefs.get(activeTab.currentURL.path) else { return }
+        guard Settings.rememberFolderViews else { return }
         applyingFolderPrefs = true
         defer { applyingFolderPrefs = false }
-        if let v = ViewMode(rawValue: p.view), v != viewMode { setViewMode(v) }
-        fileList.applySort(p.sortDescriptor)
+        if let p = FolderViewPrefs.get(activeTab.currentURL.path) {
+            if let v = ViewMode(rawValue: p.view), v != viewMode { setViewMode(v) }
+            fileList.applySort(p.sortDescriptor)
+        } else {
+            // Uncustomized folder → reset the VIEW to the global default so it
+            // doesn't inherit the previous folder's view (Finder behavior). Sort
+            // stays sticky across navigation.
+            let defaultMode: ViewMode = (Settings.defaultView == .columns) ? .columns : .list
+            if defaultMode != viewMode { setViewMode(defaultMode) }
+        }
     }
 
     private var columnVC: ColumnViewController?
     private var iconVC: IconViewController?
     private var galleryVC: GalleryViewController?
     private var iconSelection: [FileItem] = []
+    private var columnSelection: [URL] = []
 
     /// Remove any installed alternate (columns/icon/gallery) view controller.
     private func teardownAlternateViews() {
@@ -643,6 +651,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         iconVC?.view.removeFromSuperview(); iconVC?.removeFromParent(); iconVC = nil
         galleryVC?.view.removeFromSuperview(); galleryVC?.removeFromParent(); galleryVC = nil
         iconSelection = []
+        columnSelection = []
     }
 
     /// Pin an alternate view's edges into the content region (hotbar↓ to status,
@@ -666,6 +675,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         fileList.view.isHidden = true
         emptyState.isHidden = true
         let col = ColumnViewController(pane: self)
+        col.onSelectionChange = { [weak self] urls in
+            self?.columnSelection = urls
+            self?.updateStatus()
+        }
         addChild(col)
         pinAlternate(col.view, in: host)
         columnVC = col
@@ -748,8 +761,11 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     }
 
     func selectedURLs() -> [URL] {
-        if viewMode == .icon || viewMode == .gallery { return iconSelection.map { $0.url } }
-        return fileList.selectedItems().map { $0.url }
+        switch viewMode {
+        case .icon, .gallery: return iconSelection.map { $0.url }
+        case .columns:        return columnSelection
+        case .list:           return fileList.selectedItems().map { $0.url }
+        }
     }
 
     /// Copy currently selected files to the general pasteboard as file URLs.
@@ -895,14 +911,22 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         updatePreviewContent()
         updateGitDiffContent()
         let total = activeTab.model.items.count
-        let selected = fileList.selectedItems()
+        // Selection is view-specific: list uses the table; icon/gallery track
+        // FileItems; column view tracks URLs (no FileItem sizes to sum there).
+        let selected: [FileItem]
+        switch viewMode {
+        case .icon, .gallery: selected = iconSelection
+        case .columns:        selected = []
+        case .list:           selected = fileList.selectedItems()
+        }
+        let selectedCount = (viewMode == .columns) ? columnSelection.count : selected.count
         let freeStr = currentFreeBytesString()
 
         var segments: [StatusBarView.Segment] = []
-        if selected.isEmpty {
+        if selectedCount == 0 {
             segments.append(.init("\(total) item\(total == 1 ? "" : "s")"))
         } else {
-            segments.append(.init("\(selected.count) of \(total) selected"))
+            segments.append(.init("\(selectedCount) of \(total) selected"))
             let sumBytes = selected.reduce(Int64(0)) { $0 + max($1.size, 0) }
             if sumBytes > 0 {
                 segments.append(.init(SizeFormatter.string(sumBytes), isMonospaced: true))

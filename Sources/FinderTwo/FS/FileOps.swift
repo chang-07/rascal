@@ -99,7 +99,16 @@ enum FileOps {
                 return ok
             },
             redo: {
-                trashed.forEach { try? fm.trashItem(at: $0.original, resultingItemURL: nil) }
+                // Re-trash and CAPTURE the fresh in-Trash URL: the OS assigns a
+                // new path each time, so a later undo must restore from this one,
+                // not the original (stale) trash location.
+                for i in trashed.indices {
+                    var out: NSURL?
+                    if (try? fm.trashItem(at: trashed[i].original, resultingItemURL: &out)) != nil,
+                       let fresh = out as URL? {
+                        trashed[i].inTrash = fresh
+                    }
+                }
                 return true
             })
         return true

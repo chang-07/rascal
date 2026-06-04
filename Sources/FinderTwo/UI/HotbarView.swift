@@ -37,6 +37,7 @@ final class HotbarView: NSView, ThemeObserving {
                                                name: HotbarView.didChangeConfig, object: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     static let didChangeConfig = Notification.Name("FinderTwo.hotbar.configChanged")
 
