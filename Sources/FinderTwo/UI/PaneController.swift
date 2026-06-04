@@ -893,6 +893,13 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         if terminalVisible { terminalView.cwd = activeTab.currentURL }
         iconVC?.reload(activeTab.model.items)
         galleryVC?.reload(activeTab.model.items)
+        // The column (Miller) view keeps its own column stack; on navigation,
+        // reset it to the new folder and drop the now-stale column selection
+        // (otherwise selectedURLs() would act on the previous folder's items).
+        if columnVC != nil {
+            columnSelection = []
+            columnVC?.reload()
+        }
         updateStatus()
         updateTabStripVisibility()
     }
