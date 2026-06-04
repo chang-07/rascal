@@ -206,9 +206,9 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
 
     @objc private func handleDoubleClick() {
         let col = browser.selectedColumn
+        guard col >= 0, columnURLs.indices.contains(col) else { return }
         let row = browser.selectedRow(inColumn: col)
-        guard col >= 0, row >= 0,
-              columnURLs.indices.contains(col) else { return }
+        guard row >= 0 else { return }
         let kids = entries(in: columnURLs[col])
         guard kids.indices.contains(row) else { return }
         let sel = kids[row]
