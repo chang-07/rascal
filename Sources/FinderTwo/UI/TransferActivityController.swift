@@ -149,7 +149,13 @@ final class TransferActivityController: NSWindowController, ThemeObserving {
         case .paused: return "Paused — \(SizeFormatter.string(op.bytesDone)) of \(SizeFormatter.string(op.totalBytes))"
         case .running:
             let pct = Int(op.fraction * 100)
-            return "\(op.currentName) — \(pct)% (\(SizeFormatter.string(op.bytesDone)) of \(SizeFormatter.string(op.totalBytes)))"
+            var s = "\(op.currentName) — \(pct)% (\(SizeFormatter.string(op.bytesDone)) of \(SizeFormatter.string(op.totalBytes)))"
+            let rate = op.bytesPerSecond
+            if rate > 0 {
+                s += " — \(SizeFormatter.string(Int64(rate)))/s"
+                if let eta = op.eta { s += " · \(TransferOp.etaLabel(eta)) left" }
+            }
+            return s
         case .done: return "Completed"
         case .cancelled: return "Cancelled"
         case .failed: return "Finished with \(op.failures) error\(op.failures == 1 ? "" : "s")"
