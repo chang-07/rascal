@@ -898,6 +898,29 @@ final class TestRunner {
         assert("CompressFormat: zip supports password", Archive.CompressFormat.zip.supportsPassword, "no")
         assert("CompressFormat: tar.gz has no password", !Archive.CompressFormat.tarGz.supportsPassword, "yes")
 
+        // --- T42d-inj: a file whose name looks like a CLI flag must still be
+        // archived (no option injection). "-T" makes zip "test" / tar read a
+        // files-from list when passed bare; the "./" guard defeats both.
+        let injDir = sandbox.appendingPathComponent("compress_inj")
+        try? FileManager.default.createDirectory(at: injDir, withIntermediateDirectories: true)
+        let flagName = "-T"
+        let flagFile = injDir.appendingPathComponent(flagName)
+        try? "payload".write(to: flagFile, atomically: true, encoding: .utf8)
+        if let z = Archive.compress([flagFile], format: .zip) {
+            let names = Set(Archive.list(z).map { ($0.path as NSString).lastPathComponent })
+            assert("compress(.zip) archives a flag-named file (no option injection)",
+                   names.contains(flagName), "got=\(names)")
+        } else {
+            assert("compress(.zip) of a flag-named file returns a URL", false, "nil — zip parsed the name as a flag")
+        }
+        if let t = Archive.compress([flagFile], format: .tarGz) {
+            let names = Set(Archive.list(t).map { ($0.path as NSString).lastPathComponent })
+            assert("compress(.tarGz) archives a flag-named file (no option injection)",
+                   names.contains(flagName), "got=\(names)")
+        } else {
+            assert("compress(.tarGz) of a flag-named file returns a URL", false, "nil — tar parsed the name as a flag")
+        }
+
         // --- T42d3: 2-way folder sync (union, newer wins, nothing deleted) ---
         let twA = sandbox.appendingPathComponent("twoway/A")
         let twB = sandbox.appendingPathComponent("twoway/B")
