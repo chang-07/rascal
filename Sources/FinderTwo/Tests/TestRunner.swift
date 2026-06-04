@@ -946,6 +946,26 @@ final class TestRunner {
             assert("edit.cut defaults to ⌘X", sc.key == "x" && sc.modifiers == [.command], "got \(sc.key)/\(sc.modifiers)")
         } else { assert("edit.cut has a shortcut", false, "nil") }
 
+        // --- T-folderprefs: per-folder view + sort persistence ---
+        // Runs against the headless test store key, so it never touches the
+        // user's real folder-view prefs.
+        FolderViewPrefs.clearAll()
+        let fpPath = "/tmp/FinderTwoTest/prefsFolder"
+        FolderViewPrefs.set(fpPath, view: ViewMode.icon.rawValue,
+                            sort: SortDescriptor(key: .size, ascending: false, foldersFirst: true))
+        if let p = FolderViewPrefs.get(fpPath) {
+            assert("FolderViewPrefs stores the view mode", p.view == "icon", "got \(p.view)")
+            assert("FolderViewPrefs stores the sort key", p.sortKey == "size", "got \(p.sortKey)")
+            assert("FolderViewPrefs stores ascending=false", p.ascending == false, "got \(p.ascending)")
+            assert("FolderViewPrefs rebuilds a SortDescriptor",
+                   p.sortDescriptor.key == .size && p.sortDescriptor.ascending == false, "bad descriptor")
+        } else { assert("FolderViewPrefs.get returns the saved pref", false, "nil") }
+        FolderViewPrefs.set(fpPath, view: ViewMode.list.rawValue, sort: SortDescriptor())
+        assert("FolderViewPrefs overwrites in place", FolderViewPrefs.get(fpPath)?.view == "list", "not overwritten")
+        assert("uncustomized folders have no pref", FolderViewPrefs.get("/tmp/never/saved") == nil, "unexpected pref")
+        FolderViewPrefs.clearAll()
+        assert("clearAll empties the store", FolderViewPrefs.count == 0, "count=\(FolderViewPrefs.count)")
+
         // --- T42d3: 2-way folder sync (union, newer wins, nothing deleted) ---
         let twA = sandbox.appendingPathComponent("twoway/A")
         let twB = sandbox.appendingPathComponent("twoway/B")
