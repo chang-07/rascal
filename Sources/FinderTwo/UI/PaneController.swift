@@ -1,6 +1,6 @@
 import AppKit
 
-enum ViewMode { case list, columns, icon, gallery }
+enum ViewMode: String { case list, columns, icon, gallery }
 
 final class PaneController: NSViewController, DirectoryModelDelegate, FileListDelegate, TabStripDelegate {
 
@@ -174,6 +174,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     override func loadView() {
         let root = PaneRootView()
         root.onMouseDown = { [weak self] in self?.becomeActive() }
+        // Persist per-folder view memory when the user re-sorts via header/menu.
+        fileList.onUserSortChange = { [weak self] in self?.saveFolderViewPref() }
 
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         tabStrip.translatesAutoresizingMaskIntoConstraints = false
@@ -599,6 +601,32 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         case .gallery: installGalleryView()
         case .list:    installListView()
         }
+        saveFolderViewPref()
+    }
+
+    // MARK: Per-folder view memory (Finder-style)
+
+    private var applyingFolderPrefs = false
+
+    /// Persist the current folder's view mode + sort so returning here restores
+    /// it. No-op while applying a remembered pref, or if the feature is off.
+    private func saveFolderViewPref() {
+        guard !applyingFolderPrefs, Settings.rememberFolderViews else { return }
+        FolderViewPrefs.set(activeTab.currentURL.path,
+                            view: viewMode.rawValue,
+                            sort: activeTab.model.sort)
+    }
+
+    /// Restore the remembered view mode + sort for the folder now shown (if any).
+    /// The `!=` guards make this safe to call on every navigation: nothing
+    /// happens unless the saved view actually differs from the current one.
+    private func applyFolderPrefs() {
+        guard Settings.rememberFolderViews,
+              let p = FolderViewPrefs.get(activeTab.currentURL.path) else { return }
+        applyingFolderPrefs = true
+        defer { applyingFolderPrefs = false }
+        if let v = ViewMode(rawValue: p.view), v != viewMode { setViewMode(v) }
+        fileList.applySort(p.sortDescriptor)
     }
 
     private var columnVC: ColumnViewController?
@@ -836,6 +864,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     }
 
     private func updateAfterNavigate(announce: Bool) {
+        applyFolderPrefs()
         pathBar.url = activeTab.currentURL
         toolbar.canGoBack = activeTab.canGoBack
         toolbar.canGoForward = activeTab.canGoForward

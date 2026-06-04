@@ -15,6 +15,11 @@ protocol FileListDelegate: AnyObject {
 final class FileListController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate, NameCellDelegate, ThemeObserving {
 
     weak var delegate: FileListDelegate?
+    /// Fired when the USER changes the sort (header click / Arrange-By menu) so
+    /// the pane can persist a per-folder view pref. NOT fired for programmatic
+    /// sorts (initial setup, restoring a remembered view).
+    var onUserSortChange: (() -> Void)?
+    private var suppressSortSave = false
 
     let tableView = FileListTableView()
     private let scrollView = NSScrollView()
@@ -202,7 +207,9 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         addColumn(id: "modified", title: "Date Modified", width: 170, minWidth: 110, sortKey: SortKey.dateModified.rawValue)
         addColumn(id: "size", title: "Size", width: 90, minWidth: 60, sortKey: SortKey.size.rawValue, alignment: .right)
         addColumn(id: "kind", title: "Kind", width: 130, minWidth: 70, sortKey: SortKey.kind.rawValue)
+        suppressSortSave = true
         tableView.sortDescriptors = [NSSortDescriptor(key: SortKey.name.rawValue, ascending: true)]
+        suppressSortSave = false
 
         // Column chooser: right-click the header to show/hide columns (Name stays).
         let headerMenu = NSMenu()
@@ -406,6 +413,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         sd.key = k
         sd.ascending = d.ascending
         model.sort = sd
+        if !suppressSortSave { onUserSortChange?() }
     }
 
     // MARK: NSTableViewDelegate
@@ -1351,8 +1359,21 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     /// Arrange By <key>: set the sort, updating both the model and the column
     /// header's sort indicator. The model's recompute cascades to the icon view.
     func setSortKey(_ key: SortKey) {
+        suppressSortSave = true
         tableView.sortDescriptors = [NSSortDescriptor(key: key.rawValue, ascending: true)]
+        suppressSortSave = false
         model.sort = SortDescriptor(key: key, ascending: true, foldersFirst: model.sort.foldersFirst)
+        onUserSortChange?()
+    }
+
+    /// Apply a saved sort WITHOUT persisting it (used when restoring a folder's
+    /// remembered view). Keeps the header sort indicator in sync.
+    func applySort(_ sd: SortDescriptor) {
+        guard sd != model.sort else { return }
+        suppressSortSave = true
+        tableView.sortDescriptors = [NSSortDescriptor(key: sd.key.rawValue, ascending: sd.ascending)]
+        suppressSortSave = false
+        model.sort = sd
     }
 }
 

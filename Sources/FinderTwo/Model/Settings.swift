@@ -172,6 +172,13 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.confirmTrash"); notify() }
     }
 
+    /// Remember each folder's view mode + sort and restore it on return
+    /// (Finder-style per-folder views). On by default.
+    static var rememberFolderViews: Bool {
+        get { d.object(forKey: "FinderTwo.rememberFolderViews") as? Bool ?? true }
+        set { d.set(newValue, forKey: "FinderTwo.rememberFolderViews"); notify() }
+    }
+
     /// Delay before a spring-loaded folder opens, in seconds. Clamped 0.2…2.0.
     static var springLoadDelay: Double {
         get { let v = d.object(forKey: "FinderTwo.springLoadDelay") as? Double ?? 0.6; return min(2.0, max(0.2, v)) }
