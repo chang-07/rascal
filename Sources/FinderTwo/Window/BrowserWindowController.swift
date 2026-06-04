@@ -586,6 +586,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
 
     @objc func toggleHidden(_ sender: Any?) { activePane?.toggleHidden() }
     @objc func toggleExtraPane(_ sender: Any?) { panesContainer.toggleExtraPane() }
+    @objc func addPane(_ sender: Any?) { panesContainer.addExtraPane() }
+    @objc func closeActivePane(_ sender: Any?) { panesContainer.closeActivePane() }
 
     @objc func goBack(_ sender: Any?) { activePane?.goBack() }
     @objc func goForward(_ sender: Any?) { activePane?.goForward() }
@@ -771,6 +773,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     var testActivePane: PaneController? { panesContainer.activePane }
     var testPaneCount: Int { panesContainer.testPaneCount }
     func testToggleExtraPane() { panesContainer.toggleExtraPane() }
+    func testAddPane() { panesContainer.addExtraPane() }
+    func testCloseActivePane() { panesContainer.closeActivePane() }
 
     // MARK: State persistence
 

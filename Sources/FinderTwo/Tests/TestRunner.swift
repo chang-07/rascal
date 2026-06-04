@@ -178,6 +178,16 @@ final class TestRunner {
         assert("pane focus is a no-op with a single pane",
                wc.testActivePane === solo, "single-pane focus changed")
 
+        // --- T10c: multi-pane columns (up to 4) ---
+        wc.testAddPane(); wc.testAddPane(); wc.testAddPane()
+        assert("add pane grows to 4 columns", wc.testPaneCount == 4, "panes=\(wc.testPaneCount)")
+        wc.testAddPane()   // beyond the cap → no-op
+        assert("add pane caps at 4", wc.testPaneCount == 4, "panes=\(wc.testPaneCount)")
+        wc.testCloseActivePane(); wc.testCloseActivePane(); wc.testCloseActivePane()
+        assert("close pane returns to a single pane", wc.testPaneCount == 1, "panes=\(wc.testPaneCount)")
+        wc.testCloseActivePane()   // can't drop below one
+        assert("the last pane cannot be closed", wc.testPaneCount == 1, "panes=\(wc.testPaneCount)")
+
         // --- T11: new folder via FileOps ---
         let newFolderURL = FileOps.newFolder(in: sandbox, baseName: "freshfolder")
         assert("FileOps.newFolder returns URL",

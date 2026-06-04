@@ -67,6 +67,25 @@ final class PanesContainerController: NSSplitViewController {
         }
     }
 
+    /// Maximum simultaneous panes (columns). Beyond this the columns get too
+    /// narrow to be useful and the multi-pane workflow value drops off.
+    static let maxPanes = 4
+    var canAddPane: Bool { panes.count < Self.maxPanes }
+
+    /// Add another column at the active pane's current folder (up to `maxPanes`)
+    /// and make it active. The session/Workspace snapshot already captures every
+    /// pane, so the extra columns persist and restore automatically.
+    func addExtraPane() {
+        guard canAddPane, let active = activePane else { return }
+        addPane(at: active.currentURL, activate: true)
+    }
+
+    /// Close the active pane (down to a minimum of one).
+    func closeActivePane() {
+        guard panes.count > 1, let active = activePane else { return }
+        closePane(active)
+    }
+
     @discardableResult
     private func addPane(at url: URL, activate: Bool) -> PaneController {
         let pane = PaneController(url: url)

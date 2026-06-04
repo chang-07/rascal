@@ -349,6 +349,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(hiddenItem); chromeHiddenItem = hiddenItem
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(routed("pane.toggle-extra", title: "Open Extra Pane"))
+        viewMenu.addItem(routed("pane.add"))
+        viewMenu.addItem(routed("pane.close"))
         viewMenu.addItem(routed("pane.focus-next"))
         viewMenu.addItem(routed("pane.focus-prev"))
         viewMenu.addItem(routed("pane.copy-to-other"))
