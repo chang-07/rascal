@@ -184,7 +184,14 @@ enum Archive {
         while fm.fileExists(atPath: dest.path) {
             dest = parent.appendingPathComponent("\(base) \(i).\(format.ext)"); i += 1
         }
-        let names = items.map { $0.lastPathComponent }   // basenames safe: shared parent
+        // Pass basenames relative to the shared parent (currentDirectoryURL for
+        // zip, -C for tar). Prefix a flag-like name ("-x", "--exclude=…") with
+        // "./" so neither tool — zip doesn't honor "--" — parses a crafted
+        // filename as an option. Normal names are untouched (archive unchanged).
+        let names = items.map { item -> String in
+            let base = item.lastPathComponent
+            return base.hasPrefix("-") ? "./" + base : base
+        }
         let p = Process()
         p.currentDirectoryURL = parent
         switch format {
