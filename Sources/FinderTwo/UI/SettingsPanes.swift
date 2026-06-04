@@ -544,6 +544,9 @@ final class AdvancedPane: SettingsPane {
     }
     @objc private func reloadPlugins() {
         PluginHost.shared.loadAll()
+        // Rebuild the menu so new plugin actions get menu items + key equivalents
+        // and removed ones drop out (AppDelegate rebuilds on this notification).
+        NotificationCenter.default.post(name: ActionRegistry.shortcutsDidChange, object: nil)
         if let w = view.window {
             let a = NSAlert()
             a.messageText = "Plugins reloaded"

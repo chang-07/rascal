@@ -40,7 +40,10 @@ enum TagIndex {
     /// Files tagged with `name`. Uses Spotlight; returns paths.
     static func filesWithTag(_ name: String, completion: @escaping ([URL]) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            let safe = name.replacingOccurrences(of: "\"", with: "\\\"")
+            // Escape backslash BEFORE quote, else a tag named `foo\` breaks the
+            // predicate (or a crafted tag name could broaden the mdfind query).
+            let safe = name.replacingOccurrences(of: "\\", with: "\\\\")
+                           .replacingOccurrences(of: "\"", with: "\\\"")
             let q = "kMDItemUserTags == \"\(safe)\""
             let urls = runMDFind(query: q, limit: 5000)
             DispatchQueue.main.async { completion(urls) }
