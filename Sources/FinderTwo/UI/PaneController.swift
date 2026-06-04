@@ -294,7 +294,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         applyChromeVisibility()
         applyTopInset()
         // Honor the default-view preference now that the view hierarchy exists.
-        if Settings.defaultView == .columns { setViewMode(.columns) }
+        if Settings.defaultView == .columns { setViewMode(.columns, persist: false) }
         DispatchQueue.main.async { [weak self] in
             self?.hotbar.target = self?.view.window?.windowController as? BrowserWindowController
         }
@@ -592,7 +592,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         activeTab.model.showHidden.toggle()
     }
 
-    func setViewMode(_ mode: ViewMode) {
+    /// `persist` records this as the folder's remembered view; pass false for
+    /// non-user changes (applying the global default at launch, restore) so they
+    /// don't masquerade as an explicit per-folder choice.
+    func setViewMode(_ mode: ViewMode, persist: Bool = true) {
         guard mode != viewMode else { return }
         viewMode = mode
         switch mode {
@@ -601,7 +604,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         case .gallery: installGalleryView()
         case .list:    installListView()
         }
-        saveFolderViewPref()
+        if persist { saveFolderViewPref() }
     }
 
     // MARK: Per-folder view memory (Finder-style)

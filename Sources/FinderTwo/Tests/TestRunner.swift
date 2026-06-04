@@ -1636,6 +1636,20 @@ final class TestRunner {
         pane.setViewMode(.list)
         assert("setViewMode(.list) honored", pane.viewMode == .list, "got=\(pane.viewMode)")
 
+        // setViewMode(persist:false) must NOT record a per-folder pref (used for
+        // the launch-time global default); a normal user change must.
+        FolderViewPrefs.clearAll()
+        pane.setViewMode(.columns, persist: false)
+        assert("a non-persisting view change writes no folder pref",
+               FolderViewPrefs.get(pane.currentURL.path) == nil, "wrote a pref")
+        if Settings.rememberFolderViews {
+            pane.setViewMode(.gallery)   // persist: true (default)
+            assert("a user view change records a folder pref",
+                   FolderViewPrefs.get(pane.currentURL.path) != nil, "no pref written")
+        }
+        FolderViewPrefs.clearAll()
+        pane.setViewMode(.list)
+
         // --- Vim navigation in icon + gallery controllers ---
         let vnavDir = sandbox.appendingPathComponent("vnav")
         try? FileManager.default.createDirectory(at: vnavDir, withIntermediateDirectories: true)
