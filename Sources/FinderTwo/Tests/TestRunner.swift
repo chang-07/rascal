@@ -3023,6 +3023,106 @@ final class TestRunner {
         }
         Settings.useGroups = prevGroups
         wc13b.window?.close()
+
+        func vkey(_ s: String) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                             windowNumber: 0, context: nil, characters: s, charactersIgnoringModifiers: s,
+                             isARepeat: false, keyCode: 0)!
+        }
+        let prevConfirm = Settings.confirmTrash
+        Settings.confirmTrash = false   // dd routes through trashWithConfirmation; never block headless
+
+        // --- GI-15 (VIM-1): dd trashes the selected file and is undoable ---
+        let v1 = mkdir("v1"); mkfile(v1, "victim.txt")
+        let wcV1 = BrowserWindowController(rootURL: v1); _ = wcV1.window
+        if let p = wcV1.testActivePane {
+            p.setViewMode(.list); p.testReloadSync(); VimMode.shared.setEnabled(true)
+            if let it = p.testCurrentItems.first(where: { $0.name == "victim.txt" }) { p.testSelectItem(it) }
+            FileActionLog.shared.clear()
+            _ = VimMode.shared.handle(event: vkey("d"), in: p, fileList: p.testFileList)
+            _ = VimMode.shared.handle(event: vkey("d"), in: p, fileList: p.testFileList); wait(0.1)
+            assert("vim dd trashes the selected file", !fm.fileExists(atPath: v1.appendingPathComponent("victim.txt").path), "still there")
+            assert("vim dd is undoable", FileActionLog.shared.canUndo, "no undo recorded")
+            _ = FileActionLog.shared.performUndo(); wait(0.1)
+            assert("undo restores the dd-trashed file", fm.fileExists(atPath: v1.appendingPathComponent("victim.txt").path), "not restored")
+            VimMode.shared.setEnabled(false); FileActionLog.shared.clear()
+        }
+        wcV1.window?.close()
+
+        // --- GI-16 (VIM-2): visual select range + dd deletes the whole range, mode resets ---
+        let v2 = mkdir("v2"); for i in 0..<6 { mkfile(v2, "f\(i).txt") }
+        let wcV2 = BrowserWindowController(rootURL: v2); _ = wcV2.window
+        if let p = wcV2.testActivePane {
+            p.setViewMode(.list); p.testReloadSync(); VimMode.shared.setEnabled(true)
+            p.vimSelectFirst()
+            _ = VimMode.shared.handle(event: vkey("v"), in: p, fileList: p.testFileList)   // enter visual
+            _ = VimMode.shared.handle(event: vkey("3"), in: p, fileList: p.testFileList)
+            _ = VimMode.shared.handle(event: vkey("j"), in: p, fileList: p.testFileList)   // extend to row 3
+            FileActionLog.shared.clear()
+            _ = VimMode.shared.handle(event: vkey("d"), in: p, fileList: p.testFileList)
+            _ = VimMode.shared.handle(event: vkey("d"), in: p, fileList: p.testFileList); wait(0.1)
+            p.testReloadSync()
+            assert("visual dd trashes the whole visual range (f0..f3)",
+                   Set((try? fm.contentsOfDirectory(atPath: v2.path)) ?? []) == ["f4.txt", "f5.txt"],
+                   "left=\(Set((try? fm.contentsOfDirectory(atPath: v2.path)) ?? []))")
+            // After dd, visual mode must have reset: a fresh v+j extends to 2 rows.
+            p.vimSelectFirst()
+            _ = VimMode.shared.handle(event: vkey("v"), in: p, fileList: p.testFileList)
+            _ = VimMode.shared.handle(event: vkey("j"), in: p, fileList: p.testFileList)
+            assert("visual mode re-enters cleanly after dd (not left stuck)",
+                   p.selectedURLs().count == 2, "count=\(p.selectedURLs().count)")
+            VimMode.shared.setEnabled(false); FileActionLog.shared.clear()
+        }
+        wcV2.window?.close()
+        Settings.confirmTrash = prevConfirm
+
+        // --- GI-17 (VIM-3): yy then navigate then p COPIES (yank is copy, not move) ---
+        let v3 = mkdir("v3"); let v3f = mkfile(v3, "payload.txt"); let v3d = mkdir("v3/dest")
+        let wcV3 = BrowserWindowController(rootURL: v3); _ = wcV3.window
+        if let p = wcV3.testActivePane {
+            p.setViewMode(.list); p.navigate(to: v3); p.testReloadSync(); VimMode.shared.setEnabled(true)
+            if let it = p.testCurrentItems.first(where: { $0.name == "payload.txt" }) { p.testSelectItem(it) }
+            _ = VimMode.shared.handle(event: vkey("y"), in: p, fileList: p.testFileList)
+            _ = VimMode.shared.handle(event: vkey("y"), in: p, fileList: p.testFileList)
+            p.navigate(to: v3d); p.testReloadSync()
+            _ = VimMode.shared.handle(event: vkey("p"), in: p, fileList: p.testFileList)
+            let copied = waitUntil(3) { fm.fileExists(atPath: v3d.appendingPathComponent("payload.txt").path) }
+            assert("vim yy+p copies into the new dir", copied, "not copied")
+            assert("vim yy+p leaves the original (yank = copy)", fm.fileExists(atPath: v3f.path), "original gone (moved!)")
+            VimMode.shared.setEnabled(false)
+        }
+        FileOps.clearCut(); wcV3.window?.close()
+
+        // --- GI-18 (SYNTH-1/2): file ops at a synthetic /smart/ URL are inert + restore ---
+        let realDir = mkdir("synth"); mkfile(realDir, "keep.txt")
+        let wcSy = BrowserWindowController(rootURL: realDir); _ = wcSy.window
+        if let p = wcSy.testActivePane {
+            p.navigate(to: SidebarController.smartFolderURL(id: "synthtest")); wait(0.2)
+            FileActionLog.shared.clear()
+            p.createNewFolder(); wait(0.1)
+            assert("New Folder at a synthetic /smart/ URL is a safe no-op",
+                   !fm.fileExists(atPath: "/smart/synthtest/untitled folder") && !FileActionLog.shared.canUndo,
+                   "stray create / undo recorded at synthetic URL")
+            p.navigate(to: realDir); p.testReloadSync(); wait(0.05)
+            FileActionLog.shared.clear()
+            p.createNewFolder(); wait(0.1)
+            assert("returning to a real folder restores New Folder",
+                   fm.fileExists(atPath: realDir.appendingPathComponent("untitled folder").path), "real create failed")
+            FileActionLog.shared.clear()
+        }
+        wcSy.window?.close()
+
+        // --- GI-19 (D2): transfer refuses dropping a folder into itself / its descendant ---
+        let dd2 = mkdir("dd2"); let dsub = mkdir("dd2/sub"); mkfile(dsub, "keep.txt")
+        FileOps.transfer([dsub], into: dsub, move: true, from: nil); wait(0.15)
+        assert("transfer refuses moving a folder into itself",
+               !fm.fileExists(atPath: dsub.appendingPathComponent("sub").path) && fm.fileExists(atPath: dsub.path),
+               "self-nest happened")
+        let deeper = mkdir("dd2/sub/deeper")
+        FileOps.transfer([dsub], into: deeper, move: true, from: nil); wait(0.15)
+        assert("transfer refuses moving a folder into its own descendant",
+               fm.fileExists(atPath: dsub.path) && !fm.fileExists(atPath: deeper.appendingPathComponent("sub").path),
+               "descendant-nest happened")
     }
 
     /// Dismiss any sheets on the window + its children so the next action's

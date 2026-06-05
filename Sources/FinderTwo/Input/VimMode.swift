@@ -120,10 +120,12 @@ final class VimMode {
                 return true
             case "yy":
                 pane.copySelection()
+                mode = .normal; visualAnchor = nil   // operator consumes the visual selection
                 return true
             case "dd":
                 let urls = pane.selectedURLs()
                 if !urls.isEmpty { FileOps.trashWithConfirmation(urls) }
+                mode = .normal; visualAnchor = nil   // exit visual; don't leave a stale anchor
                 return true
             default:
                 // unknown combo — fall through as no-op
