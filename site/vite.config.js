@@ -17,6 +17,7 @@ export default defineConfig({
       input: {
         main: entry('./index.html'),
         guide: entry('./guide.html'),
+        customize: entry('./customize.html'),
       },
     },
   }

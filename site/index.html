@@ -34,8 +34,8 @@
     <a href="#features">Features</a>
     <a href="#demos">Demos</a>
     <a href="guide.html">Guide</a>
-    <a href="#donate">Donate</a>
-    <a class="nav-cta" href="#download">Download</a>
+    <a href="customize.html">Customize</a>
+    <a class="nav-cta" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">Download</a>
   </nav>
 </header>
 
@@ -54,14 +54,26 @@
     </p>
 
     <div class="cta-row">
-      <a class="btn btn-primary" href="#download">
-        <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
-        Download for macOS
-      </a>
+      <!-- real download right here: primary button grabs Apple Silicon, the caret picks Intel -->
+      <div class="dl dl-hero">
+        <a class="btn btn-primary dl-main" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">
+          <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
+          Download for macOS
+        </a>
+        <details class="dl-more">
+          <summary class="btn btn-primary dl-caret-btn" aria-label="Choose Apple Silicon or Intel">
+            <svg class="btn-ico dl-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+          </summary>
+          <div class="dl-pop">
+            <a href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg"><strong>Apple Silicon</strong><span>M1–M4 · 2020 &amp; newer</span></a>
+            <a href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-x86_64.dmg"><strong>Intel</strong><span>x86_64 · 2019 &amp; earlier</span></a>
+          </div>
+        </details>
+      </div>
       <!-- Ko-fi support link -->
       <a class="btn btn-ghost" href="https://ko-fi.com/chang07" target="_blank" rel="noopener">Support on Ko-fi</a>
     </div>
-    <p class="hero-meta">Apple&nbsp;Silicon &amp; Intel · macOS&nbsp;13+ · free &amp; open source</p>
+    <p class="hero-meta">Apple&nbsp;Silicon &amp; Intel · macOS&nbsp;13+ · free &amp; open source · <a class="hero-meta-link" href="#download">install&nbsp;notes</a></p>
   </div>
 
   <figure class="hero-shot frame reveal">
@@ -116,36 +128,17 @@
   <p class="kicker">A few seconds of Rascal</p>
   <h2 class="section-title">See it <em>move</em>.</h2>
 
-  <figure class="demo-video frame reveal">
-    <video autoplay loop muted playsinline poster="assets/hero.png" width="1280" height="800" aria-label="A short walkthrough of Rascal: browsing files, switching views, the command palette and fuzzy finder, the preview pane, and the disk-usage treemap.">
-      <source src="assets/demo.mp4" type="video/mp4" />
-    </video>
-  </figure>
-
-  <!-- views -->
-  <p class="demo-group reveal">Four ways to see a folder</p>
-  <div class="shots reveal">
-    <figure class="shot frame"><img src="assets/icons.png" width="2162" height="1442" alt="Rascal's icon view — a grid of crisp file-type icons" loading="lazy" /><figcaption>Icon view</figcaption></figure>
-    <figure class="shot frame"><img src="assets/columns.png" width="2162" height="1442" alt="Column (Miller) view drilling through nested folders" loading="lazy" /><figcaption>Column view — drill through nesting</figcaption></figure>
-    <figure class="shot frame span-all"><img src="assets/multipane.png" width="2162" height="1442" alt="Three independent panes open on different folders, side by side" loading="lazy" /><figcaption>Multi-pane — several folders at once, each with its own view</figcaption></figure>
-  </div>
-
-  <!-- power tools -->
-  <p class="demo-group reveal">Keep your hands on the keys</p>
-  <div class="shots reveal">
-    <figure class="shot frame"><img src="assets/palette.png" width="2162" height="1442" alt="The command palette filtering commands" loading="lazy" /><figcaption>Command palette — <code>⌘⇧P</code></figcaption></figure>
-    <figure class="shot frame"><img src="assets/fuzzyfind.png" width="2162" height="1442" alt="Fuzzy filename finder showing ranked matches" loading="lazy" /><figcaption>Fuzzy file finder — <code>⌘F</code></figcaption></figure>
-    <figure class="shot frame"><img src="assets/tags.png" width="2162" height="1442" alt="Coloured Finder tags shown beside files" loading="lazy" /><figcaption>Finder tags &amp; smart folders</figcaption></figure>
-    <figure class="shot frame"><img src="assets/cut.png" width="2162" height="1442" alt="Files dimmed after being cut with Command-X" loading="lazy" /><figcaption>True cut &amp; paste — <code>⌘X</code></figcaption></figure>
-    <figure class="shot frame span-all"><img src="assets/getinfo.png" width="2162" height="1442" alt="The Get Info panel showing size, permissions and checksums" loading="lazy" /><figcaption>Get Info — size, permissions, tags &amp; checksums</figcaption></figure>
-  </div>
-
-  <!-- in motion -->
-  <p class="demo-group reveal">In motion</p>
   <div class="shots reveal">
     <figure class="shot frame"><img src="assets/nav.gif" width="1100" height="734" alt="Browsing folders and switching view modes" loading="lazy" /><figcaption>Browse &amp; switch views</figcaption></figure>
     <figure class="shot frame"><img src="assets/panels.gif" width="1100" height="734" alt="Opening the preview panel and a second pane" loading="lazy" /><figcaption>Preview panel &amp; split pane</figcaption></figure>
     <figure class="shot frame span-all"><img src="assets/treemap.gif" width="1040" height="662" alt="Disk-usage treemap drilling into folders" loading="lazy" /><figcaption>Disk-usage treemap — click to drill in</figcaption></figure>
+  </div>
+
+  <p class="demo-group reveal">…and a few more tricks</p>
+  <div class="shots reveal">
+    <figure class="shot frame span-all"><img src="assets/multipane.png" width="2162" height="1442" alt="Three independent panes open on different folders, side by side" loading="lazy" /><figcaption>Multi-pane — several folders at once, each with its own view</figcaption></figure>
+    <figure class="shot frame"><img src="assets/tags.png" width="2162" height="1442" alt="Coloured Finder tags shown beside files" loading="lazy" /><figcaption>Finder tags &amp; smart folders</figcaption></figure>
+    <figure class="shot frame"><img src="assets/cut.png" width="2162" height="1442" alt="Files dimmed after being cut with Command-X" loading="lazy" /><figcaption>True cut &amp; paste — <code>⌘X</code></figcaption></figure>
   </div>
 </section>
 
@@ -169,12 +162,12 @@
   <!-- Download: Apple Silicon by default; Intel (x86_64) via the dropdown.
        Per-arch release assets are published with ARCH=… ./make-dmg.sh -->
   <div class="dl">
-    <a class="btn btn-primary btn-lg" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">
+    <a class="btn btn-primary btn-lg dl-main" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">
       <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
       Download for macOS
     </a>
     <details class="dl-more">
-      <summary class="btn btn-ghost btn-lg" aria-label="Choose Apple Silicon or Intel">
+      <summary class="btn btn-primary btn-lg dl-caret-btn" aria-label="Choose Apple Silicon or Intel">
         <svg class="btn-ico dl-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
       </summary>
       <div class="dl-pop">
@@ -204,7 +197,10 @@ cd finder-2
 ./install.sh         # builds &amp; installs to /Applications</code></pre>
 
   <p class="or">go further</p>
-  <a class="btn btn-ghost" href="guide.html">Read the guide — quick start, plugins &amp; themes</a>
+  <div class="cta-row">
+    <a class="btn btn-ghost" href="guide.html">User guide — get up &amp; running</a>
+    <a class="btn btn-ghost" href="customize.html">Customize — themes, plugins &amp; settings</a>
+  </div>
 </section>
 </main>
 
@@ -215,8 +211,8 @@ cd finder-2
   </div>
   <nav class="foot-links">
     <a href="https://github.com/chang-07/finder-2" target="_blank" rel="noopener">GitHub</a>
-    <a href="#features">Features</a>
     <a href="guide.html">Guide</a>
+    <a href="customize.html">Customize</a>
     <a href="#download">Download</a>
     <a href="https://ko-fi.com/chang07" target="_blank" rel="noopener">Ko-fi</a>
   </nav>

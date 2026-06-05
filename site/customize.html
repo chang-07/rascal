@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Rascal — Customizing Rascal (themes, plugins &amp; settings)</title>
+<meta name="description" content="Make Rascal yours: tune appearance and shortcuts in Settings, craft a theme from a single JSON file, and add commands with a tiny JavaScript plugin. No build tools, no accounts." />
+<link rel="icon" type="image/svg+xml" href="assets/rascal-logo.svg" />
+<meta property="og:title" content="Rascal — Customizing Rascal" />
+<meta property="og:description" content="Settings, themes and plugins — the Rascal customization guide." />
+<meta property="og:type" content="article" />
+<script type="module" src="/src/guide.js"></script>
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="nav">
+  <a class="brand" href="index.html" aria-label="Rascal home">
+    <img src="assets/rascal-logo.svg" alt="" class="brand-mark" />
+    <span class="brand-name">Rascal</span>
+  </a>
+  <nav class="nav-links">
+    <a href="index.html#features">Features</a>
+    <a href="index.html#demos">Demos</a>
+    <a href="guide.html">Guide</a>
+    <a href="customize.html">Customize</a>
+    <a class="nav-cta" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">Download</a>
+  </nav>
+</header>
+
+<main>
+  <section class="guide-hero">
+    <p class="eyebrow">the customization guide</p>
+    <h1 class="guide-title">Make it <em>yours</em>.</h1>
+    <p class="guide-sub">
+      Tune the look and the keys in Settings, paint every panel with a theme written
+      in plain JSON, and teach Rascal new tricks with a tiny JavaScript plugin — no
+      build tools, no accounts. New here? Start with the
+      <a class="link" href="guide.html">user guide</a> first.
+    </p>
+  </section>
+
+  <div class="guide-layout">
+    <!-- table of contents -->
+    <aside class="toc" aria-label="On this page">
+      <h4>On this page</h4>
+      <a href="#settings">Settings &amp; appearance</a>
+      <a href="#look" class="toc-sub">The look</a>
+      <a href="#keys-chrome" class="toc-sub">Keys &amp; chrome</a>
+      <a href="#themes">Themes</a>
+      <a href="#theme-fields" class="toc-sub">The fields</a>
+      <a href="#theme-example" class="toc-sub">Worked example</a>
+      <a href="#plugins">Plugins</a>
+      <a href="#plugin-anatomy" class="toc-sub">Anatomy</a>
+      <a href="#ft-api" class="toc-sub">The ft API</a>
+      <a href="#plugin-example" class="toc-sub">Worked example</a>
+    </aside>
+
+    <article class="doc">
+
+      <!-- ═══════════════ SETTINGS ═══════════════ -->
+      <section class="doc-section" id="settings">
+        <h2>Settings &amp; <em>appearance</em></h2>
+        <p class="lede">
+          Press <kbd>⌘,</kbd> for Settings. Most of what you&rsquo;ll reach for lives in two
+          places — <strong>Appearance</strong> for the look, <strong>Keyboard</strong> and
+          <strong>Hotbar</strong> for how you drive it. Everything applies live.
+        </p>
+
+        <h3 id="look">The look</h3>
+        <ul>
+          <li><strong>Theme</strong> — pick from the built-ins (Rascal Light, dark, and several more) in <strong>Settings ▸ Appearance</strong> or <strong>View ▸ Theme</strong>, or load your own (below).</li>
+          <li><strong>Accent colour</strong> — recolours selection, badges, and the active-pane border on top of any theme.</li>
+          <li><strong>Density &amp; font size</strong> — tighten or relax row spacing and bump the base text size for a comfier list.</li>
+        </ul>
+
+        <h3 id="keys-chrome">Keys &amp; chrome</h3>
+        <ul>
+          <li><strong>Keyboard</strong> — every command is rebindable in <strong>Settings ▸ Keyboard</strong>, with live conflict detection. The full default list is in <a class="link" href="https://github.com/chang-07/finder-2/blob/main/HOTKEYS.md">HOTKEYS.md</a>.</li>
+          <li><strong>Hotbar</strong> — curate the per-pane toolbar of one-click actions in <strong>Settings ▸ Hotbar</strong>; drop your favourite commands (and plugin actions) right where you want them.</li>
+          <li><strong>Chrome</strong> — hide the toolbar and title bar for a quiet, content-first window, and toggle the sidebar with <kbd>⌥⌘S</kbd>.</li>
+          <li><strong>Vim mode</strong> — flip on modal navigation and drive with <code>hjkl</code>, <code>/</code>, <code>dd</code>, <code>gg</code>, <code>G</code>.</li>
+        </ul>
+      </section>
+
+      <!-- ═══════════════ THEMES ═══════════════ -->
+      <section class="doc-section" id="themes">
+        <h2>Crafting a <em>theme</em></h2>
+        <p class="lede">
+          A theme is a single JSON file of hex colors. Drop it in the Themes folder
+          and Rascal repaints every panel — list, sidebar, toolbar, path bar, and the
+          floating finders — to match. The built-in themes are written in exactly the
+          same format, so any of them doubles as a starting template.
+        </p>
+
+        <h3 id="theme-fields">The fields</h3>
+        <p>
+          Colors are <code>#RRGGBB</code> or <code>#RRGGBBAA</code> (the alpha form is handy for
+          the translucent <code>selectionBackground</code>). Only <code>id</code>, <code>name</code>, and the
+          color fields are required; the rest fall back to sensible defaults.
+        </p>
+        <table class="tbl">
+          <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>Unique slug. Matching a built-in&rsquo;s id overrides it.</td></tr>
+            <tr><td><code>name</code></td><td>Display name in the theme list.</td></tr>
+            <tr><td><code>appearance</code></td><td><code>"light"</code>, <code>"dark"</code>, or <code>"automatic"</code> (default). Drives system control tint.</td></tr>
+            <tr><td><code>background</code></td><td>File-list background.</td></tr>
+            <tr><td><code>sidebarBackground</code></td><td>Sidebar fill.</td></tr>
+            <tr><td><code>toolbarBackground</code></td><td>Navigation toolbar fill.</td></tr>
+            <tr><td><code>pathBarBackground</code></td><td>Path / breadcrumb bar fill.</td></tr>
+            <tr><td><code>rowAlternate</code></td><td>Alternating-row stripe.</td></tr>
+            <tr><td><code>labelPrimary</code></td><td>Primary text (file names).</td></tr>
+            <tr><td><code>labelSecondary</code></td><td>Secondary text (sizes, dates).</td></tr>
+            <tr><td><code>labelTertiary</code></td><td>Tertiary text (faint detail).</td></tr>
+            <tr><td><code>accent</code></td><td>Highlights, badges, the active-pane border.</td></tr>
+            <tr><td><code>selectionBackground</code></td><td>Selected-row fill — usually the accent at low alpha.</td></tr>
+            <tr><td><code>baseFontPointSize</code></td><td>Optional. Base text size (default <code>13</code>).</td></tr>
+            <tr><td><code>rowHeight</code></td><td>Optional. List row height (default <code>22</code>).</td></tr>
+            <tr><td><code>monospaced</code></td><td>Optional. <code>true</code> renders the UI in a mono font.</td></tr>
+          </tbody>
+        </table>
+
+        <h3 id="theme-example">A complete example</h3>
+        <p>A soft, warm light theme called <em>Blossom</em>:</p>
+        <div class="swatches" aria-hidden="true">
+          <span class="sw" style="background:#FFF7FA" data-name="paper"></span>
+          <span class="sw" style="background:#FCEDF3" data-name="sidebar"></span>
+          <span class="sw" style="background:#E0457B" data-name="accent"></span>
+          <span class="sw" style="background:#3A1F2B" data-name="ink"></span>
+          <span class="sw" style="background:#F4C9DA" data-name="selection"></span>
+        </div>
+        <div class="file-label">blossom.json</div>
+        <pre><code>{
+  <span class="k">"id"</span>:                  <span class="s">"blossom"</span>,
+  <span class="k">"name"</span>:                <span class="s">"Blossom"</span>,
+  <span class="k">"appearance"</span>:          <span class="s">"light"</span>,
+  <span class="k">"background"</span>:          <span class="s">"#FFF7FA"</span>,
+  <span class="k">"sidebarBackground"</span>:   <span class="s">"#FCEDF3"</span>,
+  <span class="k">"toolbarBackground"</span>:   <span class="s">"#FDF1F6"</span>,
+  <span class="k">"pathBarBackground"</span>:   <span class="s">"#FCEDF3"</span>,
+  <span class="k">"rowAlternate"</span>:        <span class="s">"#FBEFF4"</span>,
+  <span class="k">"labelPrimary"</span>:        <span class="s">"#3A1F2B"</span>,
+  <span class="k">"labelSecondary"</span>:      <span class="s">"#7A5566"</span>,
+  <span class="k">"labelTertiary"</span>:       <span class="s">"#B08C9C"</span>,
+  <span class="k">"accent"</span>:              <span class="s">"#E0457B"</span>,
+  <span class="k">"selectionBackground"</span>: <span class="s">"#E0457B33"</span>,
+  <span class="k">"rowHeight"</span>:           24
+}</code></pre>
+        <ol class="steps">
+          <li>Save the file as <code>blossom.json</code> in <code>~/Library/Application Support/FinderTwo/Themes/</code> — <strong>View ▸ Theme ▸ Reveal Themes Folder</strong> opens it for you.</li>
+          <li>Choose <strong>View ▸ Theme ▸ Reload Themes</strong> (or relaunch).</li>
+          <li>Apply it from <strong>View ▸ Theme</strong>, <kbd>⌘⇧P</kbd> → <strong>Theme: Blossom</strong>, or <strong>Settings ▸ Appearance</strong>.</li>
+        </ol>
+        <div class="callout">
+          <p>Don&rsquo;t start from scratch — <strong>View ▸ Theme ▸ Export Current Theme…</strong> writes the active theme into the folder as editable JSON. Because a matching <code>id</code> overrides a built-in, you can tweak a copy of <em>Rascal Light</em> and keep its name. Accent color, density, and font size from Settings layer on top of any theme.</p>
+        </div>
+      </section>
+
+      <!-- ═══════════════ PLUGINS ═══════════════ -->
+      <section class="doc-section" id="plugins">
+        <h2>Writing a <em>plugin</em></h2>
+        <p class="lede">
+          A Rascal plugin is a tiny folder of JavaScript that adds new commands to
+          the app. No build step, no npm, no compiling — write a <code>.js</code> file,
+          drop it in a folder, reload. Each plugin runs in its own JavaScriptCore
+          context with a small <code>ft</code> bridge to the file manager.
+        </p>
+
+        <h3 id="plugin-anatomy">Anatomy of a plugin</h3>
+        <p>
+          A plugin is a folder named <code>&lt;anything&gt;.ftplugin</code> containing exactly
+          two files — a manifest and a script:
+        </p>
+        <div class="file-label">~/Library/Application Support/FinderTwo/Plugins/</div>
+        <pre><code>quick-notes.ftplugin/
+├─ manifest.json   <span class="cm"># id, name, and the actions it contributes</span>
+└─ main.js         <span class="cm"># the code, run once when Rascal loads</span></code></pre>
+        <p>
+          The <strong>manifest</strong> declares the plugin&rsquo;s identity and the actions it adds.
+          Each action&rsquo;s <code>id</code> is what your script hooks into; its <code>title</code> is
+          what the user sees in the Command Palette and the Plugins menu.
+        </p>
+        <div class="file-label">manifest.json</div>
+        <pre><code>{
+  <span class="k">"id"</span>:      <span class="s">"dev.you.quick-notes"</span>,
+  <span class="k">"name"</span>:    <span class="s">"Quick Notes"</span>,
+  <span class="k">"version"</span>: <span class="s">"1.0"</span>,
+  <span class="k">"actions"</span>: [
+    { <span class="k">"id"</span>: <span class="s">"notes.new-dated"</span>, <span class="k">"title"</span>: <span class="s">"New Dated Note"</span> }
+  ]
+}</code></pre>
+
+        <h3 id="ft-api">The <code>ft</code> API</h3>
+        <p>
+          Inside <code>main.js</code> the host exposes a global <code>ft</code> object. Register
+          a handler for each action with <code>ft.onAction</code> — it&rsquo;s called with an
+          array of the currently selected file paths whenever the user runs that command.
+        </p>
+        <table class="tbl">
+          <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>ft.onAction(id, fn)</code></td><td>Register a handler. <code>fn(paths)</code> receives an array of selected file paths.</td></tr>
+            <tr><td><code>ft.selectedURLs()</code></td><td>Returns the selected paths as an array of strings.</td></tr>
+            <tr><td><code>ft.currentURL()</code></td><td>Returns the active pane&rsquo;s current folder path.</td></tr>
+            <tr><td><code>ft.readFile(path)</code></td><td>Reads a file, returns its text (or <code>null</code>).</td></tr>
+            <tr><td><code>ft.writeFile(path, text)</code></td><td>Writes text to a file, returns <code>true</code> on success.</td></tr>
+            <tr><td><code>ft.run([cmd, …args])</code></td><td>Runs a program and returns its stdout as a string.</td></tr>
+            <tr><td><code>ft.notify(message)</code></td><td>Flashes a message in the active window&rsquo;s status bar.</td></tr>
+          </tbody>
+        </table>
+
+        <h3 id="plugin-example">A complete example</h3>
+        <p>
+          Here&rsquo;s a working plugin that drops a dated Markdown note into whatever
+          folder you&rsquo;re viewing. It uses three of the bridge calls — read the current
+          folder, write a file, and confirm:
+        </p>
+        <div class="file-label">main.js</div>
+        <pre><code>ft.onAction(<span class="s">'notes.new-dated'</span>, <span class="k">function</span> (paths) {
+  <span class="k">var</span> dir = ft.currentURL();
+  <span class="k">if</span> (!dir) { ft.notify(<span class="s">'Open a folder first'</span>); <span class="k">return</span>; }
+
+  <span class="cm">// YYYY-MM-DD using the JS Date</span>
+  <span class="k">var</span> d = <span class="k">new</span> Date();
+  <span class="k">var</span> pad = <span class="k">function</span> (n) { <span class="k">return</span> (<span class="s">'0'</span> + n).slice(-2); };
+  <span class="k">var</span> stamp = d.getFullYear() + <span class="s">'-'</span> + pad(d.getMonth() + 1) + <span class="s">'-'</span> + pad(d.getDate());
+
+  <span class="k">var</span> path = dir + <span class="s">'/'</span> + stamp + <span class="s">'-note.md'</span>;
+  ft.writeFile(path, <span class="s">'# '</span> + stamp + <span class="s">'\n\n'</span>);
+  ft.notify(<span class="s">'Created '</span> + stamp + <span class="s">'-note.md'</span>);
+});</code></pre>
+        <p>Save the two files into the plugin folder, then:</p>
+        <ol class="steps">
+          <li>Open <strong>Settings ▸ Advanced</strong> and click <strong>Reveal Plugins Folder</strong> — it opens <code>~/Library/Application Support/FinderTwo/Plugins/</code>. Put <code>quick-notes.ftplugin</code> there.</li>
+          <li>Back in Settings, click <strong>Reload Plugins</strong> (or just relaunch Rascal).</li>
+          <li>Run it: press <kbd>⌘⇧P</kbd> and type <strong>New Dated Note</strong>, or pick it from the <strong>Plugins</strong> menu.</li>
+          <li>Want it on a key? Give it a shortcut in <strong>Settings ▸ Keyboard</strong>, or add it to a pane&rsquo;s toolbar in <strong>Settings ▸ Hotbar</strong>.</li>
+        </ol>
+        <div class="callout">
+          <p><strong>A note on trust.</strong> Plugins run in-process with your full permissions — they can read and write files and launch programs (<code>ft.run</code>). There&rsquo;s no sandbox, so only add plugins you&rsquo;ve read and trust, exactly as you would a shell script.</p>
+        </div>
+      </section>
+
+    </article>
+  </div>
+
+  <p class="guide-foot-cta">
+    <a class="btn btn-ghost btn-lg" href="guide.html">← Back to the user guide</a>
+  </p>
+</main>
+
+<footer class="foot">
+  <div class="foot-brand">
+    <img src="assets/rascal-logo.svg" alt="" class="foot-mark" />
+    <span>Rascal</span>
+  </div>
+  <nav class="foot-links">
+    <a href="https://github.com/chang-07/finder-2" target="_blank" rel="noopener">GitHub</a>
+    <a href="guide.html">Guide</a>
+    <a href="customize.html">Customize</a>
+    <a href="https://ko-fi.com/chang07" target="_blank" rel="noopener">Ko-fi</a>
+  </nav>
+  <p class="foot-note">Made on a Mac, for Macs. No cloud, no account, no nonsense.</p>
+</footer>
+
+</body>
+</html>

@@ -111,7 +111,7 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 .glow { position: absolute; border-radius: 50%; filter: blur(80px); z-index: 0; pointer-events: none; }
 .glow-a { width: 480px; height: 480px; top: -170px; left: -130px; background: radial-gradient(circle, rgba(255,150,70,.55), transparent 68%); }
 .glow-b { width: 540px; height: 540px; top: -100px; right: -170px; background: radial-gradient(circle, rgba(255,196,120,.5), transparent 70%); }
-.hero-inner { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; }
+.hero-inner { position: relative; z-index: 5; max-width: 760px; margin: 0 auto; }
 .hero-logo {
   width: 104px; height: 104px; border-radius: 26px;
   box-shadow: 0 26px 50px -18px rgba(150,55,12,.6); margin-bottom: 26px;
@@ -130,9 +130,12 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 .hero-title em { font-style: italic; font-weight: 500; color: var(--clay); }
 .hero-sub { font-size: clamp(17px, 2.1vw, 21px); color: var(--ink-2); margin: 26px auto 32px; max-width: 580px; line-height: 1.6; }
 .hero-meta { margin-top: 18px; font-family: var(--mono); font-size: 12.5px; letter-spacing: .02em; color: var(--muted); }
+.hero-meta-link { color: var(--clay); border-bottom: 1px solid var(--line-2); transition: border-color .15s; }
+.hero-meta-link:hover { border-color: var(--clay); }
 
 /* ── buttons ── */
-.cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.cta-row { display: flex; gap: 14px; justify-content: center; align-items: center; flex-wrap: wrap; }
+.cta-row .dl-hero { margin-top: 0; }   /* the bottom-section .dl carries a top margin; the hero one shouldn't */
 .btn {
   display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 16px;
   padding: 14px 28px; border-radius: 999px; cursor: pointer; border: 1px solid transparent;
@@ -152,7 +155,7 @@ body > *:not(.grain) { position: relative; z-index: 1; }
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
 }
-.frame img, .frame video { width: 100%; height: auto; display: block; }
+.frame img { width: 100%; height: auto; display: block; }
 .hero-shot { position: relative; z-index: 1; max-width: 980px; margin: 50px auto 0; }
 .section-tint .demo-video { max-width: 980px; margin: 52px auto 0; }
 
@@ -223,9 +226,17 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 
 /* ── download ── */
 .download { text-align: center; }
-/* per-arch download: a primary button + an Intel dropdown (JS-free <details>) */
-.dl { display: inline-flex; gap: 8px; margin-top: 32px; }
-.dl-more { position: relative; }
+/* per-arch download: a split button — primary action + an attached caret that
+   opens the Apple-Silicon / Intel menu (JS-free <details>) */
+.dl { display: inline-flex; gap: 0; margin-top: 32px; align-items: stretch; }
+.dl .btn:hover { transform: none; }                         /* keep the two halves joined */
+.dl-main { border-top-right-radius: 0; border-bottom-right-radius: 0; padding-right: 22px; }
+.dl-caret-btn { border-top-left-radius: 0; border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(255, 255, 255, .32) !important; }
+/* the caret lives in a <details>; make it a flex box so its <summary> stretches to
+   the full height of the taller main button instead of sitting short at the top */
+.dl-more { position: relative; display: inline-flex; align-items: stretch; }
+.dl-more > summary { display: inline-flex; align-items: center; }
 .dl-more > summary { list-style: none; cursor: pointer; padding-left: 15px; padding-right: 15px; }
 .dl-more > summary::-webkit-details-marker { display: none; }
 .dl-more > summary::marker { content: ""; }
