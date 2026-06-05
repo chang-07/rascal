@@ -8,7 +8,8 @@ final class GalleryViewController: NSViewController, ThemeObserving {
     var onOpen: ((FileItem) -> Void)?
     var onSelectionChange: (([FileItem]) -> Void)?
 
-    private let ql = QLPreviewView(frame: .zero, style: .normal)
+    private let qlHost = NSView()
+    private var ql: QLPreviewView?
     private let nameLabel = NSTextField(labelWithString: "")
     private let strip = NSStackView()
     private var items: [FileItem] = []
@@ -18,9 +19,7 @@ final class GalleryViewController: NSViewController, ThemeObserving {
     override func loadView() {
         let root = NSView()
         root.wantsLayer = true
-        let previewHost = ql ?? QLPreviewView()
-        previewHost.translatesAutoresizingMaskIntoConstraints = false
-        previewHost.autostarts = true
+        qlHost.translatesAutoresizingMaskIntoConstraints = false
 
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.alignment = .center
@@ -38,14 +37,14 @@ final class GalleryViewController: NSViewController, ThemeObserving {
         stripScroll.documentView = strip
         stripScroll.translatesAutoresizingMaskIntoConstraints = false
 
-        root.addSubview(previewHost)
+        root.addSubview(qlHost)
         root.addSubview(nameLabel)
         root.addSubview(stripScroll)
         NSLayoutConstraint.activate([
-            previewHost.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
-            previewHost.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
-            previewHost.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
-            nameLabel.topAnchor.constraint(equalTo: previewHost.bottomAnchor, constant: 6),
+            qlHost.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
+            qlHost.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
+            qlHost.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
+            nameLabel.topAnchor.constraint(equalTo: qlHost.bottomAnchor, constant: 6),
             nameLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
             nameLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
             stripScroll.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
@@ -103,7 +102,7 @@ final class GalleryViewController: NSViewController, ThemeObserving {
 
     private func focus(_ item: FileItem?) {
         focused = item
-        ql?.previewItem = item?.url as NSURL?
+        loadPreview(item?.url)
         nameLabel.stringValue = item?.name ?? "No selection"
         for (i, b) in stripButtons.enumerated() {
             b.keyEquivalent = ""
@@ -111,6 +110,38 @@ final class GalleryViewController: NSViewController, ThemeObserving {
             b.state = (items.indices.contains(i) && items[i] == item) ? .on : .off
         }
         onSelectionChange?(item.map { [$0] } ?? [])
+    }
+
+    /// Recreate the QLPreviewView for each item rather than reusing one: swapping
+    /// `previewItem` on a live QLPreviewView trips its overlay scroller / KVO and
+    /// crashes on scrollable content like PDFs (see PreviewDrawerView). Load only
+    /// once the host has a real, non-zero frame.
+    private func loadPreview(_ url: URL?) {
+        ql?.close()
+        ql?.removeFromSuperview()
+        ql = nil
+        guard let url else { return }
+        view.layoutSubtreeIfNeeded()
+        guard qlHost.bounds.width >= 1, qlHost.bounds.height >= 1 else { return }
+        guard let v = QLPreviewView(frame: qlHost.bounds, style: .normal) else { return }
+        v.autostarts = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        qlHost.addSubview(v)
+        NSLayoutConstraint.activate([
+            v.topAnchor.constraint(equalTo: qlHost.topAnchor),
+            v.leadingAnchor.constraint(equalTo: qlHost.leadingAnchor),
+            v.trailingAnchor.constraint(equalTo: qlHost.trailingAnchor),
+            v.bottomAnchor.constraint(equalTo: qlHost.bottomAnchor),
+        ])
+        view.layoutSubtreeIfNeeded()
+        v.previewItem = url as NSURL
+        ql = v
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        // If an item was focused before the view had a real size, load it now.
+        if ql == nil, let f = focused { loadPreview(f.url) }
     }
 
     // MARK: Keyboard navigation (vim j/k/gg/G + open)
