@@ -3123,6 +3123,124 @@ final class TestRunner {
         assert("transfer refuses moving a folder into its own descendant",
                fm.fileExists(atPath: dsub.path) && !fm.fileExists(atPath: deeper.appendingPathComponent("sub").path),
                "descendant-nest happened")
+
+        // --- GI-20 (SC-1): command palette executes its top entry on the active pane ---
+        let pcmd = mkdir("pcmd"); mkfile(pcmd, "keep.txt")
+        let wcPal = BrowserWindowController(rootURL: pcmd); _ = wcPal.window
+        if let p = wcPal.testActivePane {
+            p.setViewMode(.list); p.testReloadSync()
+            let palette = CommandPaletteController(target: wcPal); _ = palette.window
+            FileActionLog.shared.clear()
+            palette.demoSetQuery("New Folder")
+            palette.perform(Selector(("performSelected"))); wait(0.2)
+            assert("command palette executes New Folder against the active pane",
+                   fm.fileExists(atPath: pcmd.appendingPathComponent("untitled folder").path), "no folder created")
+            FileActionLog.shared.clear()
+        }
+        wcPal.window?.close()
+
+        // --- GI-21 (SC-4): Get Info preserves setgid across a perm-box edit ---
+        let pdir = mkdir("perm4"); let pf = mkfile(pdir, "special.txt")
+        try? fm.setAttributes([.posixPermissions: NSNumber(value: 0o2755)], ofItemAtPath: pf.path)
+        func diskMode(_ u: URL) -> UInt16 { ((try? fm.attributesOfItem(atPath: u.path)[.posixPermissions]) as? NSNumber)?.uint16Value ?? 0 }
+        let info = GetInfoSheetController(url: pf); _ = info.window?.contentView
+        assert("Get Info shows 9 perm boxes", info.testPermBoxCount == 9, "boxes=\(info.testPermBoxCount)")
+        info.testApplyMode(0o700); wait(0.05)
+        let m1 = diskMode(pf)
+        assert("Get Info keeps setgid across a perm edit",
+               (m1 & 0o7000) == 0o2000 && (m1 & 0o777) == 0o700, "mode=\(String(m1, radix: 8))")
+        info.testApplyMode(0o755); wait(0.05)
+        let m2 = diskMode(pf)
+        assert("Get Info revert keeps the special bit + restores low bits",
+               (m2 & 0o7000) == 0o2000 && (m2 & 0o777) == 0o755, "mode=\(String(m2, radix: 8))")
+        info.window?.close()
+
+        // --- GI-22 (SC-7): Go-to an invalid path doesn't navigate; relative subdir does ---
+        let gt = mkdir("gt7"); _ = mkdir("gt7/real")
+        let wcGt = BrowserWindowController(rootURL: gt); _ = wcGt.window
+        if let p = wcGt.testActivePane {
+            p.navigate(to: gt); p.testReloadSync()
+            let before = p.currentURL
+            p.commitTypedPath(gt.path + "/does_not_exist_zzz"); wait(0.05)
+            assert("Go-to an invalid path is inert", p.currentURL == before, "navigated to \(p.currentURL.path)")
+            p.commitTypedPath("real"); wait(0.05); p.testReloadSync()
+            assert("Go-to a relative subfolder navigates there", p.currentURL.lastPathComponent == "real", "cur=\(p.currentURL.lastPathComponent)")
+        }
+        wcGt.window?.close()
+
+        // --- GI-23 (SC-9): opening a filename-search hit navigates + SELECTS the file ---
+        let deep = mkdir("srch/nested/deep"); mkfile(deep, "target_unique.txt")
+        let srchRoot = gi.appendingPathComponent("srch")
+        let wcSr = BrowserWindowController(rootURL: srchRoot); _ = wcSr.window
+        if let p = wcSr.testActivePane {
+            let tgt = deep.appendingPathComponent("target_unique.txt")
+            // Core mechanism a search "open result" relies on: navigate to the
+            // containing folder, then select(url:) the file.
+            p.navigate(to: deep); p.testReloadSync()
+            assert("the deep folder's file is loaded", p.testCurrentItems.contains { $0.name == "target_unique.txt" },
+                   "items=\(p.testCurrentItems.map { $0.name })")
+            p.select(url: tgt); wait(0.05)
+            assert("select(url:) selects the file in the current folder",
+                   p.selectedURLs().map { $0.lastPathComponent } == ["target_unique.txt"],
+                   "sel=\(p.selectedURLs().map { $0.lastPathComponent })")
+            // And via a differently-normalized (/private-resolved) URL — the form
+            // a Spotlight/search hit may carry.
+            p.testReloadSync()
+            p.select(url: URL(fileURLWithPath: tgt.resolvingSymlinksInPath().path))
+            wait(0.05)
+            assert("select(url:) matches a /private-normalized hit URL too",
+                   p.selectedURLs().map { $0.lastPathComponent } == ["target_unique.txt"],
+                   "sel=\(p.selectedURLs().map { $0.lastPathComponent })")
+        }
+        wcSr.window?.close()
+
+        // --- GI-24 (SC-11/12): F6 cross-pane move lands in +1 pane and is undoable ---
+        let xL = mkdir("xp/L"); let xfile = mkfile(xL, "doc.txt"); let xR = mkdir("xp/R")
+        let wcXp = BrowserWindowController(rootURL: xL); _ = wcXp.window
+        wcXp.testAddPane()
+        let xpanes = wcXp.testAllPanes
+        if xpanes.count == 2 {
+            xpanes[0].navigate(to: xL); xpanes[1].navigate(to: xR)
+            xpanes[0].testReloadSync(); xpanes[1].testReloadSync()
+            var guardN = 0
+            while wcXp.testActivePane !== xpanes[0] && guardN < 4 { wcXp.focusPrevPane(nil); guardN += 1 }
+            if let it = xpanes[0].testCurrentItems.first(where: { $0.name == "doc.txt" }) { xpanes[0].testSelectItem(it) }
+            FileActionLog.shared.clear()
+            wcXp.moveToOtherPane(nil)
+            let moved = waitUntil(3) { fm.fileExists(atPath: xR.appendingPathComponent("doc.txt").path) && !fm.fileExists(atPath: xfile.path) }
+            assert("F6 move-to-other-pane lands in the +1 pane (move)", moved, "not moved to R")
+            assert("cross-pane move records undo", FileActionLog.shared.canUndo, "no undo")
+            wcXp.fileUndo(nil); wait(0.3)
+            assert("undo of a cross-pane move restores the source pane's file",
+                   fm.fileExists(atPath: xfile.path) && !fm.fileExists(atPath: xR.appendingPathComponent("doc.txt").path),
+                   "undo didn't restore to L")
+            FileActionLog.shared.clear()
+        }
+        wcXp.window?.close()
+
+        // --- GI-25 (SC-13): selection is PRESERVED across view switches, never a wrong file ---
+        let vm13 = mkdir("vm13"); for n in ["aaa.txt", "bbb.txt", "ccc.txt", "ddd.txt"] { mkfile(vm13, n) }
+        let wcVm = BrowserWindowController(rootURL: vm13); _ = wcVm.window
+        let prevC2 = Settings.confirmTrash; Settings.confirmTrash = false
+        if let p = wcVm.testActivePane {
+            p.setViewMode(.list); p.testReloadSync()
+            func selectCcc() { if let it = p.testCurrentItems.first(where: { $0.name == "ccc.txt" }) { p.testSelectItem(it) } }
+            func sel() -> Set<String> { Set(p.selectedURLs().map { $0.lastPathComponent }) }
+            selectCcc()
+            assert("list selection is ccc", sel() == ["ccc.txt"], "sel=\(sel())")
+            p.setViewMode(.icon);    assert("icon preserves the selection (ccc)", sel() == ["ccc.txt"], "icon=\(sel())")
+            p.setViewMode(.gallery); assert("gallery preserves the selection (ccc, not the first item)", sel() == ["ccc.txt"], "gal=\(sel())")
+            p.setViewMode(.list);    assert("round-trip back to list keeps ccc", sel() == ["ccc.txt"], "list=\(sel())")
+            p.setViewMode(.columns); assert("columns never inherit a WRONG selection", sel().isEmpty || sel() == ["ccc.txt"], "col=\(sel())")
+            // Destructive correctness: trash hits exactly the selected file, nothing else.
+            p.setViewMode(.list); selectCcc()
+            wcVm.moveToTrash(nil); wait(0.1)
+            assert("trashing the selection removes exactly ccc",
+                   Set((try? fm.contentsOfDirectory(atPath: vm13.path)) ?? []) == ["aaa.txt", "bbb.txt", "ddd.txt"],
+                   "left=\(Set((try? fm.contentsOfDirectory(atPath: vm13.path)) ?? []))")
+        }
+        Settings.confirmTrash = prevC2
+        wcVm.window?.close()
     }
 
     /// Dismiss any sheets on the window + its children so the next action's

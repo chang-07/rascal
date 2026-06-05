@@ -127,6 +127,15 @@ final class GalleryViewController: NSViewController, ThemeObserving {
     }
     func focusFirst() { guard let f = items.first else { return }; focus(f) }
     func focusLast() { guard let l = items.last else { return }; focus(l) }
+
+    /// Re-focus the first item matching one of `urls` (selection preserved across
+    /// a view-mode switch, instead of jumping to the first item). No-op if none match.
+    func restoreSelection(_ urls: [URL]) {
+        let set = Set(urls.map { $0.standardizedFileURL.path })
+        if let item = items.first(where: { set.contains($0.url.standardizedFileURL.path) }) {
+            focus(item)
+        }
+    }
     func openFocused() { if let f = focused { onOpen?(f) } }
 
     @objc private func thumbClicked(_ sender: NSButton) {
