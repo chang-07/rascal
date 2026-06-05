@@ -3241,6 +3241,22 @@ final class TestRunner {
         }
         Settings.confirmTrash = prevC2
         wcVm.window?.close()
+
+        // --- GI-26 (R5): a type-filter must NOT survive a workspace re-restore ---
+        let ws = mkdir("ws26"); mkfile(ws, "keep.txt"); mkfile(ws, "alpha_1.txt"); mkfile(ws, "alpha_2.txt")
+        let wcWs = BrowserWindowController(rootURL: ws); _ = wcWs.window
+        if let p = wcWs.testActivePane {
+            p.testReloadSync()
+            let snap = wcWs.sessionSnapshot()
+            wcWs.restoreFromSnapshot(snap); wait(0.1)          // first restore (normalizes currentURL)
+            p.testSetFilter("zzzz"); wait(0.05); p.testReloadSync()
+            assert("precondition: filter hides everything", p.testCurrentItems.isEmpty, "items=\(p.testCurrentItems.map { $0.name })")
+            wcWs.restoreFromSnapshot(snap); wait(0.1); p.testReloadSync()  // re-restore must drop the filter
+            assert("a filter does not survive a workspace re-restore",
+                   p.testCurrentItems.contains { $0.name == "keep.txt" },
+                   "stale filter survived; items=\(p.testCurrentItems.map { $0.name })")
+        }
+        wcWs.window?.close()
     }
 
     /// Dismiss any sheets on the window + its children so the next action's

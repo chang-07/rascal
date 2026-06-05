@@ -466,6 +466,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         // restore into an already-populated pane, where appending would accumulate
         // tabs and leak each dropped tab's model + FSEvents watcher.
         tabs[0].navigate(to: URL(fileURLWithPath: valid[0]))
+        tabs[0].model.filterText = ""   // a restored workspace opens unfiltered; navigate's own
+                                        // reset no-ops once the URL is already normalized (re-restore)
         if tabs.count > 1 { tabs.removeLast(tabs.count - 1) }   // drop tabs[1...]; their models/watchers dealloc
         activeTabIndex = 0
         for path in valid.dropFirst() {
