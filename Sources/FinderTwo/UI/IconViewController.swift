@@ -93,6 +93,18 @@ final class IconViewController: NSViewController, NSCollectionViewDataSource,
     func selectFirst() { guard !items.isEmpty else { return }; select(index: 0) }
     func selectLast() { guard !items.isEmpty else { return }; select(index: items.count - 1) }
 
+    /// Re-select the items matching `urls` (selection preserved across a
+    /// view-mode switch). No-op if none match.
+    func restoreSelection(_ urls: [URL]) {
+        let set = Set(urls.map { $0.standardizedFileURL.path })
+        let ips = items.enumerated()
+            .filter { set.contains($0.element.url.standardizedFileURL.path) }
+            .map { IndexPath(item: $0.offset, section: 0) }
+        guard !ips.isEmpty else { return }
+        collection.selectItems(at: Set(ips), scrollPosition: .nearestHorizontalEdge)
+        reportSelection()
+    }
+
     /// Test hook: the currently-selected item(s).
     var testSelectedItems: [FileItem] {
         collection.selectionIndexPaths.compactMap { items.indices.contains($0.item) ? items[$0.item] : nil }

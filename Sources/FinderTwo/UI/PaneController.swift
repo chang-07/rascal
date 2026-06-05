@@ -597,12 +597,27 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     /// don't masquerade as an explicit per-folder choice.
     func setViewMode(_ mode: ViewMode, persist: Bool = true) {
         guard mode != viewMode else { return }
+        let keep = selectedURLs()   // preserve the selection across the switch (Finder parity)
         viewMode = mode
         switch mode {
         case .columns: installColumnsView()
         case .icon:    installIconView()
         case .gallery: installGalleryView()
         case .list:    installListView()
+        }
+        // Re-apply the prior selection in the new view so switching views neither
+        // loses the selection (icon/list) nor jumps to the first item (gallery).
+        if !keep.isEmpty {
+            switch mode {
+            case .list:
+                let set = Set(keep.map { $0.standardizedFileURL.path })
+                if let it = activeTab.model.items.first(where: { set.contains($0.url.standardizedFileURL.path) }) {
+                    fileList.select(item: it, scroll: true)
+                }
+            case .icon:    iconVC?.restoreSelection(keep)
+            case .gallery: galleryVC?.restoreSelection(keep)
+            case .columns: break   // Miller columns manage their own column stack
+            }
         }
         if persist { saveFolderViewPref() }
     }
@@ -728,7 +743,15 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     }
 
     func select(url: URL) {
-        if let item = activeTab.model.items.first(where: { $0.url == url }) {
+        // Match by resolved path, falling back to the file name within the
+        // current folder — a hit from search/go-to can carry a differently
+        // normalized URL (/private/var…, Spotlight-resolved) than the model's
+        // item, but it IS the item now listed here, so the name pins it.
+        let target = url.resolvingSymlinksInPath().path
+        let name = url.lastPathComponent
+        if let item = activeTab.model.items.first(where: {
+            $0.url.resolvingSymlinksInPath().path == target || $0.name == name
+        }) {
             fileList.select(item: item, scroll: true)
         }
     }
