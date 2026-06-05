@@ -189,7 +189,17 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 .feat code, .shot figcaption code { background: var(--paper-2); color: var(--clay-deep); padding: 1px 6px; border-radius: 6px; }
 
 /* ── demos grid ── */
-.shots { margin-top: 52px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 26px; max-width: 980px; margin-inline: auto; }
+/* editorial subhead between demo groups */
+.demo-group {
+  text-align: center; font-family: var(--display); font-style: italic;
+  font-weight: 500; font-size: clamp(21px, 3vw, 30px); letter-spacing: -.015em;
+  color: var(--ink); margin: clamp(56px, 7vw, 80px) auto 0; max-width: 720px;
+}
+.demo-group::after {
+  content: ""; display: block; width: 38px; height: 2px; margin: 15px auto 0;
+  background: var(--orange); border-radius: 2px; opacity: .9;
+}
+.shots { margin-top: 30px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 26px; max-width: 980px; margin-inline: auto; }
 .shot { transition: transform .2s ease, box-shadow .3s ease; }
 .shot:hover { transform: translateY(-5px); box-shadow: 0 40px 80px -34px rgba(70,40,12,.4); }
 .shot.span-all { grid-column: 1 / -1; }

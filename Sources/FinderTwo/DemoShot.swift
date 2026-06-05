@@ -83,6 +83,63 @@ enum DemoShot {
         wc.testToggleExtraPane(); spin(1.2); frame(&panels, hold: 2)
         wc.testActivePane?.navigate(to: sample.appendingPathComponent("Projects")); spin(1.0); frame(&panels, hold: 3)
         writeGIF(panels.map { scaled($0, toWidth: 1100) }, out.appendingPathComponent("panels.gif"), delay: 1.0)
+
+        // ── Feature stills (rascal-light, off-screen) ────────────────────
+        while wc.testPaneCount > 1 { wc.testCloseActivePane() }
+        let pane = wc.testActivePane
+        pane?.setViewMode(.list); pane?.navigate(to: sample); spin(0.4)
+
+        // icons.png — root folder as an icon grid. File-type icons render
+        // crisply off-screen; QuickLook image thumbnails do not, so we use a
+        // varied folder (not an image-only one) to keep the shot flicker-free.
+        pane?.navigate(to: sample); spin(0.4)
+        pane?.setViewMode(.icon); spin(1.3)
+        if let r = windowShot(win, content) { writePNG(r, out.appendingPathComponent("icons.png")) }
+
+        // columns.png — Miller columns, drilled one level in.
+        pane?.setViewMode(.list); pane?.navigate(to: sample); spin(0.3)
+        pane?.setViewMode(.columns); spin(0.6)
+        pane?.testColumnVC?.testDrillIntoFirstFolder(); spin(0.9)
+        if let r = windowShot(win, content) { writePNG(r, out.appendingPathComponent("columns.png")) }
+
+        // multipane.png — three independent panes (up to four).
+        pane?.setViewMode(.list); pane?.navigate(to: sample); spin(0.3)
+        wc.testAddPane(); wc.testAddPane(); spin(0.4)
+        let mp = wc.testAllPanes
+        if mp.count >= 3 {
+            mp[1].navigate(to: sample.appendingPathComponent("Documents"))
+            mp[2].navigate(to: sample.appendingPathComponent("Projects")); mp[2].setViewMode(.icon)
+            spin(1.3)
+        }
+        if let r = windowShot(win, content) { writePNG(r, out.appendingPathComponent("multipane.png")) }
+        while wc.testPaneCount > 1 { wc.testCloseActivePane() }; spin(0.3)
+
+        // cut.png — true Cut (⌘X): cut files render dimmed until pasted.
+        pane?.setViewMode(.list); pane?.navigate(to: sample); spin(0.5)
+        pane?.testFileList.tableView.selectRowIndexes(IndexSet([1, 3, 5]), byExtendingSelection: false)
+        pane?.cutSelection(); spin(0.6)
+        if let r = windowShot(win, content) { writePNG(r, out.appendingPathComponent("cut.png")) }
+        FileOps.clearCut(); spin(0.2)
+
+        // tags.png — Finder-compatible color tags shown as dots; reuse this
+        // clean base for the Get Info overlay too.
+        Tags.write([Tags.Tag(name: "Important", color: .red)],  to: sample.appendingPathComponent("Q3-report.pdf"))
+        Tags.write([Tags.Tag(name: "Work", color: .blue)],      to: sample.appendingPathComponent("budget.xlsx"))
+        Tags.write([Tags.Tag(name: "Personal", color: .green)], to: sample.appendingPathComponent("resume.docx"))
+        Tags.write([Tags.Tag(name: "Review", color: .orange)],  to: sample.appendingPathComponent("config.json"))
+        pane?.navigate(to: sample.appendingPathComponent("Projects")); spin(0.3)
+        pane?.navigate(to: sample); spin(0.7)
+        pane?.select(url: sample.appendingPathComponent("Q3-report.pdf")); spin(0.3)
+        if let base = windowShot(win, content) {
+            writePNG(base, out.appendingPathComponent("tags.png"))
+            // getinfo.png — native Get Info floated over the dimmed window.
+            let gi = GetInfoSheetController(url: sample.appendingPathComponent("Q3-report.pdf"))
+            if let gc = gi.window?.contentView,
+               let gr = panelShot(gc, size: NSSize(width: 380, height: 560)) {
+                writePNG(overlayPanel(base, gr), out.appendingPathComponent("getinfo.png"))
+            }
+        }
+
         win.orderOut(nil)
 
         // ── Treemap (light) — still + drill GIF ──────────────────────────
