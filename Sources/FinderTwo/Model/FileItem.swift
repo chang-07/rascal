@@ -88,7 +88,10 @@ struct SortDescriptor: Equatable {
     var foldersFirst: Bool = true
 
     func compare(_ a: FileItem, _ b: FileItem) -> Bool {
-        if Settings.foldersFirst && a.isDirectory != b.isDirectory {
+        // Use the descriptor's own flag (synced from Settings once per sort by the
+        // caller) — reading Settings.foldersFirst here would hit NSUserDefaults on
+        // every comparison, i.e. O(n log n) times per folder load.
+        if foldersFirst && a.isDirectory != b.isDirectory {
             return a.isDirectory && !b.isDirectory
         }
         let order: ComparisonResult
