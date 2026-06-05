@@ -3,15 +3,23 @@ import Quartz
 
 /// Persistent right-side preview pane (Finder's "Show Preview"): a live
 /// Quick Look render of the selected item plus its name and size.
+///
+/// The QLPreviewView is **recreated for every item** rather than reused. Swapping
+/// `previewItem` on a live QLPreviewView trips its internal KVO
+/// ("…displayedDisplayBundle… without an appropriate KVO notification…") and its
+/// overlay scroller (`-[NSScrollerImp setKnobProportion:]` asserts
+/// `isfinite(newKnobProportion)`), which crashes the app when previewing
+/// scrollable content like PDFs. A fresh view per item — added only once the host
+/// has a real, non-zero size — avoids both failure modes.
 final class PreviewDrawerView: NSView, ThemeObserving {
 
-    private let ql = QLPreviewView(frame: .zero, style: .normal)
+    private let qlHost = NSView()
+    private var ql: QLPreviewView?
     private let nameLabel = NSTextField(labelWithString: "")
     private let infoLabel = NSTextField(labelWithString: "")
 
     var url: URL? {
         didSet {
-            ql?.previewItem = url as NSURL?
             nameLabel.stringValue = url?.lastPathComponent ?? "No selection"
             if let url {
                 let rv = try? url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey, .localizedTypeDescriptionKey])
@@ -21,7 +29,34 @@ final class PreviewDrawerView: NSView, ThemeObserving {
             } else {
                 infoLabel.stringValue = ""
             }
+            reloadPreview()
         }
+    }
+
+    /// Tear down the previous QLPreviewView and build a fresh one for the current
+    /// URL — but only once the host actually has a non-zero frame.
+    private func reloadPreview() {
+        ql?.close()
+        ql?.removeFromSuperview()
+        ql = nil
+
+        guard let url else { return }
+        layoutSubtreeIfNeeded()
+        guard qlHost.bounds.width >= 1, qlHost.bounds.height >= 1 else { return }
+
+        guard let v = QLPreviewView(frame: qlHost.bounds, style: .normal) else { return }
+        v.autostarts = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        qlHost.addSubview(v)
+        NSLayoutConstraint.activate([
+            v.topAnchor.constraint(equalTo: qlHost.topAnchor),
+            v.leadingAnchor.constraint(equalTo: qlHost.leadingAnchor),
+            v.trailingAnchor.constraint(equalTo: qlHost.trailingAnchor),
+            v.bottomAnchor.constraint(equalTo: qlHost.bottomAnchor),
+        ])
+        layoutSubtreeIfNeeded()          // give it a real frame before QuickLook loads
+        v.previewItem = url as NSURL
+        ql = v
     }
 
     override init(frame frameRect: NSRect) {
@@ -32,9 +67,8 @@ final class PreviewDrawerView: NSView, ThemeObserving {
         line.translatesAutoresizingMaskIntoConstraints = false
         addSubview(line)
 
-        ql?.translatesAutoresizingMaskIntoConstraints = false
-        ql?.autostarts = true
-        if let ql { addSubview(ql) }
+        qlHost.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(qlHost)
 
         nameLabel.font = .boldSystemFont(ofSize: 12)
         nameLabel.alignment = .center
@@ -49,26 +83,17 @@ final class PreviewDrawerView: NSView, ThemeObserving {
         infoLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(infoLabel)
 
-        // If QLPreviewView's failable init returned nil, the fallback must still be
-        // in the view hierarchy — activating constraints against an unparented view
-        // (no common ancestor) throws NSGenericException.
-        let qlView: NSView = ql ?? {
-            let v = NSView()
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
-            return v
-        }()
         NSLayoutConstraint.activate([
             line.topAnchor.constraint(equalTo: topAnchor),
             line.bottomAnchor.constraint(equalTo: bottomAnchor),
             line.leadingAnchor.constraint(equalTo: leadingAnchor),
             line.widthAnchor.constraint(equalToConstant: 1),
 
-            qlView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            qlView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            qlView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            qlHost.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            qlHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            qlHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
 
-            nameLabel.topAnchor.constraint(equalTo: qlView.bottomAnchor, constant: 8),
+            nameLabel.topAnchor.constraint(equalTo: qlHost.bottomAnchor, constant: 8),
             nameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             nameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
 

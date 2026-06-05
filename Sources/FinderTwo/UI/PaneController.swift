@@ -146,7 +146,12 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         previewVisible.toggle()
         previewView.isHidden = !previewVisible
         previewWidthConstraint.constant = previewVisible ? 260 : 0
-        if previewVisible { updatePreviewContent() }
+        if previewVisible {
+            // Lay out the new 260pt width before loading, so QuickLook never renders
+            // a preview into a zero-width view (which crashes — see PreviewDrawerView).
+            view.layoutSubtreeIfNeeded()
+            updatePreviewContent()
+        }
     }
 
     /// Update the preview drawer to the current selection (or the folder when
