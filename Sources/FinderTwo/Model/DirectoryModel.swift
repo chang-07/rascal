@@ -306,7 +306,11 @@ final class DirectoryModel {
         if !filterText.isEmpty {
             arr = arr.filter { fuzzyMatchStatic($0.name, needle: filterText) }
         }
-        arr.sort(by: sort.compare)
+        // Resolve the folders-first preference once here, not inside the comparator
+        // (which the sort calls O(n log n) times — each one an NSUserDefaults read).
+        var sorter = sort
+        sorter.foldersFirst = Settings.foldersFirst
+        arr.sort(by: sorter.compare)
         return arr
     }
 
