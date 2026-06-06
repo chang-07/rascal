@@ -284,7 +284,15 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     private var pendingReveal: (url: URL, rename: Bool)?
     func queueReveal(_ url: URL, rename: Bool) { pendingReveal = (url, rename) }
 
+    /// True while an inline rename editor is open. Reloads are suppressed during
+    /// that window (and run once it ends) so a directory-change reload — e.g. the
+    /// FSEvents notification fired by *creating* the very folder we're now
+    /// renaming — can't recycle the editing cell onto the wrong row.
+    private var isRenaming = false
+    private var reloadDeferredWhileRenaming = false
+
     func reload() {
+        if isRenaming { reloadDeferredWhileRenaming = true; return }
         // Preserve selection by URL
         let prevSel = selectedItems().map { $0.url }
         rebuildDisplayRows()
@@ -774,7 +782,18 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         guard let view = tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? NameCell else {
             NSSound.beep(); return
         }
-        view.beginEditing()
+        if view.beginEditing() { isRenaming = true }
+    }
+
+    /// Inline rename just ended (commit or cancel): drop the reload suppression and
+    /// run any directory reload that arrived while the editor was open.
+    private func endRenameSession() {
+        guard isRenaming else { return }
+        isRenaming = false
+        if reloadDeferredWhileRenaming {
+            reloadDeferredWhileRenaming = false
+            DispatchQueue.main.async { [weak self] in self?.reload() }
+        }
     }
 
     /// Programmatic rename without requiring keyboard focus — useful for tests and
@@ -812,6 +831,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     // MARK: NameCellDelegate
 
     func nameCellDidCommit(_ cell: NameCell, newName: String) {
+        endRenameSession()
         guard let item = cell.currentItem else { return }
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains("/") else {
@@ -835,7 +855,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             cell.name.stringValue = item.name
         }
     }
-    func nameCellDidCancel(_ cell: NameCell) { /* no-op */ }
+    func nameCellDidCancel(_ cell: NameCell) { endRenameSession() }
 
     private func toggleQuickLook() {
         let panel = QLPreviewPanel.shared()!
@@ -1644,8 +1664,9 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
         }
     }
 
-    func beginEditing() {
-        guard let item = currentItem, !isEditing else { return }
+    @discardableResult
+    func beginEditing() -> Bool {
+        guard let item = currentItem, !isEditing else { return false }
         isEditing = true
         originalNameBeforeEdit = item.name
         name.isEditable = true
@@ -1664,6 +1685,7 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
                 editor.selectAll(nil)
             }
         }
+        return true
     }
 
     private func endEditing(commit: Bool) {
@@ -1692,5 +1714,13 @@ final class NameCell: NSTableCellView, NSTextFieldDelegate {
             endEditing(commit: false); return true
         }
         return false
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        // Tab, click-away, or any other end-of-edit commits the name (Finder
+        // parity). Return/Esc are handled above; the `isEditing` guard keeps this
+        // from double-firing — and guarantees the rename session always ends, so
+        // the list's reload-suppression is always lifted.
+        if isEditing { endEditing(commit: true) }
     }
 }
