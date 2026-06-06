@@ -141,6 +141,10 @@ final class ColumnViewController: NSViewController, NSBrowserDelegate, ThemeObse
         let kid = kids[row]
         cell.title = kid.url.lastPathComponent
         cell.isLeaf = !kid.isDir
+        // A bare NSBrowserCell is just text — give it the file icon + a clean font so
+        // the column view reads like a real file browser instead of a plain list.
+        cell.font = .systemFont(ofSize: 13)
+        cell.image = IconCache.shared.icon(forURL: kid.url, isDirectory: kid.isDir)
     }
 
     /// Verify hook: drill into the first subfolder of the deepest column (push a column).

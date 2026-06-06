@@ -63,6 +63,39 @@ final class IconCache {
         return img
     }
 
+    /// 16×16 icon for a bare URL + known directory flag — for the column view,
+    /// which drives NSBrowser cells from URLs and has no FileItem. Shares the
+    /// per-URL thumbnail and per-extension caches with `icon(for:)`.
+    func icon(forURL url: URL, isDirectory: Bool) -> NSImage {
+        if let thumb = thumbCache.object(forKey: url as NSURL) { return thumb }
+        if isDirectory {
+            // .app and other packages are directories too; show their real icon
+            // rather than a plain folder so the column view reads correctly.
+            if url.pathExtension.isEmpty { return folderIcon }
+            if let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .package) || type.conforms(to: .bundle),
+               let cached = extCache.object(forKey: "•pkg•\(url.pathExtension)" as NSString) {
+                return cached
+            }
+            if let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .package) || type.conforms(to: .bundle) {
+                let img = NSWorkspace.shared.icon(for: type); img.size = NSSize(width: 16, height: 16)
+                extCache.setObject(img, forKey: "•pkg•\(url.pathExtension)" as NSString)
+                return img
+            }
+            return folderIcon
+        }
+        let ext = url.pathExtension.lowercased()
+        if let cached = extCache.object(forKey: ext as NSString) { return cached }
+        let img: NSImage
+        if !ext.isEmpty, let type = UTType(filenameExtension: ext) {
+            img = NSWorkspace.shared.icon(for: type)
+        } else {
+            img = NSWorkspace.shared.icon(for: .data)
+        }
+        img.size = NSSize(width: 16, height: 16)
+        if !ext.isEmpty { extCache.setObject(img, forKey: ext as NSString) }
+        return img
+    }
+
     /// Whether we're allowed to read this URL's own icon without risking a TCC
     /// prompt. Only consulted off the cached hot path (packages / extensionless).
     private func mayReadFile(_ url: URL) -> Bool {
