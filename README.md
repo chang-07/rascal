@@ -1,254 +1,179 @@
 # Rascal
 
-A modern, performant file explorer for macOS — Finder muscle memory, with
-tabs, optional multi-pane, live filter, inline rename, async thumbnails,
-themes, vim mode, batch rename, command palette, workspaces, tags, and
-file-content search. Built with AppKit (NSOutlineView + NSTableView +
-NSBrowser) for native performance.
+![Rascal — a fast, keyboard-first Finder replacement for macOS](media/rascal-banner.png)
 
-## Install (recommended)
+**A fast, keyboard-first Finder replacement for macOS.** Native AppKit — dual panes, a fuzzy command palette, vim keys, a live disk treemap, real Finder tags, an inline terminal, and a JavaScript plugin API.
 
-One command does it all — release build, copy to `/Applications`, install a
-`ft` CLI:
+`Free · local-first · no account · no telemetry · no AI · macOS 13+ · Apple Silicon & Intel`
 
-```bash
-./install.sh
-```
+Rascal opens instantly, runs entirely on your Mac, and never phones home.
 
-After that, from anywhere:
+**[⬇ Download](https://github.com/chang-07/finder-2/releases/latest)** · [Keymap](HOTKEYS.md) · [User guide](https://chang-07.github.io/finder-2/guide.html) · [Customize](https://chang-07.github.io/finder-2/customize.html)
 
-```bash
-ft                  # open at $(pwd)
-ft ~/Downloads      # open at a path
-ft .                # open at $PWD
-```
+---
 
-…or Spotlight → "Rascal".
+## Download
 
-## Build (no install)
+Grab the latest signed DMG from [**Releases**](https://github.com/chang-07/finder-2/releases/latest) (Apple Silicon or Intel), drag **Rascal** to **Applications**, and open it.
+
+Because the build is ad-hoc signed, right-click **Rascal.app → Open** the first time. If macOS still blocks it:
 
 ```bash
-./build.sh debug      # .build/debug + build/Rascal.app
-./build.sh release    # optimized
-./run.sh              # build debug + launch (in place)
+xattr -cr /Applications/Rascal.app
 ```
 
-Requires Swift 5.9+ and macOS 13+. No full Xcode required — Command Line
-Tools are enough.
+Prefer to build it yourself? See [Build from source](#build-from-source).
+
+## Highlights
+
+- **Keyboard-first** — fuzzy command palette (`⌘⇧P`) and real vim navigation (`hjkl`, `/`, `dd`, `gg`, `gt`). The mouse is optional.
+- **Panes & views** — dual and multi-pane layouts, tabs, and List / Icon / Column / Gallery, switchable in a keystroke.
+- **Disk treemap** — a live, colour-coded map of any folder; click a tile to drill in.
+- **Real Finder tags** — read and write `kMDItemUserTags`, and pin saved searches to the sidebar as smart folders.
+- **Inline terminal** — `` ⌘` `` drops a shell drawer that tracks the active pane's directory.
+- **Plugins** — add commands with a small JavaScript file. No build step, no npm.
+- **17 themes** — light, dark, and a dozen more, or write your own in a few lines of JSON.
+- **Fast** — direct `readdir`/`lstat` scanning and async sort/filter keep large folders smooth. See [Performance](#performance).
+
+## Build from source
+
+Requires **macOS 13+** and a **Swift 5.9+ toolchain** — Command Line Tools (`xcode-select --install`) are enough; full Xcode is not required. It's a plain SwiftPM package with no `.xcodeproj`.
+
+```bash
+git clone https://github.com/chang-07/finder-2.git
+cd finder-2
+
+./run.sh                 # build (debug) + launch in place
+# or
+./build.sh debug         # → build/Rascal.app
+./build.sh release       # optimized build
+./install.sh             # release build → /Applications + a `ft` CLI
+```
+
+After `./install.sh`, open Rascal from anywhere:
+
+```bash
+ft                       # open the current directory
+ft ~/Downloads           # open a path
+```
+
+## Essential shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `⌘⇧P` | Command palette |
+| `⌘F` / `⌘⇧F` | Find files (fuzzy) / search file contents |
+| `⌘\` | Toggle extra pane |
+| `⌘T` / `⌘W` | New / close tab |
+| `⌘↑` / `⌘↓` | Enclosing folder / open selection |
+| `Return` / `Space` | Rename / Quick Look |
+| type letters | Live filter (`Esc` clears) |
+| `` ⌘` `` | Inline terminal |
+| `⌘,` | Settings (themes, vim, shortcuts) |
+
+Vim mode (toggle in Settings) maps `h j k l`, `gg`, `G`, `gt`/`gT`, `dd`, `yy`, `p`, `r`, `/`, `:`, and more when the file list is focused. The **full keymap** is in [HOTKEYS.md](HOTKEYS.md).
+
+## Testing
+
+Two scripts. Both run **off-screen** — windows never appear and focus is never taken.
+
+```bash
+./smoketest.sh           # in-process functional runner — 200+ assertions
+./guitest.sh             # Accessibility audit of menus + shortcuts
+```
+
+`smoketest.sh` launches the binary with `FT_RUN_TESTS=1`; the in-process `TestRunner` builds real controllers, panes, sheets, the palette, and vim, then asserts on their state — it is the source of truth. `guitest.sh` (`FT_HEADLESS_TESTING=1`) is a guardrail that every menu item and shortcut stays wired.
+
+## Project layout
+
+```
+Sources/FinderTwo/                 # the Swift target is named FinderTwo (historical); the product is Rascal
+├── main.swift / AppDelegate.swift # entry, menu bar, session restore
+├── Model/      Actions.swift (command registry), DirectoryModel, FileItem, Workspaces
+├── FS/         FastDirScan, FileOps, Tags, DirectoryWatcher (FSEvents)
+├── Input/      VimMode.swift
+├── Theme/      ThemeStore.swift (17 themes) + ThemeManager
+├── UI/         PaneController, FileListController, ColumnViewController, CommandPalette,
+│               SearchSheet, BatchRename, TreemapView, Settings, … (most of the app)
+├── Window/     BrowserWindowController (sidebar | panes split), PanesContainerController
+├── DemoShot.swift                 # off-screen capture harness for the website media
+└── Tests/TestRunner.swift         # 200+ in-process assertions
+```
+
+`Package.swift` links only system frameworks (AppKit, NetFS, Security) — there are **no third-party Swift dependencies**.
+
+## Contributing
+
+Pull requests are welcome: bug fixes, features, themes, plugins, and docs. A few things keep Rascal coherent — please keep them in mind.
+
+### Principles
+
+- **Local-first and private.** No telemetry, no analytics, no "call home." A change that sends user data anywhere won't be merged.
+- **No AI features.** Rascal is deliberately AI-free.
+- **Native and fast.** AppKit only — no Electron or web views for core UI. Respect the hot paths: keep UI work on the main thread and heavy work off it.
+- **Few dependencies.** The app ships with zero third-party Swift packages; it leans on system frameworks and CLI tools (`unzip`, `tar`, `rg`/`grep`, `sftp`, `git`). New dependencies need a strong reason.
+- **Keyboard-first.** New features should be reachable without the mouse — register them as Actions so the palette and menus pick them up.
+
+### Set up
+
+```bash
+git clone https://github.com/chang-07/finder-2.git
+cd finder-2
+./run.sh            # build + launch
+```
+
+macOS 13+ and a Swift 5.9+ toolchain (Command Line Tools are enough). Edit in any editor; `swift build` works directly.
+
+### Before you open a PR
+
+1. `./build.sh debug` compiles clean — fix any new warnings.
+2. `./smoketest.sh` passes (200+ assertions).
+3. `./guitest.sh` passes (menu/shortcut audit).
+4. Add assertions for new behaviour to `Sources/FinderTwo/Tests/TestRunner.swift`.
+
+**Headless-testing rule:** tests and any off-screen rendering must never open a visible window or take focus. The harness parks windows far off every display (`FT_HEADLESS_TESTING=1`) and snapshots them with `CGWindowList`. If you add a capture or demo, follow the off-screen pattern in `DemoShot.swift` — never `makeKeyAndOrderFront` onto a real screen.
+
+### How things are wired
+
+- **Commands are data.** Add new actions to `Model/Actions.swift` (id, title, default shortcut); they appear in the command palette and menu bar automatically, then handle them in the relevant controller.
+- **Preferences** live under the `FinderTwo.*` `UserDefaults` namespace — keep the prefix.
+- **Themes:** add a `ThemeSpec` to `Theme/ThemeStore.swift` (id, name, appearance, hex colours). Users can also drop a JSON theme in the Themes folder with no rebuild.
+- **Plugins** are JavaScript (`manifest.json` + `main.js` in a `.ftplugin` bundle) — no rebuild required. See the [Customize guide](https://chang-07.github.io/finder-2/customize.html).
+- **Don't change** `CFBundleIdentifier` (`dev.chang.FinderTwo`) or the `~/Library/Application Support/FinderTwo` paths — they are load-bearing for granted permissions and existing users' data.
+
+### Style
+
+- Match the surrounding code: 4-space indent, early returns, descriptive names.
+- Comment the *why* for non-obvious AppKit workarounds — the codebase favours that.
+- Avoid force-unwraps in fallible runtime paths.
+
+### Commits & PRs
+
+- Branch off `main`; keep each PR focused on one thing.
+- Commit subjects in the imperative, no trailing period — e.g. `Fix column-view icon caching`.
+- In the PR, say what changed, why, and how you tested it. For visual changes, attach an off-screen `DemoShot` capture rather than a live screenshot.
+
+### Where help is wanted
+
+- Git-status overlay polish, a custom keyboard-shortcut editor, 1M-item virtualized scrolling, and inline-preview improvements are all open.
+- New **themes** and **plugins** are low-risk and always welcome.
 
 ## Performance
 
-| Workload                                  | Rascal            | Stock FileManager  |
-|-------------------------------------------|----------------------|--------------------|
-| Cold launch → window on screen            | **228–244 ms**       | —                  |
-| FastDirScan 5,000 files                   | **22 ms**            | ~110 ms            |
-| Sync reload 5,000 files                   | **33 ms**            | ~330 ms            |
-| Live filter on 5,000 files                | **50 ms**            | ~110 ms            |
-| Progressive filter (extending a prefix)   | **4 ms**             | ~110 ms            |
-| Generic-icon cache hit (per row)          | **95 ns**            | ~25 µs             |
-| Status bar update (selection change)      | throttled to 60 Hz   | per-event          |
+| Workload | Rascal |
+|---|---|
+| Cold launch → window on screen | ~230 ms |
+| Scan 5,000 files (`FastDirScan`) | ~22 ms |
+| Sync reload 5,000 files | ~33 ms |
+| Live filter, 5,000 files | ~50 ms |
+| Progressive filter (extend a prefix) | ~4 ms |
 
-Measurements from the release binary on M3 MacBook Pro. All numbers verified
-in the in-process test runner — run `./smoketest.sh` and they print live.
-
-Smoothness-oriented architecture choices:
-
-- **`FastDirScan`** (`FS/FastDirScan.swift`) — direct `opendir`/`readdir`/`lstat`
-  instead of `FileManager.contentsOfDirectory` + per-URL `resourceValues`.
-- **Async sort + filter** — spills to a background `userInitiated` queue once
-  `rawItems ≥ 2000`. The keyboard never blocks; stale results discarded via a
-  generation counter.
-- **Progressive filtering** — when a new filter just extends the previous one,
-  we narrow the prior result set (4 ms) instead of re-scanning rawItems (50 ms).
-- **`IconCache`** (`UI/IconCache.swift`) — per-extension generic-icon cache so
-  opening a folder of 5,000 `.txt` files calls `NSWorkspace.icon` once.
-- **URL → row map** maintained per `reload()` — async thumbnail callbacks find
-  their row in O(1) instead of O(n).
-- **Cell-level thumbnail short-circuit** — only `image/pdf/video` types ever
-  reach `QLThumbnailGenerator`; everything else uses the cached generic icon.
-- **Thumbnail prefetch throttled** — bounds-did-change fires at most once per
-  16 ms; prefetch skips when the visible center hasn't moved by ≥3 rows.
-- **Status bar throttled** — selection change rebuild capped to ~60 Hz so
-  arrow-key repeat over a 25 k list stays smooth.
-- **Free-space TTL** — kernel `volumeAvailableCapacityForImportantUsage` is
-  cached for 5 s; previously hit on every selection.
-- **Theme switch no-op** when the requested theme is already active.
-
-## Test
-
-Two complementary test scripts. Both run silently and **never** disrupt your
-foreground work — windows never appear on screen, focus is never taken.
-
-```bash
-./smoketest.sh     # in-process functional runner — 200+ assertions
-./guitest.sh       # Accessibility-level structural audit — 0 failures
-```
-
-| Script | What it verifies | How |
-|---|---|---|
-| `smoketest.sh` | Every feature works end-to-end | Launches the binary with `FT_RUN_TESTS=1`. The in-process `TestRunner` instantiates real `BrowserWindowController`s, panes, file lists, sheets, palette, vim, etc., and asserts on their state and side-effects. **200+ assertions** cover navigation, tabs, panes, view modes, filter, sort, rename, copy/paste, drag-drop, sessions, workspaces, tags, themes, shortcuts, vim, palette, search, git status, folder sync, archive extraction, window chrome, and edge cases. |
-| `guitest.sh` | Menu structure is wired correctly | Launches with `FT_HEADLESS_TESTING=1` and queries the app over Accessibility. Asserts every top-level menu, every menu item, and every keyboard shortcut is present and bound correctly. |
-
-The functional runner is the source of truth (it can instantiate controllers
-directly and assert on internal state). The AX audit is a guardrail against
-menu-wiring regressions.
-
-## Shortcuts (Finder parity + new)
-
-| Shortcut       | Action                                       |
-|----------------|----------------------------------------------|
-| Cmd+N          | New window                                   |
-| Cmd+T          | New tab                                      |
-| Cmd+W          | Close tab (closes window if last tab)        |
-| Cmd+Shift+W    | Close window                                 |
-| Cmd+\          | Toggle extra pane                            |
-| Cmd+Up         | Enclosing folder                             |
-| Cmd+Down       | Open selection                               |
-| Cmd+[ / Cmd+]  | Back / Forward                               |
-| Cmd+Shift+G    | Go to folder…                                |
-| Cmd+Shift+H    | Home                                         |
-| Cmd+Shift+.    | Toggle hidden files                          |
-| Cmd+I          | Get Info (via Finder)                        |
-| Cmd+Delete     | Move to Trash                                |
-| Cmd+C / Cmd+V  | Copy / Paste file URLs                       |
-| Cmd+Opt+V      | Move Items Here                              |
-| Cmd+D          | Duplicate selection                          |
-| Cmd+Opt+1..9   | Switch to tab N                              |
-| Return         | Rename selected item                         |
-| Space          | Quick Look                                   |
-| Type letters   | Live filter (Esc to clear)                   |
-| **Cmd+Shift+P**| **Command Palette**                          |
-| **Cmd+F**      | **Find Files (fuzzy filename)**              |
-| **Cmd+Shift+F**| **Search File Contents (rg/grep)**           |
-| **Cmd+Shift+R**| **Batch Rename…**                            |
-| Cmd+Ctrl+S     | Save Workspace                               |
-| Cmd+Ctrl+O     | Open Workspace                               |
-| Cmd+,          | Settings (themes + vim toggle)               |
-| Cmd+\`          | Toggle inline terminal panel                 |
-| Cmd+Shift+E    | Toggle folder notes drawer (.ftnote.md)      |
-| Cmd+K          | Connect to Server (SFTP)                     |
-
-### Vim mode (toggle in Settings)
-
-When the file list is focused and vim mode is on, plain letter keys are
-intercepted:
-
-| Keys     | Action                                |
-|----------|---------------------------------------|
-| `h`      | Enclosing folder                      |
-| `j` / `k`| Move selection down / up (5j = 5×)    |
-| `l`      | Open selection                        |
-| `gg`     | Top of list                           |
-| `G`      | Bottom of list                        |
-| `gt` `gT`| Next / previous tab                   |
-| `t`      | New tab                               |
-| `r`      | Rename selected                       |
-| `yy`     | Copy selected (yank)                  |
-| `dd`     | Move-to-trash selected                |
-| `p`      | Paste                                 |
-| `/`      | Open filter                           |
-| `:`      | Open command palette                  |
-| `v`      | Visual mode (extend selection)        |
-| `Esc`    | Cancel / reset                        |
-
-Text fields and dialogs always pass keys through.
-
-## Frontier features (1-month sprint)
-
-| Feature | Status | What it does |
-|---|---|---|
-| **Archive browsing** | ✅ | Double-click a `.zip` / `.tar` / `.tar.gz` / `.tar.bz2` — sheet shows the tree; extract single entries or the whole archive. Uses system `unzip`/`tar`, zero new deps. |
-| **Disk usage analyzer** | ✅ | File → *Analyze Disk Usage…* — background recursive walk, live squarified treemap, click-to-drill-down, "Reveal in Rascal". |
-| **App uninstaller** | ✅ | File → *Uninstall App…* on a selected `.app` — scans `~/Library/{Application Support,Caches,Preferences,LaunchAgents,Saved Application State,Containers,Group Containers,Logs,WebKit,HTTPStorages}` for files whose name contains the bundle id. Per-leftover checkboxes; one click moves all to Trash. |
-| **Per-folder notes drawer** | ✅ | Cmd+Shift+E — right-side drawer reads/writes `.ftnote.md` in the current folder. Plain text monospaced. Auto-saves on idle. Per-folder. |
-| **Tags as smart folders** | ✅ | Sidebar's *Tags* section is auto-populated via Spotlight `kMDItemUserTags`. Click a tag → file list shows every tagged file across the disk. Tag colour shown as a coloured dot. |
-| **Git-bound workspaces** | ✅ | Inside a git repo, FSEvents on `.git/HEAD` triggers auto-save of the current workspace under `git:<repo>:<branch>` and auto-restore of the new branch's workspace. `git checkout` switches your open tabs/panes too. |
-| **Inline terminal panel** | ✅ | Cmd+\` — bottom drawer. Runs each command via `/bin/zsh -l -c` in the active pane's cwd, streams stdout (white) + stderr (red) into the scrollback. Cwd auto-syncs with the pane. `cd` handled locally. ↑/↓ arrow keys cycle through history. |
-| **Folder sync (1-way visual diff)** | ✅ | File → *Sync Folder…* — pick source + destination, see the three-state diff (new / modified / only-in-dest / identical), apply src→dst with optional prune. |
-| **SFTP via system `sftp`/`scp`** | ✅ | Go → *Connect to Server…* — Cmd+K — connects via the user's existing SSH config + agent (no password handling). Browser sheet lists remote entries, click to drill in, download single files. Bookmarks persist. |
-| **Plugin API (JavaScriptCore)** | ✅ | Drop a `.ftplugin/` bundle in `~/Library/Application Support/FinderTwo/Plugins/` with `manifest.json` + `main.js`. Plugins declare actions; JS bridges `ft.onAction`, `ft.notify`, `ft.readFile`, `ft.writeFile`, `ft.run([cmd, args…])`, `ft.currentURL()`, `ft.selectedURLs()`. |
-
-## Architecture
-
-```
-Sources/FinderTwo/
-├── main.swift / AppDelegate.swift             # entry + menu + session
-├── Model/
-│   ├── Actions.swift                          # central command registry
-│   ├── DirectoryModel.swift  TabState.swift   # data + nav stack
-│   ├── FileItem.swift                         # row model
-│   └── Workspaces.swift                       # saved layouts
-├── FS/
-│   ├── DirectoryWatcher.swift                 # FSEvents
-│   ├── FileOps.swift                          # trash/paste/info
-│   └── Tags.swift                             # Finder-compatible tag xattr
-├── Input/
-│   └── VimMode.swift                          # modal key handler
-├── Theme/
-│   └── Theme.swift                            # themes + ThemeManager
-├── UI/
-│   ├── SidebarController.swift                # NSOutlineView source list
-│   ├── PaneController.swift                   # tabs+toolbar+hotbar+list+status
-│   ├── FileListController.swift               # NSTableView (list view)
-│   ├── ColumnViewController.swift             # NSBrowser (miller view)
-│   ├── ToolbarView.swift                      # back/fwd/up + path + search
-│   ├── TabStripView.swift                     # tab strip
-│   ├── PathBarView.swift                      # clickable breadcrumb
-│   ├── StatusBarView.swift                    # count + free-space
-│   ├── HotbarView.swift                       # customizable action strip
-│   ├── ThumbnailService.swift                 # async QL thumbs
-│   ├── CommandPaletteController.swift         # Cmd+Shift+P
-│   ├── SearchSheetController.swift            # find-files + grep
-│   ├── BatchRenameSheetController.swift       # regex + tokens
-│   └── SettingsController.swift               # theme + vim toggle
-├── Window/
-│   ├── BrowserWindowController.swift          # owns split: [sidebar | panes]
-│   └── PanesContainerController.swift         # hosts 1..N PaneControllers
-└── Tests/TestRunner.swift                     # 200+ in-process assertions
-```
-
-## Test coverage (200+ assertions)
-
-- **Navigation**: nav-up, nav-down, back/forward, Go-to-Folder, root-edge
-- **Tabs**: open, switch, close, decrement
-- **Panes**: single-pane default, Cmd+\ open/close
-- **View modes**: List ↔ Columns (NSBrowser)
-- **Filter**: substring + fuzzy subseq, Esc clears, regex-safe input
-- **Sort**: folders-first by name
-- **Rename**: inline commit, empty rejected, slash rejected
-- **Copy/Paste/Move/Duplicate/Trash**: all FileOps round-trips
-- **Drag-drop**: pasteboard semantics
-- **Session**: snapshot / restore round-trip
-- **Workspaces**: save / round-trip / delete
-- **Tags**: Finder xattr round-trip, individual remove
-- **Themes**: switch to specific, cycle
-- **Vim**: enable persist, j/k movement, G to last row
-- **Actions**: 13 must-have action ids exist, shortcut labels format
-- **Hotbar**: default config of 10 items all resolvable
-- **Search**: `rg` or `grep` available on PATH
-- **Sidebar**: Documents + Macintosh HD populated
-- **Safety**: empty/slash rename ignored, empty paste no-op, special-char filter
+Measured on an M3 MacBook Pro from the release binary; the same numbers print live from `./smoketest.sh`. The wins come from direct `opendir`/`readdir`/`lstat` scanning, async sort/filter that spills to a background queue past ~2,000 items, progressive filtering, a per-extension icon cache, and a throttled status bar. The reasoning lives in the source comments of `FS/FastDirScan.swift` and `Model/DirectoryModel.swift`.
 
 ## Themes
 
-| Theme     | Appearance      | Notes                                |
-|-----------|-----------------|--------------------------------------|
-| System    | follows macOS   | default                              |
-| Midnight  | dark            | blue-tinted, low light               |
-| Sepia     | light           | warm, paper-tone                     |
-| Hacker    | dark monospaced | green-on-black, monospaced font      |
-
-Pick via Settings or run "Cycle Theme" from the Command Palette.
-
-## State persistence
-
-- Open tabs + active index per window → `UserDefaults["FinderTwo.session.v1"]`
-- Named workspaces → `UserDefaults["FinderTwo.workspaces.v1"]`
-- Theme choice → `UserDefaults["FinderTwo.theme"]`
-- Vim enabled → `UserDefaults["FinderTwo.vimEnabled"]`
-- Hotbar order → `UserDefaults["FinderTwo.hotbar.v1"]`
-- Custom shortcuts → `UserDefaults["FinderTwo.shortcuts"]`
+Seventeen built-in: Rascal Light & Dark, Midnight, Sepia, Hacker, Nord, Dracula, Solarized (light & dark), High Contrast, Ocean, Cyberpunk, Gruvbox, Sage, Tokyo Night, Rose Pine, and Catppuccin Mocha — plus a System option that follows macOS. Switch in Settings (`⌘,`) or via the palette, or write your own JSON theme.
 
 ## License
 
-[MIT](LICENSE) © 2026 chang — free and open source. No cloud, no account, no telemetry.
+[MIT](LICENSE) © 2026 chang. Free and open source — no cloud, no account, no telemetry.
