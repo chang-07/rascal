@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Rascal — a keyboard-first macOS file manager</title>
-<meta name="description" content="Rascal is a fast, keyboard-first Finder replacement for macOS. Local-first, no account, no telemetry. Free and open source." />
+<title>Rascal — the Mac file manager that keeps up</title>
+<meta name="description" content="Rascal is a fast, keyboard-first Finder replacement for macOS. Dual panes, a command palette, vim keys, and a live disk treemap. Free and open source, local-first, no account, no telemetry." />
 <link rel="icon" type="image/svg+xml" href="assets/rascal-logo.svg" />
-<meta property="og:title" content="Rascal — a keyboard-first macOS file manager" />
-<meta property="og:description" content="Quick, scriptable, and entirely yours. No cloud, no account, no telemetry." />
+<meta property="og:title" content="Rascal — the Mac file manager that keeps up" />
+<meta property="og:description" content="A fast, keyboard-first Finder replacement for macOS. Dual panes, command palette, vim keys, disk treemap. Free and open source, local-first, no telemetry." />
 <meta property="og:type" content="website" />
 <script type="module" src="/src/main.js"></script>
 </head>
@@ -31,8 +31,8 @@
     <span class="brand-name">Rascal</span>
   </a>
   <nav class="nav-links">
-    <a href="#features">Features</a>
     <a href="#demos">Demos</a>
+    <a href="#features">Features</a>
     <a href="guide.html">Guide</a>
     <a href="customize.html">Customize</a>
     <a class="nav-cta" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">Download</a>
@@ -40,127 +40,123 @@
 </header>
 
 <main id="top">
+<!-- ── hero: hook left, the app right ── -->
 <section class="hero">
   <div class="glow glow-a"></div>
   <div class="glow glow-b"></div>
 
-  <div class="hero-inner">
-    <img src="assets/rascal-logo.svg" alt="Rascal app icon" class="hero-logo" />
-    <p class="eyebrow">a native macOS file manager</p>
-    <h1 class="hero-title">Meet <em>Rascal</em>.</h1>
-    <p class="hero-sub">
-      A keyboard-first Finder replacement for people who live in their files —
-      quick, scriptable, and entirely yours.
-    </p>
+  <div class="hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow">a native macOS file manager</p>
+      <h1 class="hero-title">Finder, but it <em>keeps&nbsp;up</em>.</h1>
+      <p class="hero-sub">
+        A fast, keyboard-first Finder replacement for macOS. Dual panes,
+        a command palette, vim keys, and a disk treemap.
+      </p>
 
-    <div class="cta-row">
-      <!-- real download right here: primary button grabs Apple Silicon, the caret picks Intel -->
-      <div class="dl dl-hero">
-        <a class="btn btn-primary dl-main" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">
-          <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
-          Download for macOS
-        </a>
-        <details class="dl-more">
-          <summary class="btn btn-primary dl-caret-btn" aria-label="Choose Apple Silicon or Intel">
-            <svg class="btn-ico dl-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
-          </summary>
-          <div class="dl-pop">
-            <a href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg"><strong>Apple Silicon</strong><span>M1–M4 · 2020 &amp; newer</span></a>
-            <a href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-x86_64.dmg"><strong>Intel</strong><span>x86_64 · 2019 &amp; earlier</span></a>
-          </div>
-        </details>
+      <ul class="chips" aria-label="At a glance">
+        <li><code>⌘⇧P</code> palette</li>
+        <li>Dual-pane</li>
+        <li>Vim keys</li>
+        <li>Disk treemap</li>
+      </ul>
+
+      <div class="cta-row">
+        <!-- real download: primary grabs Apple Silicon, the caret picks Intel -->
+        <div class="dl dl-hero">
+          <a class="btn btn-primary dl-main" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">
+            <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
+            Download free
+          </a>
+          <details class="dl-more">
+            <summary class="btn btn-primary dl-caret-btn" aria-label="Choose Apple Silicon or Intel">
+              <svg class="btn-ico dl-caret" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+            </summary>
+            <div class="dl-pop">
+              <a href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg"><strong>Apple Silicon</strong><span>M1–M4 · 2020 &amp; newer</span></a>
+              <a href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-x86_64.dmg"><strong>Intel</strong><span>x86_64 · 2019 &amp; earlier</span></a>
+            </div>
+          </details>
+        </div>
+        <a class="btn btn-ghost" href="#demos">Watch it move ↓</a>
       </div>
-      <!-- Ko-fi support link -->
-      <a class="btn btn-ghost" href="https://ko-fi.com/chang07" target="_blank" rel="noopener">Support on Ko-fi</a>
+      <p class="hero-meta">Apple&nbsp;Silicon &amp; Intel · macOS&nbsp;13+ · <b>free &amp; open source</b> · no telemetry</p>
     </div>
-    <p class="hero-meta">Apple&nbsp;Silicon &amp; Intel · macOS&nbsp;13+ · free &amp; open source · <a class="hero-meta-link" href="#download">install&nbsp;notes</a></p>
-  </div>
 
-  <figure class="hero-shot frame reveal">
-    <img src="assets/hero.png" alt="The Rascal main window in its warm Light theme" width="2162" height="1442" loading="eager" fetchpriority="high" decoding="async" />
-  </figure>
+    <div class="hero-shot">
+      <figure class="slides frame" aria-label="Screens from Rascal">
+        <img class="slide is-active" src="assets/power.png" alt="Two panes side by side with the built-in terminal open" width="2400" height="1600" loading="eager" fetchpriority="high" decoding="async" />
+        <img class="slide" src="assets/palette.png" alt="The fuzzy command palette open over the file list" width="2400" height="1600" loading="eager" fetchpriority="low" decoding="async" />
+        <img class="slide" src="assets/preview.png" alt="A colourful image shown in the side preview panel" width="2400" height="1600" loading="eager" fetchpriority="low" decoding="async" />
+      </figure>
+      <div class="slide-dots">
+        <button class="dot is-active" type="button" aria-label="Dual pane and terminal"></button>
+        <button class="dot" type="button" aria-label="Command palette"></button>
+        <button class="dot" type="button" aria-label="File preview"></button>
+      </div>
+    </div>
+  </div>
 </section>
 
 <p class="creed"><b>Local-first</b> &nbsp;·&nbsp; no account &nbsp;·&nbsp; no telemetry &nbsp;·&nbsp; <b>no&nbsp;AI</b> &nbsp;·&nbsp; open source</p>
-<div class="rule" aria-hidden="true"><span>✳</span></div>
 
-<!-- ── features ── -->
+<!-- ── demos: three seconds that sell it ── -->
+<section id="demos" class="section section-tint">
+  <p class="kicker">A few seconds of Rascal</p>
+  <h2 class="section-title">See it <em>move</em>.</h2>
+
+  <div class="shots shots-3 reveal">
+    <figure class="shot frame"><img src="assets/nav.gif" width="1100" height="734" alt="Browsing folders and switching between list, icon and column views" loading="lazy" /><figcaption>Switch views in a keystroke</figcaption></figure>
+    <figure class="shot frame"><img src="assets/panels.gif" width="1100" height="734" alt="Opening the preview panel, then splitting into a second pane" loading="lazy" /><figcaption>Preview &amp; split, instantly</figcaption></figure>
+    <figure class="shot frame"><img src="assets/treemap.gif" width="1040" height="662" alt="Disk-usage treemap drilling into folders" loading="lazy" /><figcaption>Find where the space went</figcaption></figure>
+  </div>
+</section>
+
+<!-- ── features: tight, concrete ── -->
 <section id="features" class="section">
   <p class="kicker">Under the hood</p>
-  <h2 class="section-title">Small, sharp, and <em>out of your way</em>.</h2>
+  <h2 class="section-title">Everything, a <em>keystroke</em> away.</h2>
 
   <div class="features reveal">
     <article class="feat">
       <svg class="fic" aria-hidden="true"><use href="#i-key"/></svg>
       <h3>Keyboard-first</h3>
-      <p>A fuzzy command palette (<code>⌘⇧P</code>) and real vim keys — <code>hjkl</code>, <code>/</code>, <code>dd</code>, <code>gg</code>. Drive the whole app without reaching for the mouse.</p>
+      <p>Fuzzy command palette (<code>⌘⇧P</code>) and real vim keys — <code>hjkl</code>, <code>/</code>, <code>dd</code>, <code>gg</code>. The mouse is optional.</p>
     </article>
     <article class="feat">
       <svg class="fic" aria-hidden="true"><use href="#i-panes"/></svg>
       <h3>Panes &amp; views</h3>
-      <p>Dual panes, tabs, and List / Icon / Column / Gallery. Lay files out the way you think, then switch in a keystroke.</p>
+      <p>Dual panes, tabs, and List / Icon / Column / Gallery — switch layout in one keystroke.</p>
     </article>
     <article class="feat">
       <svg class="fic" aria-hidden="true"><use href="#i-map"/></svg>
-      <h3>Where the space went</h3>
-      <p>A live, colour-coded treemap of any folder. Click a tile to dive in; the map redraws as you go.</p>
+      <h3>Disk treemap</h3>
+      <p>A live, colour-coded map of any folder. Click a tile to drill in.</p>
     </article>
     <article class="feat">
       <svg class="fic" aria-hidden="true"><use href="#i-theme"/></svg>
       <h3>Yours to theme</h3>
-      <p>Light, dark, and eight more — or write your own in a few lines of JSON. Every panel, down to the finders, obeys it.</p>
+      <p>Ten built-in themes, or write your own in a few lines of JSON.</p>
     </article>
     <article class="feat">
       <svg class="fic" aria-hidden="true"><use href="#i-tag"/></svg>
       <h3>Tags &amp; smart folders</h3>
-      <p>Read and write real Finder tags, and pin saved searches to the sidebar as folders that keep themselves current.</p>
+      <p>Real Finder tags, plus saved searches pinned to the sidebar.</p>
     </article>
     <article class="feat">
       <svg class="fic" aria-hidden="true"><use href="#i-shield"/></svg>
       <h3>Stays on your Mac</h3>
-      <p>No cloud, no account, no telemetry, no AI. Rascal opens instantly and your files never leave the machine.</p>
+      <p>No cloud, no account, no telemetry, no AI. Opens instantly.</p>
     </article>
   </div>
 </section>
 
-<!-- ── demos ── -->
-<section id="demos" class="section section-tint">
-  <p class="kicker">A few seconds of Rascal</p>
-  <h2 class="section-title">See it <em>move</em>.</h2>
-
-  <div class="shots reveal">
-    <figure class="shot frame"><img src="assets/nav.gif" width="1100" height="734" alt="Browsing folders and switching view modes" loading="lazy" /><figcaption>Browse &amp; switch views</figcaption></figure>
-    <figure class="shot frame"><img src="assets/panels.gif" width="1100" height="734" alt="Opening the preview panel and a second pane" loading="lazy" /><figcaption>Preview panel &amp; split pane</figcaption></figure>
-    <figure class="shot frame span-all"><img src="assets/treemap.gif" width="1040" height="662" alt="Disk-usage treemap drilling into folders" loading="lazy" /><figcaption>Disk-usage treemap — click to drill in</figcaption></figure>
-  </div>
-
-  <p class="demo-group reveal">…and a few more tricks</p>
-  <div class="shots reveal">
-    <figure class="shot frame span-all"><img src="assets/multipane.png" width="2162" height="1442" alt="Three independent panes open on different folders, side by side" loading="lazy" /><figcaption>Multi-pane — several folders at once, each with its own view</figcaption></figure>
-    <figure class="shot frame"><img src="assets/tags.png" width="2162" height="1442" alt="Coloured Finder tags shown beside files" loading="lazy" /><figcaption>Finder tags &amp; smart folders</figcaption></figure>
-    <figure class="shot frame"><img src="assets/cut.png" width="2162" height="1442" alt="Files dimmed after being cut with Command-X" loading="lazy" /><figcaption>True cut &amp; paste — <code>⌘X</code></figcaption></figure>
-  </div>
-</section>
-
-<!-- ── donate ── -->
-<section id="donate" class="section donate">
-  <div class="donate-card reveal">
-    <h2>Free, and <em>staying that way</em>.</h2>
-    <p>No paywall, no upsell, no "pro" tier. If Rascal earns a spot in your dock,
-       buying me a coffee is the whole business model.</p>
-    <!-- Ko-fi support link -->
-    <a class="btn btn-primary btn-lg" href="https://ko-fi.com/chang07" target="_blank" rel="noopener">Buy me a coffee</a>
-  </div>
-</section>
-
-<!-- ── download ── -->
+<!-- ── free + download ── -->
 <section id="download" class="section download">
-  <p class="kicker">Get Rascal</p>
-  <h2 class="section-title">One file. Drag to Applications. <em>Done</em>.</h2>
-  <p class="section-lead">Native builds for Apple Silicon &amp; Intel. macOS 13 Ventura or later.</p>
+  <p class="kicker">Free forever</p>
+  <h2 class="section-title">Drag to Applications. <em>Done</em>.</h2>
+  <p class="section-lead">Native builds for Apple&nbsp;Silicon &amp; Intel. macOS&nbsp;13 Ventura or later. No paywall, no “pro” tier.</p>
 
-  <!-- Download: Apple Silicon by default; Intel (x86_64) via the dropdown.
-       Per-arch release assets are published with ARCH=… ./make-dmg.sh -->
   <div class="dl">
     <a class="btn btn-primary btn-lg dl-main" href="https://github.com/chang-07/finder-2/releases/latest/download/Rascal-arm64.dmg">
       <svg class="btn-ico" aria-hidden="true"><use href="#i-dl"/></svg>
@@ -176,30 +172,26 @@
       </div>
     </details>
   </div>
-  <p class="dl-pick">The button gets the Apple&nbsp;Silicon build; on an Intel Mac, pick <strong>Intel</strong> from the dropdown. <span class="dl-pick-q">(Apple&nbsp;menu → About This Mac.)</span></p>
+  <p class="dl-pick">Button gets the Apple&nbsp;Silicon build; on an Intel Mac pick <strong>Intel</strong> from the dropdown.</p>
 
-  <div class="download-tip">
-    <h3>Important: Running on macOS</h3>
-    <p>Because Rascal is self-signed/ad-hoc signed, macOS Gatekeeper may show a quarantine warning when you first open the app. To run it:</p>
-    <ol>
-      <li>Drag <strong>Rascal</strong> to your <strong>Applications</strong> folder.</li>
-      <li>Right-click (or Control-click) <strong>Rascal.app</strong> in Applications and choose <strong>Open</strong> from the menu.</li>
-      <li>If macOS still warns you that the app is "damaged" or from an unidentified developer, open Terminal and run the following command to clear the quarantine flag:
-        <pre class="tip-code"><code>xattr -cr /Applications/Rascal.app</code></pre>
-      </li>
-    </ol>
-  </div>
+  <details class="tip-fold">
+    <summary>First launch on macOS</summary>
+    <div class="tip-body">
+      <p>Rascal is ad-hoc signed, so macOS blocks it on first open:</p>
+      <ol>
+        <li>Drag <strong>Rascal</strong> to <strong>Applications</strong>.</li>
+        <li>Right-click <strong>Rascal.app</strong> → <strong>Open</strong>.</li>
+        <li>Still blocked or “damaged”? Clear the quarantine flag:
+          <pre class="tip-code"><code>xattr -cr /Applications/Rascal.app</code></pre>
+        </li>
+      </ol>
+      <p class="tip-build">Prefer source? <code>git clone</code>, then <code>./install.sh</code> — full steps in the <a class="hero-meta-link" href="guide.html">guide</a>.</p>
+    </div>
+  </details>
 
-  <p class="or">or build from source</p>
-  <pre class="code"><code>git clone https://github.com/chang-07/finder-2.git
-cd finder-2
-./setup-signing.sh   # once — so macOS remembers the permissions you grant
-./install.sh         # builds &amp; installs to /Applications</code></pre>
-
-  <p class="or">go further</p>
-  <div class="cta-row">
-    <a class="btn btn-ghost" href="guide.html">User guide — get up &amp; running</a>
-    <a class="btn btn-ghost" href="customize.html">Customize — themes, plugins &amp; settings</a>
+  <div class="ko-fi-line">
+    <span>Rascal is free. Tips are welcome, never required.</span>
+    <a class="btn btn-ghost" href="https://ko-fi.com/chang07" target="_blank" rel="noopener">Buy me a coffee</a>
   </div>
 </section>
 </main>
@@ -216,7 +208,7 @@ cd finder-2
     <a href="#download">Download</a>
     <a href="https://ko-fi.com/chang07" target="_blank" rel="noopener">Ko-fi</a>
   </nav>
-  <p class="foot-note">Made on a Mac, for Macs. No cloud, no account, no nonsense.</p>
+  <p class="foot-note">Made on a Mac, for Macs.</p>
 </footer>
 
 </body>
