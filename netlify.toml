@@ -1,8 +1,12 @@
 # Netlify build config for the Rascal landing site.
-# The site is a Vite multi-page app in site/ that builds to docs/ at the repo root.
+#
+# base = "site" scopes Netlify to the Vite project. Without it, Netlify sees the
+# macOS app's Package.swift at the repo root and tries to install Swift on its
+# Linux image (which fails) — the site build only needs Node.
 [build]
-  command = "npm --prefix site ci && npm --prefix site run build"
-  publish = "docs"
+  base = "site"
+  command = "npm run build"
+  publish = "../docs"
 
 [build.environment]
   NODE_VERSION = "22"
