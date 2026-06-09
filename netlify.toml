@@ -1,0 +1,8 @@
+# Netlify build config for the Rascal landing site.
+# The site is a Vite multi-page app in site/ that builds to docs/ at the repo root.
+[build]
+  command = "npm --prefix site ci && npm --prefix site run build"
+  publish = "docs"
+
+[build.environment]
+  NODE_VERSION = "22"
