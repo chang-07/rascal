@@ -8,13 +8,13 @@
 
 Rascal opens instantly, runs entirely on your Mac, and never phones home.
 
-**[⬇ Download](https://github.com/chang-07/finder-2/releases/latest)** · [Keymap](HOTKEYS.md) · [User guide](https://chang-07.github.io/finder-2/guide.html) · [Customize](https://chang-07.github.io/finder-2/customize.html)
+**[⬇ Download](https://github.com/chang-07/rascal/releases/latest)** · [Keymap](HOTKEYS.md) · [User guide](https://chang-07.github.io/rascal/guide.html) · [Customize](https://chang-07.github.io/rascal/customize.html)
 
 ---
 
 ## Download
 
-Grab the latest signed DMG from [**Releases**](https://github.com/chang-07/finder-2/releases/latest) (Apple Silicon or Intel), drag **Rascal** to **Applications**, and open it.
+Grab the latest signed DMG from [**Releases**](https://github.com/chang-07/rascal/releases/latest) (Apple Silicon or Intel), drag **Rascal** to **Applications**, and open it.
 
 Because the build is ad-hoc signed, right-click **Rascal.app → Open** the first time. If macOS still blocks it:
 
@@ -40,8 +40,8 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 Requires **macOS 13+** and a **Swift 5.9+ toolchain** — Command Line Tools (`xcode-select --install`) are enough; full Xcode is not required. It's a plain SwiftPM package with no `.xcodeproj`.
 
 ```bash
-git clone https://github.com/chang-07/finder-2.git
-cd finder-2
+git clone https://github.com/chang-07/rascal.git
+cd rascal
 
 ./run.sh                 # build (debug) + launch in place
 # or
@@ -117,8 +117,8 @@ Pull requests are welcome: bug fixes, features, themes, plugins, and docs. A few
 ### Set up
 
 ```bash
-git clone https://github.com/chang-07/finder-2.git
-cd finder-2
+git clone https://github.com/chang-07/rascal.git
+cd rascal
 ./run.sh            # build + launch
 ```
 
@@ -138,7 +138,7 @@ macOS 13+ and a Swift 5.9+ toolchain (Command Line Tools are enough). Edit in an
 - **Commands are data.** Add new actions to `Model/Actions.swift` (id, title, default shortcut); they appear in the command palette and menu bar automatically, then handle them in the relevant controller.
 - **Preferences** live under the `FinderTwo.*` `UserDefaults` namespace — keep the prefix.
 - **Themes:** add a `ThemeSpec` to `Theme/ThemeStore.swift` (id, name, appearance, hex colours). Users can also drop a JSON theme in the Themes folder with no rebuild.
-- **Plugins** are JavaScript (`manifest.json` + `main.js` in a `.ftplugin` bundle) — no rebuild required. See the [Customize guide](https://chang-07.github.io/finder-2/customize.html).
+- **Plugins** are JavaScript (`manifest.json` + `main.js` in a `.ftplugin` bundle) — no rebuild required. See the [Customize guide](https://chang-07.github.io/rascal/customize.html).
 - **Don't change** `CFBundleIdentifier` (`dev.chang.FinderTwo`) or the `~/Library/Application Support/FinderTwo` paths — they are load-bearing for granted permissions and existing users' data.
 
 ### Style
