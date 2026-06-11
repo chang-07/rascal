@@ -25,3 +25,10 @@ demo/
 # Logs & scratch
 *.log
 *.tmp
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
