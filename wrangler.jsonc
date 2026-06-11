@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rascal",
+  "compatibility_date": "2026-06-10",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "docs"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
