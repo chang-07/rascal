@@ -88,8 +88,8 @@ enum PermissionsManager {
         guard SecCodeCopySigningInformation(scode, [], &infoRef) == errSecSuccess,
               let info = infoRef as? [String: Any],
               let flags = info[kSecCodeInfoFlags as String] as? UInt32 else { return false }
-        // kSecCodeSignatureAdhoc = 0x2
-        return (flags & 0x2) != 0
+        let kSecCodeSignatureAdhoc: UInt32 = 0x2
+        return (flags & kSecCodeSignatureAdhoc) != 0
     }
 
     /// Present the one-time onboarding window if warranted. Safe to call on

@@ -189,12 +189,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             wc.window?.makeKeyAndOrderFront(nil)
         }
         windowControllers.append(wc)
-        var token: NSObjectProtocol?
-        token = NotificationCenter.default.addObserver(
+        // One-shot observer that removes itself when the window closes. The token
+        // lives in a tiny holder so the @Sendable block can reach it without
+        // tripping Swift 6's "var mutated after capture by sendable closure".
+        final class TokenBox { var token: NSObjectProtocol? }
+        let box = TokenBox()
+        box.token = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: wc.window, queue: .main
         ) { [weak self, weak wc] _ in
             if let self, let wc { self.windowControllers.removeAll { $0 === wc } }
-            if let token { NotificationCenter.default.removeObserver(token) }   // one-shot
+            if let token = box.token { NotificationCenter.default.removeObserver(token) }   // one-shot
         }
     }
 
