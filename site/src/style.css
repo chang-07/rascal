@@ -257,6 +257,9 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 .dl-pick { margin-top: 16px; font-size: 13.5px; color: var(--muted); }
 .dl-pick strong { color: var(--ink-2); font-weight: 600; }
 .dl-pick-q { white-space: nowrap; }
+.dl-brew { margin-top: 9px; font-size: 13.5px; color: var(--muted); }
+.dl-brew a { color: var(--clay-deep); }
+.dl-brew code { background: var(--paper-2); color: var(--clay-deep); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); font-size: .9em; }
 /* collapsible first-launch notes — hidden until the user needs them */
 .tip-fold {
   max-width: 560px; margin: 28px auto 0; text-align: left;
