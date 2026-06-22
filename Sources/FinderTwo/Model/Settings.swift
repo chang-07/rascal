@@ -17,21 +17,19 @@ enum Settings {
     // MARK: General
 
     enum DefaultLocation: String, CaseIterable {
-        case lastSession, home, desktop, documents, downloads
+        case home, desktop, documents, downloads
         var label: String {
             switch self {
-            case .lastSession: return "Last session"
             case .home: return "Home"
             case .desktop: return "Desktop"
             case .documents: return "Documents"
             case .downloads: return "Downloads"
             }
         }
-        /// Concrete URL for the location, or nil for `.lastSession`.
+        /// Concrete URL for the location.
         var url: URL? {
             let home = FileManager.default.homeDirectoryForCurrentUser
             switch self {
-            case .lastSession: return nil
             case .home: return home
             case .desktop: return home.appendingPathComponent("Desktop")
             case .documents: return home.appendingPathComponent("Documents")
@@ -41,14 +39,8 @@ enum Settings {
     }
 
     static var defaultLocation: DefaultLocation {
-        get { DefaultLocation(rawValue: d.string(forKey: "FinderTwo.defaultLocation") ?? "") ?? .lastSession }
+        get { DefaultLocation(rawValue: d.string(forKey: "FinderTwo.defaultLocation") ?? "") ?? .home }
         set { d.set(newValue.rawValue, forKey: "FinderTwo.defaultLocation"); notify() }
-    }
-
-    /// Whether to restore the previous session's windows/tabs on launch.
-    static var restoreSession: Bool {
-        get { d.object(forKey: "FinderTwo.restoreSession") as? Bool ?? true }
-        set { d.set(newValue, forKey: "FinderTwo.restoreSession"); notify() }
     }
 
     static var showHiddenByDefault: Bool {
@@ -258,7 +250,7 @@ enum Settings {
 
     /// Reset every Settings-owned key (does not touch theme/vim/shortcuts/hotbar).
     static func resetGeneralAndAppearance() {
-        for key in ["FinderTwo.defaultLocation", "FinderTwo.restoreSession",
+        for key in ["FinderTwo.defaultLocation",
                     "FinderTwo.showHiddenByDefault", "FinderTwo.defaultView",
                     "FinderTwo.density", "FinderTwo.fontSizeDelta", "FinderTwo.accent",
                     "FinderTwo.typeAhead", "FinderTwo.showHotbar", "FinderTwo.showTitleBar",

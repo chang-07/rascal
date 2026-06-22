@@ -37,6 +37,13 @@ enum PresentedControllers {
         observers[id] = token
     }
 
+    /// The first on-screen retained controller of the given type, if any. Lets
+    /// single-instance overlays (Command Palette, the search finders) find an
+    /// already-open copy instead of stacking a second one.
+    static func existing<T: NSWindowController>(_ type: T.Type) -> T? {
+        retained.first { $0 is T } as? T
+    }
+
     private static func release(_ controller: NSWindowController, id: ObjectIdentifier) {
         if let token = observers[id] {
             NotificationCenter.default.removeObserver(token)

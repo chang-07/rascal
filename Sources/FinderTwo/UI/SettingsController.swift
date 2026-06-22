@@ -181,11 +181,6 @@ final class GeneralPane: SettingsPane {
         loc.target = self; loc.action = #selector(locChanged(_:))
         addRow("Open new windows at:", loc)
 
-        let restore = NSButton(checkboxWithTitle: "Restore previous session on launch",
-                               target: self, action: #selector(restoreChanged(_:)))
-        restore.state = Settings.restoreSession ? .on : .off
-        addRow("On launch:", restore)
-
         let hidden = NSButton(checkboxWithTitle: "Show hidden files by default",
                               target: self, action: #selector(hiddenChanged(_:)))
         hidden.state = Settings.showHiddenByDefault ? .on : .off
@@ -250,7 +245,6 @@ final class GeneralPane: SettingsPane {
         if let raw = s.selectedItem?.representedObject as? String,
             let v = Settings.DefaultLocation(rawValue: raw) { Settings.defaultLocation = v }
     }
-    @objc private func restoreChanged(_ s: NSButton) { Settings.restoreSession = s.state == .on }
     @objc private func hiddenChanged(_ s: NSButton) { Settings.showHiddenByDefault = s.state == .on }
     @objc private func typeAheadChanged(_ s: NSButton) { Settings.typeAheadEnabled = s.state == .on }
     @objc private func viewChanged(_ s: NSPopUpButton) {

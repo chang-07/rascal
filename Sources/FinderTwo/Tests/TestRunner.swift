@@ -3113,7 +3113,7 @@ final class TestRunner {
         wcSy.window?.close()
 
         // --- GI-19 (D2): transfer refuses dropping a folder into itself / its descendant ---
-        let dd2 = mkdir("dd2"); let dsub = mkdir("dd2/sub"); mkfile(dsub, "keep.txt")
+        _ = mkdir("dd2"); let dsub = mkdir("dd2/sub"); mkfile(dsub, "keep.txt")
         FileOps.transfer([dsub], into: dsub, move: true, from: nil); wait(0.15)
         assert("transfer refuses moving a folder into itself",
                !fm.fileExists(atPath: dsub.appendingPathComponent("sub").path) && fm.fileExists(atPath: dsub.path),

@@ -14,7 +14,7 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
     enum Mode { case fuzzyFilenames, contentGrep }
 
     private weak var target: BrowserWindowController?
-    private let mode: Mode
+    let mode: Mode
     private let rootURL: URL
 
     private let searchField = NSTextField()
@@ -36,10 +36,19 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
     private var currentTask: Process?
 
     static func show(for wc: BrowserWindowController, mode: Mode) {
+        // Single-instance: re-triggering the same mode toggles it closed; any
+        // other open finder (the other search mode, or the palette) is replaced
+        // so only one floating finder is ever on screen.
+        if let open = PresentedControllers.existing(SearchSheetController.self) {
+            let sameMode = open.mode == mode
+            open.close()
+            if sameMode { return }
+        }
+        PresentedControllers.existing(CommandPaletteController.self)?.close()
         guard let pane = wc.testActivePane else { return }
         let s = SearchSheetController(target: wc, mode: mode, rootURL: pane.currentURL)
         PresentedControllers.retain(s)
-        s.window?.center()
+        if let w = s.window { OverlayUI.center(w, over: wc.window) }
         s.window?.makeKeyAndOrderFront(nil)
         s.window?.makeFirstResponder(s.searchField)
     }
