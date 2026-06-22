@@ -42,6 +42,12 @@ final class TestRunner {
         assert("subdir contents",
                pane.testCurrentItems.contains(where: { $0.name == "nested_file.txt" }),
                "items=\(pane.testCurrentItems.map { $0.name })")
+        // P1 guard: local volumes are detected as local, so navigation loads
+        // synchronously (instant). Network mounts would load async to avoid
+        // freezing the main thread on a slow/wedged share.
+        assert("sandbox is detected as a local volume (sync navigation)",
+               DirectoryModel.isLocalVolume(subURL),
+               "local sandbox path misreported as non-local")
 
         // --- T3: goUp returns to sandbox ---
         pane.goUp()
