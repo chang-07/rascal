@@ -2318,6 +2318,37 @@ final class TestRunner {
             try? FileManager.default.removeItem(at: exURL)
         }
 
+        // --- T59f (P1): ft.run. The synchronous form returns stdout; passing a
+        // callback switches to the non-blocking async form (runs off the main
+        // thread, returns undefined immediately). The async callback fires via
+        // DispatchQueue.main.async, which this in-process harness's nested run
+        // loop doesn't drain — so we assert the observable dispatch contract
+        // (sync output + async returns-undefined) rather than the delivered value.
+        let runDir = sandbox.appendingPathComponent("runtest.ftplugin")
+        try? FileManager.default.createDirectory(at: runDir, withIntermediateDirectories: true)
+        let runSyncMarker = sandbox.appendingPathComponent("run_sync_out.txt").path
+        let runRetMarker = sandbox.appendingPathComponent("run_ret.txt").path
+        try? "{\"id\":\"test.run\",\"name\":\"Run\",\"actions\":[{\"id\":\"test.run.go\",\"title\":\"Run Go\"}]}"
+            .write(to: runDir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+        try? "ft.onAction('test.run.go', function(){ var s = ft.run(['/bin/echo','sync-ok']); ft.writeFile('\(runSyncMarker)', s || 'nil'); var r = ft.run(['/bin/echo','x'], function(){}); ft.writeFile('\(runRetMarker)', (r === undefined ? 'undef' : 'val')); });"
+            .write(to: runDir.appendingPathComponent("main.js"), atomically: true, encoding: .utf8)
+        PluginHost.shared.testLoad(at: runDir)
+        PluginHost.shared.fireAction(id: "test.run.go", wc: wc)
+        let runSyncOut = (try? String(contentsOfFile: runSyncMarker, encoding: .utf8)) ?? ""
+        let runRetOut = (try? String(contentsOfFile: runRetMarker, encoding: .utf8)) ?? ""
+        assert("ft.run (sync) returns command stdout", runSyncOut.contains("sync-ok"), "got '\(runSyncOut)'")
+        assert("ft.run with a callback is async (returns undefined, non-blocking)",
+               runRetOut == "undef", "got '\(runRetOut)'")
+
+        // --- T59g (P2): reloading drops actions from removed plugins so they
+        // don't linger as dead entries in the palette/menus.
+        ActionRegistry.registerPluginAction(id: "test.p2.stale", title: "Stale", perform: { _ in })
+        let p2Before = ActionRegistry.allIncludingPlugins().contains { $0.id == "test.p2.stale" }
+        ActionRegistry.clearPluginActions()
+        let p2After = ActionRegistry.allIncludingPlugins().contains { $0.id == "test.p2.stale" }
+        assert("clearPluginActions removes stale plugin actions on reload",
+               p2Before && !p2After, "before=\(p2Before) after=\(p2After)")
+
         // --- T60: construct every sheet/window controller (catches layout +
         // constraint crashes that off-screen menu tests miss). We force
         // `loadView`/`window` so the entire view hierarchy is built.

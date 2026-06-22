@@ -73,11 +73,52 @@ final class PluginHost {
             .appendingPathComponent("Library/Application Support/FinderTwo/Plugins")
     }
 
+    /// Background queue for `ft.run` callbacks so a slow subprocess never blocks
+    /// the main thread. Concurrent: independent plugin runs don't serialize.
+    private static let runQueue = DispatchQueue(
+        label: "FinderTwo.PluginHost.run", qos: .userInitiated, attributes: .concurrent)
+
+    /// Carries a JSValue across a thread hop. The value is only ever *used* on
+    /// the main thread (where its context lives); this box just lets the
+    /// background closure forward it without tripping Sendable checking.
+    private final class JSValueBox: @unchecked Sendable {
+        let value: JSValue
+        init(_ value: JSValue) { self.value = value }
+    }
+
+    /// Run a program and return its stdout. Blocks the calling thread until the
+    /// process exits, so callers off the main thread (the `ft.run` async path)
+    /// keep the UI responsive. A bare command name resolves through PATH.
+    private static func runProcess(_ args: [String], pluginName: String) -> String? {
+        guard let cmd = args.first, !cmd.isEmpty else { return nil }
+        let p = Process()
+        if cmd.hasPrefix("/") {
+            p.executableURL = URL(fileURLWithPath: cmd)
+            p.arguments = Array(args.dropFirst())
+        } else {
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            p.arguments = args   // env resolves cmd against PATH
+        }
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice  // unused; nullDevice avoids a full-pipe deadlock
+        do { try p.run() } catch {
+            NSLog("FT plugin '%@' ft.run failed: %@", pluginName, error.localizedDescription)
+            return nil
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(data: data, encoding: .utf8)
+    }
+
     /// Load all plugins from the standard directory. Idempotent — re-running
     /// reloads from disk.
     func loadAll() {
         plugins = []
         failures = []
+        // Drop actions from the previous load first, so a plugin that was
+        // deleted from disk doesn't leave dead actions in the palette and menus.
+        ActionRegistry.clearPluginActions()
         let dir = PluginHost.pluginsDirectory
         guard let kids = try? FileManager.default.contentsOfDirectory(at: dir,
             includingPropertiesForKeys: nil) else { return }
@@ -172,29 +213,26 @@ final class PluginHost {
         }
         ft?.setValue(writeFile, forProperty: "writeFile")
 
-        // ft.run(["cmd", "arg", ...]) -> stdout. An absolute path runs directly;
-        // a bare command name is resolved through PATH via /usr/bin/env, so
-        // ft.run(["ls", "-la"]) works like you'd expect.
-        let run: @convention(block) ([String]) -> String? = { args in
+        // ft.run(["cmd", ...])            -> stdout (synchronous, blocks)
+        // ft.run(["cmd", ...], function(out){…})  -> runs off the main thread,
+        //                                     delivers stdout to the callback
+        //
+        // Plugin actions run on the main thread, so a synchronous ft.run that
+        // shells out to something slow freezes the UI. Pass a callback to run it
+        // in the background instead — strongly preferred for anything that isn't
+        // instant. A bare command name is resolved through PATH via /usr/bin/env.
+        let pluginName = plugin.name
+        let run: @convention(block) ([String], JSValue) -> String? = { args, callback in
             guard let cmd = args.first, !cmd.isEmpty else { return nil }
-            let p = Process()
-            if cmd.hasPrefix("/") {
-                p.executableURL = URL(fileURLWithPath: cmd)
-                p.arguments = Array(args.dropFirst())
-            } else {
-                p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                p.arguments = args   // env resolves cmd against PATH
+            if !callback.isUndefined && !callback.isNull {
+                let box = PluginHost.JSValueBox(callback)
+                PluginHost.runQueue.async {
+                    let out = PluginHost.runProcess(args, pluginName: pluginName)
+                    DispatchQueue.main.async { box.value.call(withArguments: [out ?? NSNull()]) }
+                }
+                return nil   // async: result is delivered to the callback
             }
-            let pipe = Pipe()
-            p.standardOutput = pipe
-            p.standardError = FileHandle.nullDevice  // unused; nullDevice avoids a full-pipe deadlock
-            do { try p.run() } catch {
-                NSLog("FT plugin '%@' ft.run failed: %@", plugin.name, error.localizedDescription)
-                return nil
-            }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            p.waitUntilExit()
-            return String(data: data, encoding: .utf8)
+            return PluginHost.runProcess(args, pluginName: pluginName)
         }
         ft?.setValue(run, forProperty: "run")
 
@@ -313,6 +351,10 @@ extension ActionRegistry {
         pluginActions.removeAll { $0.id == id }
         pluginActions.append(a)
     }
+
+    /// Remove every registered plugin action. Called before a reload so actions
+    /// belonging to a now-deleted plugin don't linger in the palette and menus.
+    static func clearPluginActions() { pluginActions.removeAll() }
 
     /// Action lookup that also checks plugin actions.
     static func allIncludingPlugins() -> [Action] { all + pluginActions }

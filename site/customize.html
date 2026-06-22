@@ -205,8 +205,10 @@
             <tr><td><code>ft.currentURL()</code></td><td>Returns the active pane&rsquo;s current folder path.</td></tr>
             <tr><td><code>ft.readFile(path)</code></td><td>Reads a file, returns its text (or <code>null</code>).</td></tr>
             <tr><td><code>ft.writeFile(path, text)</code></td><td>Writes text to a file, returns <code>true</code> on success.</td></tr>
-            <tr><td><code>ft.run([cmd, …args])</code></td><td>Runs a program and returns its stdout as a string.</td></tr>
+            <tr><td><code>ft.run([cmd, …args])</code></td><td>Runs a program and returns its stdout as a string. <strong>Blocks</strong> until it exits, so for anything slow pass a callback (below) instead.</td></tr>
+            <tr><td><code>ft.run([cmd, …args], fn)</code></td><td>Runs the program off the main thread and calls <code>fn(stdout)</code> when it finishes — use this so a slow command never freezes the UI.</td></tr>
             <tr><td><code>ft.notify(message)</code></td><td>Flashes a message in the active window&rsquo;s status bar.</td></tr>
+            <tr><td><code>ft.log(message)</code></td><td>Writes to the system log (Console) — handy for debugging a plugin.</td></tr>
           </tbody>
         </table>
 
