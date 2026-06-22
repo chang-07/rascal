@@ -1,43 +1,47 @@
 # Rascal
 
-![Rascal — a fast, keyboard-first Finder replacement for macOS](media/rascal-banner.png)
+![Rascal, a keyboard-first Finder replacement for macOS](media/rascal-banner.png)
 
-**A fast, keyboard-first Finder replacement for macOS.** Native AppKit — dual panes, a fuzzy command palette, vim keys, a live disk treemap, real Finder tags, an inline terminal, and a JavaScript plugin API.
+Rascal is a Finder replacement for macOS, built for people who'd rather not reach for the mouse. It has dual panes, a fuzzy command palette, vim keys, a live disk treemap, real Finder tags, an inline terminal, and a small JavaScript plugin API. It's plain AppKit, it launches fast, and it runs entirely on your Mac.
 
-`Free · local-first · no account · no telemetry · no AI · macOS 13+ · Apple Silicon & Intel`
+Free and open source. macOS 13 or later, Apple Silicon or Intel.
 
-Rascal opens instantly, runs entirely on your Mac, and never phones home.
-
-**[⬇ Download](https://github.com/chang-07/rascal/releases/latest)** · [Keymap](HOTKEYS.md) · [User guide](https://chang-07.github.io/rascal/guide.html) · [Customize](https://chang-07.github.io/rascal/customize.html)
+[Download](https://github.com/chang-07/rascal/releases/latest) · [Keymap](HOTKEYS.md) · [User guide](https://chang-07.github.io/rascal/guide.html) · [Customize](https://chang-07.github.io/rascal/customize.html)
 
 ---
 
 ## Download
 
-Grab the latest signed DMG from [**Releases**](https://github.com/chang-07/rascal/releases/latest) (Apple Silicon or Intel), drag **Rascal** to **Applications**, and open it.
+Grab the latest DMG from the [releases page](https://github.com/chang-07/rascal/releases/latest), pick Apple Silicon or Intel, and drag Rascal into Applications.
 
-Because the build is ad-hoc signed, right-click **Rascal.app → Open** the first time. If macOS still blocks it:
+The build is ad-hoc signed, so the first launch needs a right-click on Rascal.app → Open. If macOS still refuses (or calls it "damaged"), clear the quarantine flag and try again:
 
 ```bash
 xattr -cr /Applications/Rascal.app
 ```
 
-Prefer to build it yourself? See [Build from source](#build-from-source).
+You can also install it with Homebrew:
 
-## Highlights
+```bash
+brew install --cask chang-07/tap/rascal
+```
 
-- **Keyboard-first** — fuzzy command palette (`⌘⇧P`) and real vim navigation (`hjkl`, `/`, `dd`, `gg`, `gt`). The mouse is optional.
-- **Panes & views** — dual and multi-pane layouts, tabs, and List / Icon / Column / Gallery, switchable in a keystroke.
-- **Disk treemap** — a live, colour-coded map of any folder; click a tile to drill in.
-- **Real Finder tags** — read and write `kMDItemUserTags`, and pin saved searches to the sidebar as smart folders.
-- **Inline terminal** — `` ⌘` `` drops a shell drawer that tracks the active pane's directory.
-- **Plugins** — add commands with a small JavaScript file. No build step, no npm.
-- **17 themes** — light, dark, and a dozen more, or write your own in a few lines of JSON.
-- **Fast** — direct `readdir`/`lstat` scanning and async sort/filter keep large folders smooth. See [Performance](#performance).
+Or build it yourself — see below.
+
+## Features
+
+- A command palette on `⌘⇧P` and real vim navigation (`hjkl`, `/`, `dd`, `gg`, `gt`). Most things are reachable without the mouse.
+- Dual and multi-pane layouts, tabs, and four view modes: List, Icon, Column, and Gallery.
+- A live disk treemap. It's a colour-coded map of whatever folder you're in; click a tile to go deeper.
+- Reads and writes the same Finder tags Finder does (`kMDItemUserTags`), and you can pin saved searches to the sidebar as smart folders.
+- An inline terminal drawer (`` ⌘` ``) that stays in sync with the active pane's directory.
+- Plugins are a single JavaScript file. No build step, no npm.
+- 17 themes out of the box, plus your own if you want to write one in JSON.
+- It stays quick on large folders. There are some numbers further down if you care about that sort of thing.
 
 ## Build from source
 
-Requires **macOS 13+** and a **Swift 5.9+ toolchain** — Command Line Tools (`xcode-select --install`) are enough; full Xcode is not required. It's a plain SwiftPM package with no `.xcodeproj`.
+You'll need macOS 13+ and a Swift 5.9+ toolchain. The Command Line Tools (`xcode-select --install`) are enough; full Xcode isn't required. It's a plain SwiftPM package with no `.xcodeproj`.
 
 ```bash
 git clone https://github.com/chang-07/rascal.git
@@ -75,7 +79,7 @@ Vim mode (toggle in Settings) maps `h j k l`, `gg`, `G`, `gt`/`gT`, `dd`, `yy`, 
 
 ## Testing
 
-Two scripts. Both run **off-screen** — windows never appear and focus is never taken.
+Two scripts, both of which run off-screen, so no window appears and focus is never taken.
 
 ```bash
 ./smoketest.sh           # in-process functional runner — 200+ assertions
@@ -100,7 +104,7 @@ Sources/FinderTwo/                 # the Swift target is named FinderTwo (histor
 └── Tests/TestRunner.swift         # 200+ in-process assertions
 ```
 
-`Package.swift` links only system frameworks (AppKit, NetFS, Security) — there are **no third-party Swift dependencies**.
+`Package.swift` links only system frameworks (AppKit, NetFS, Security); there are no third-party Swift dependencies.
 
 ## Contributing
 
@@ -108,11 +112,10 @@ Pull requests are welcome: bug fixes, features, themes, plugins, and docs. A few
 
 ### Principles
 
-- **Local-first and private.** No telemetry, no analytics, no "call home." A change that sends user data anywhere won't be merged.
-- **No AI features.** Rascal is deliberately AI-free.
-- **Native and fast.** AppKit only — no Electron or web views for core UI. Respect the hot paths: keep UI work on the main thread and heavy work off it.
-- **Few dependencies.** The app ships with zero third-party Swift packages; it leans on system frameworks and CLI tools (`unzip`, `tar`, `rg`/`grep`, `sftp`, `git`). New dependencies need a strong reason.
-- **Keyboard-first.** New features should be reachable without the mouse — register them as Actions so the palette and menus pick them up.
+- Local-first and private. No telemetry, no analytics, nothing phoning home. A change that ships user data off the machine won't be merged.
+- Native and fast. AppKit only, no Electron or web views for the core UI. Keep UI work on the main thread and push heavy work off it.
+- Few dependencies. There are currently zero third-party Swift packages; the app leans on system frameworks and a handful of CLI tools (`unzip`, `tar`, `rg`/`grep`, `sftp`, `git`). A new dependency needs a good reason.
+- Keyboard-first. A new feature should be usable without the mouse. Register it as an Action and the palette and menus pick it up for free.
 
 ### Set up
 
@@ -176,4 +179,4 @@ Seventeen built-in: Rascal Light & Dark, Midnight, Sepia, Hacker, Nord, Dracula,
 
 ## License
 
-[MIT](LICENSE) © 2026 chang. Free and open source — no cloud, no account, no telemetry.
+[MIT](LICENSE) © 2026 chang. Free and open source, with no cloud or account in the loop.
