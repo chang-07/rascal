@@ -127,7 +127,9 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 }
 .hero-title em { font-style: italic; font-weight: 500; color: var(--clay); }
 .hero-sub { font-size: clamp(17px, 1.9vw, 20px); color: var(--ink-2); margin: 22px 0 0; max-width: 520px; line-height: 1.6; }
-.hero-meta { margin-top: 20px; font-family: var(--mono); font-size: 12.5px; letter-spacing: .02em; color: var(--muted); }
+.hero-brew { margin-top: 18px; font-size: 13px; color: var(--muted); }
+.hero-brew code { font-family: var(--mono); font-size: 12.5px; background: var(--paper-2); color: var(--clay-deep); padding: 3px 9px; border-radius: 6px; border: 1px solid var(--line); white-space: nowrap; }
+.hero-meta { margin-top: 14px; font-family: var(--mono); font-size: 12.5px; letter-spacing: .02em; color: var(--muted); }
 .hero-meta b { color: var(--clay); font-weight: 600; }
 .hero-meta-link { color: var(--clay); border-bottom: 1px solid var(--line-2); transition: border-color .15s; }
 .hero-meta-link:hover { border-color: var(--clay); }
