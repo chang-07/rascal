@@ -530,6 +530,10 @@ final class AdvancedPane: SettingsPane {
         reloadBtn.bezelStyle = .rounded
         addRow("", reloadBtn)
 
+        let exampleBtn = NSButton(title: "Install Example Plugin", target: self, action: #selector(installExamplePlugin))
+        exampleBtn.bezelStyle = .rounded
+        addRow("", exampleBtn)
+
         let resetBtn = NSButton(title: "Reset General & Appearance", target: self, action: #selector(resetSettings))
         resetBtn.bezelStyle = .rounded
         addRow("Settings:", resetBtn)
@@ -553,10 +557,44 @@ final class AdvancedPane: SettingsPane {
         // Rebuild the menu so new plugin actions get menu items + key equivalents
         // and removed ones drop out (AppDelegate rebuilds on this notification).
         NotificationCenter.default.post(name: ActionRegistry.shortcutsDidChange, object: nil)
-        if let w = view.window {
-            let a = NSAlert()
-            a.messageText = "Plugins reloaded"
-            a.informativeText = "\(PluginHost.shared.plugins.count) plugin(s) loaded."
+        guard let w = view.window else { return }
+        let host = PluginHost.shared
+        let a = NSAlert()
+        a.messageText = "Plugins reloaded"
+        var info = "\(host.plugins.count) plugin(s) loaded."
+        if !host.failures.isEmpty {
+            a.alertStyle = .warning
+            let lines = host.failures.map { "• \($0.bundle): \($0.reason)" }.joined(separator: "\n")
+            info += "\n\n\(host.failures.count) failed to load:\n\(lines)"
+        }
+        a.informativeText = info
+        a.beginSheetModal(for: w, completionHandler: { _ in })
+    }
+
+    @objc private func installExamplePlugin() {
+        let existed = FileManager.default.fileExists(
+            atPath: PluginHost.pluginsDirectory.appendingPathComponent("word-count.ftplugin").path)
+        let url = PluginHost.installExample()
+        PluginHost.shared.loadAll()
+        NotificationCenter.default.post(name: ActionRegistry.shortcutsDidChange, object: nil)
+        guard let w = view.window else { return }
+        let a = NSAlert()
+        if let url {
+            a.messageText = existed ? "Example plugin already installed" : "Example plugin installed"
+            a.informativeText = existed
+                ? "“Word Count” is already in your Plugins folder. Select text files and run “Count Words in Selection” from the Command Palette (⌘⇧P)."
+                : "Added “Word Count” to your Plugins folder. Select one or more text files, then run “Count Words in Selection” from the Command Palette (⌘⇧P). Edit its main.js to learn the API."
+            a.addButton(withTitle: "OK")
+            a.addButton(withTitle: "Reveal in Finder")
+            a.beginSheetModal(for: w) { resp in
+                if resp == .alertSecondButtonReturn {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
+        } else {
+            a.alertStyle = .warning
+            a.messageText = "Couldn’t install the example plugin"
+            a.informativeText = "Check that the Plugins folder is writable."
             a.beginSheetModal(for: w, completionHandler: { _ in })
         }
     }

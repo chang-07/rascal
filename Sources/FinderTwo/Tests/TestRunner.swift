@@ -2278,6 +2278,46 @@ final class TestRunner {
         assert("plugin action surfaces in command palette",
                echoInPalette, "plugin action not in palette — user can't trigger it")
 
+        // --- T59c: a malformed manifest is RECORDED as a failure, not silently
+        // dropped (so the user can be told why a plugin didn't appear).
+        let badDir = sandbox.appendingPathComponent("broken.ftplugin")
+        try? FileManager.default.createDirectory(at: badDir, withIntermediateDirectories: true)
+        try? "{ this is not valid json".write(to: badDir.appendingPathComponent("manifest.json"),
+                                              atomically: true, encoding: .utf8)
+        let failBefore = PluginHost.shared.failures.count
+        PluginHost.shared.testLoad(at: badDir)
+        assert("malformed plugin manifest is recorded as a load failure",
+               PluginHost.shared.failures.count > failBefore,
+               "silent drop — user gets no feedback")
+
+        // --- T59d: a handler that throws at runtime is surfaced and the
+        // exception is cleared, so it can't leak into the next plugin call.
+        let throwDir = sandbox.appendingPathComponent("thrower.ftplugin")
+        try? FileManager.default.createDirectory(at: throwDir, withIntermediateDirectories: true)
+        try? "{\"id\":\"test.throw\",\"name\":\"Thrower\",\"actions\":[{\"id\":\"test.throw.go\",\"title\":\"Throw\"}]}"
+            .write(to: throwDir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+        try? "ft.onAction('test.throw.go', function(){ throw new Error('boom'); });"
+            .write(to: throwDir.appendingPathComponent("main.js"), atomically: true, encoding: .utf8)
+        PluginHost.shared.testLoad(at: throwDir)
+        PluginHost.shared.fireAction(id: "test.throw.go", wc: wc)
+        let thrower = PluginHost.shared.plugins.first { $0.manifest.id == "test.throw" }
+        assert("throwing plugin handler leaves no lingering exception",
+               thrower != nil && thrower!.context.exception == nil,
+               "exception not cleared after handler threw")
+
+        // --- T59e: the shipped example plugin is valid and actually loads.
+        // Only exercised when we freshly create it, and cleaned up afterward so
+        // a real user's Plugins folder is never polluted by the test run.
+        let exampleExisted = FileManager.default.fileExists(
+            atPath: PluginHost.pluginsDirectory.appendingPathComponent("word-count.ftplugin").path)
+        if !exampleExisted, let exURL = PluginHost.installExample() {
+            PluginHost.shared.testLoad(at: exURL)
+            assert("example plugin loads and registers its action",
+                   ActionRegistry.action(id: "word-count.count") != nil,
+                   "example plugin failed to load")
+            try? FileManager.default.removeItem(at: exURL)
+        }
+
         // --- T60: construct every sheet/window controller (catches layout +
         // constraint crashes that off-screen menu tests miss). We force
         // `loadView`/`window` so the entire view hierarchy is built.

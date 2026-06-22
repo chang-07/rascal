@@ -62,6 +62,11 @@ final class PluginHost {
 
     private(set) var plugins: [LoadedPlugin] = []
 
+    /// Why a `.ftplugin` bundle failed to load on the last `loadAll()`. Surfaced
+    /// in the Reload-Plugins summary so a broken plugin isn't a silent no-op.
+    struct LoadFailure { let bundle: String; let reason: String }
+    private(set) var failures: [LoadFailure] = []
+
     static var pluginsDirectory: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home
@@ -72,6 +77,7 @@ final class PluginHost {
     /// reloads from disk.
     func loadAll() {
         plugins = []
+        failures = []
         let dir = PluginHost.pluginsDirectory
         guard let kids = try? FileManager.default.contentsOfDirectory(at: dir,
             includingPropertiesForKeys: nil) else { return }
@@ -83,20 +89,40 @@ final class PluginHost {
     /// Test hook: load a single plugin bundle from an arbitrary directory.
     func testLoad(at dir: URL) { loadPlugin(at: dir) }
 
+    private func recordFailure(_ bundle: String, _ reason: String) {
+        failures.append(LoadFailure(bundle: bundle, reason: reason))
+        NSLog("FT plugin load failed [%@]: %@", bundle, reason)
+    }
+
     private func loadPlugin(at dir: URL) {
+        let bundle = dir.lastPathComponent
         let manifestURL = dir.appendingPathComponent("manifest.json")
         let mainURL = dir.appendingPathComponent("main.js")
-        guard let data = try? Data(contentsOf: manifestURL),
-              let manifest = try? JSONDecoder().decode(PluginManifest.self, from: data),
-              let scriptData = try? Data(contentsOf: mainURL),
-              let script = String(data: scriptData, encoding: .utf8) else { return }
-        guard let ctx = JSContext() else { return }
+
+        guard let data = try? Data(contentsOf: manifestURL) else {
+            recordFailure(bundle, "missing or unreadable manifest.json"); return
+        }
+        let manifest: PluginManifest
+        do {
+            manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
+        } catch {
+            recordFailure(bundle, "invalid manifest.json — \(error.localizedDescription)"); return
+        }
+        guard let scriptData = try? Data(contentsOf: mainURL),
+              let script = String(data: scriptData, encoding: .utf8) else {
+            recordFailure(manifest.id, "missing or unreadable main.js"); return
+        }
+        guard !plugins.contains(where: { $0.manifest.id == manifest.id }) else {
+            recordFailure(manifest.id, "duplicate plugin id — already loaded from another bundle"); return
+        }
+        guard let ctx = JSContext() else {
+            recordFailure(manifest.id, "could not create a JavaScript context"); return
+        }
         let handlers = HandlerBox()
         installBridge(ctx, plugin: manifest, handlers: handlers)
         ctx.evaluateScript(script)
-        if ctx.exception != nil {
-            NSLog("FT plugin '\(manifest.id)' error: \(String(describing: ctx.exception))")
-            return
+        if let ex = ctx.exception {
+            recordFailure(manifest.id, "script error — \(ex)"); return
         }
         plugins.append(LoadedPlugin(manifest: manifest, context: ctx,
                                     directory: dir, handlers: handlers))
@@ -146,21 +172,37 @@ final class PluginHost {
         }
         ft?.setValue(writeFile, forProperty: "writeFile")
 
-        // ft.run(["arg", ...]) -> stdout
+        // ft.run(["cmd", "arg", ...]) -> stdout. An absolute path runs directly;
+        // a bare command name is resolved through PATH via /usr/bin/env, so
+        // ft.run(["ls", "-la"]) works like you'd expect.
         let run: @convention(block) ([String]) -> String? = { args in
-            guard !args.isEmpty else { return nil }
+            guard let cmd = args.first, !cmd.isEmpty else { return nil }
             let p = Process()
-            p.launchPath = args[0]
-            p.arguments = Array(args.dropFirst())
+            if cmd.hasPrefix("/") {
+                p.executableURL = URL(fileURLWithPath: cmd)
+                p.arguments = Array(args.dropFirst())
+            } else {
+                p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                p.arguments = args   // env resolves cmd against PATH
+            }
             let pipe = Pipe()
             p.standardOutput = pipe
             p.standardError = FileHandle.nullDevice  // unused; nullDevice avoids a full-pipe deadlock
-            do { try p.run() } catch { return nil }
+            do { try p.run() } catch {
+                NSLog("FT plugin '%@' ft.run failed: %@", plugin.name, error.localizedDescription)
+                return nil
+            }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             p.waitUntilExit()
             return String(data: data, encoding: .utf8)
         }
         ft?.setValue(run, forProperty: "run")
+
+        // ft.log("text") — write to the system log for debugging a plugin.
+        let log: @convention(block) (String) -> Void = { msg in
+            NSLog("FT plugin '%@' log: %@", plugin.name, msg)
+        }
+        ft?.setValue(log, forProperty: "log")
 
         // ft.currentURL() -> string
         let currentURL: @convention(block) () -> String? = {
@@ -184,10 +226,79 @@ final class PluginHost {
         for p in plugins {
             guard let handler = p.handlers.map[id], !handler.isUndefined else { continue }
             let urls = wc.testActivePane?.selectedURLs().map { $0.path } ?? []
+            p.context.exception = nil   // clear any stale exception before the call
             handler.call(withArguments: [urls])
+            // A handler that throws used to fail silently. Surface it in the
+            // status bar and the log, and clear it so it can't leak into the
+            // next plugin call on this context.
+            if let ex = p.context.exception {
+                p.context.exception = nil
+                NSLog("FT plugin action '%@' threw: %@", id, "\(ex)")
+                wc.testActivePane?.flashStatus("\(p.manifest.name): \(ex)")
+            }
             return
         }
     }
+
+    // MARK: Example plugin
+
+    /// Write a small, working example plugin into the Plugins folder so users
+    /// have a real bundle to learn from. Returns the bundle URL, or nil if it
+    /// couldn't be written. Does not overwrite an existing copy.
+    @discardableResult
+    static func installExample() -> URL? {
+        let bundle = pluginsDirectory.appendingPathComponent("word-count.ftplugin")
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: bundle.path) else { return bundle }
+        do {
+            try fm.createDirectory(at: bundle, withIntermediateDirectories: true)
+            try exampleManifest.write(to: bundle.appendingPathComponent("manifest.json"),
+                                      atomically: true, encoding: .utf8)
+            try exampleScript.write(to: bundle.appendingPathComponent("main.js"),
+                                    atomically: true, encoding: .utf8)
+            return bundle
+        } catch {
+            NSLog("FT: failed to install example plugin: %@", error.localizedDescription)
+            return nil
+        }
+    }
+
+    private static let exampleManifest = """
+    {
+      "id": "dev.rascal.word-count",
+      "name": "Word Count",
+      "version": "1.0",
+      "actions": [
+        { "id": "word-count.count", "title": "Count Words in Selection" }
+      ]
+    }
+    """
+
+    private static let exampleScript = """
+    // Word Count — a starter Rascal plugin.
+    // Select one or more text files, then run "Count Words in Selection"
+    // from the Command Palette (⌘⇧P).
+    //
+    // The `ft` bridge gives you: onAction, notify, log, readFile, writeFile,
+    // run, currentURL, selectedURLs.
+
+    ft.onAction('word-count.count', function (urls) {
+      if (!urls || urls.length === 0) {
+        ft.notify('Select a file first.');
+        return;
+      }
+      var files = 0, words = 0, lines = 0;
+      urls.forEach(function (path) {
+        var text = ft.readFile(path);
+        if (text === null) return;        // skip unreadable/binary files
+        files += 1;
+        lines += text.split('\\n').length;
+        var trimmed = text.trim();
+        if (trimmed.length) words += trimmed.split(/\\s+/).length;
+      });
+      ft.notify(words + ' words, ' + lines + ' lines across ' + files + ' file(s)');
+    });
+    """
 }
 
 extension ActionRegistry {
