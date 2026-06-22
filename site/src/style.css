@@ -205,7 +205,7 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 .section-lead { text-align: center; color: var(--muted); margin: 18px auto 0; max-width: 560px; font-size: 17px; }
 
 /* ── features (editorial cards, hairline rules) ── */
-.features { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--line); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow-sm); }
+.features { margin-top: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--line); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow-sm); }
 .feat { background: var(--paper); padding: 34px 30px; transition: background .25s; }
 .feat:hover { background: #fff; }
 .fic { width: 28px; height: 28px; stroke: var(--clay); fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-bottom: 18px; }
@@ -214,7 +214,10 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 .feat code, .shot figcaption code { background: var(--paper-2); color: var(--clay-deep); padding: 1px 6px; border-radius: 6px; }
 
 /* ── demos grid ── */
-.shots { margin-top: 44px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; max-width: 980px; margin-inline: auto; }
+.shots { margin-top: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; max-width: 980px; margin-inline: auto; }
+/* Demos and features lost their section headers, so trim the now-empty
+   top/bottom space those headers used to fill. */
+#demos, #features { padding-top: clamp(44px, 5vw, 68px); padding-bottom: clamp(44px, 5vw, 68px); }
 .shots.shots-3 { grid-template-columns: repeat(3, 1fr); max-width: 1360px; gap: 26px; }
 .shot { transition: transform .2s ease, box-shadow .3s ease; }
 .shot:hover { transform: translateY(-5px); box-shadow: 0 40px 80px -34px rgba(70,40,12,.4); }
