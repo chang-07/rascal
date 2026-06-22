@@ -50,6 +50,9 @@ final class StatusBarView: NSView, ThemeObserving {
 
     private let label = NSTextField(labelWithString: "")
     private let topLine = SeparatorView()
+    /// Trailing vim-mode indicator (e.g. "NORMAL", "VISUAL", "NORMAL 3d"),
+    /// shown only while Vim navigation is enabled.
+    private let vimLabel = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -66,6 +69,14 @@ final class StatusBarView: NSView, ThemeObserving {
             label.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 12),
             label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
         ])
+        vimLabel.translatesAutoresizingMaskIntoConstraints = false
+        vimLabel.alignment = .right
+        vimLabel.isHidden = true
+        addSubview(vimLabel)
+        NSLayoutConstraint.activate([
+            vimLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            vimLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
         topLine.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topLine)
         NSLayoutConstraint.activate([
@@ -75,12 +86,25 @@ final class StatusBarView: NSView, ThemeObserving {
             topLine.heightAnchor.constraint(equalToConstant: 1),
         ])
         subscribeToTheme(self)
+        NotificationCenter.default.addObserver(self, selector: #selector(refreshVim),
+                                               name: VimMode.stateDidChange, object: nil)
+        refreshVim()
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func refreshVim() {
+        let text = VimMode.shared.statusText
+        vimLabel.isHidden = text.isEmpty
+        vimLabel.attributedStringValue = NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 9.5, weight: .semibold),
+            .foregroundColor: ThemeManager.shared.effectiveAccent,
+        ])
+    }
 
     @objc func applyTheme() {
         let t = ThemeManager.shared.current
         layer?.backgroundColor = t.background.cgColor
         setSegments(lastSegments)   // re-render text in the new theme's colors
+        refreshVim()                // recolor the vim badge for the new theme
     }
 }

@@ -24,12 +24,33 @@ import AppKit
 final class VimMode {
     static let shared = VimMode()
 
+    /// Posted whenever the visible vim state changes (enabled, mode, pending
+    /// operator, or count) so the status bar can show a current indicator.
+    static let stateDidChange = Notification.Name("FinderTwo.vimStateDidChange")
+
     enum Mode { case normal, visual }
     private(set) var enabled: Bool = UserDefaults.standard.bool(forKey: "FinderTwo.vimEnabled")
     private(set) var mode: Mode = .normal
     private var pending: String = ""    // pending keystrokes (e.g. "g" awaiting "g" or "t")
     private var count: Int = 0          // numeric prefix (e.g. 5j)
     private var visualAnchor: Int?       // row anchor when in visual mode
+
+    /// Compact indicator for the status bar: "" when vim is off, otherwise the
+    /// mode plus any in-progress count/operator (e.g. "NORMAL", "VISUAL",
+    /// "NORMAL  3d"). Mirrors what vim shows in its bottom-right.
+    var statusText: String {
+        guard enabled else { return "" }
+        var s = (mode == .visual) ? "VISUAL" : "NORMAL"
+        var pend = ""
+        if count > 0 { pend += "\(count)" }
+        pend += (pending == "ctrl-b") ? "^b" : pending
+        if !pend.isEmpty { s += "  " + pend }
+        return s
+    }
+
+    private func postState() {
+        NotificationCenter.default.post(name: VimMode.stateDidChange, object: nil)
+    }
 
     func setEnabled(_ on: Bool) {
         enabled = on
@@ -42,12 +63,14 @@ final class VimMode {
         count = 0
         mode = .normal
         visualAnchor = nil
+        postState()
     }
 
     /// Returns true if the event was consumed; false to let the table handle it.
     @discardableResult
     func handle(event: NSEvent, in pane: PaneController, fileList: FileListController) -> Bool {
         guard enabled else { return false }
+        defer { postState() }   // refresh the status-bar indicator after any state change
         let mods = event.modifierFlags.intersection([.command, .option, .control])
         let isCtrlB = mods == .control && event.charactersIgnoringModifiers == "b"
         if !mods.isEmpty && !isCtrlB && pending != "ctrl-b" { return false }
