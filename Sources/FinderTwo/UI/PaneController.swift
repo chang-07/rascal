@@ -87,43 +87,74 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         }
     }
 
+    /// Slide a drawer open/closed by animating its size constraint (the drawers
+    /// pin their width/height to 0 when closed), instead of snapping. `onOpen`
+    /// runs immediately with the drawer shown; `afterOpen` runs once the open
+    /// slide finishes (e.g. to load content at full size); `afterClose` runs
+    /// after the close slide, only if the drawer wasn't reopened meanwhile.
+    private func animateDrawer(_ drawer: NSView, _ constraint: NSLayoutConstraint,
+                               open: Bool, size: CGFloat,
+                               onOpen: (() -> Void)? = nil,
+                               afterOpen: (() -> Void)? = nil,
+                               afterClose: (() -> Void)? = nil) {
+        if open {
+            drawer.isHidden = false
+            onOpen?()
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.18
+                ctx.allowsImplicitAnimation = true
+                constraint.constant = size
+                self.view.layoutSubtreeIfNeeded()
+            }, completionHandler: afterOpen)
+        } else {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.16
+                ctx.allowsImplicitAnimation = true
+                constraint.constant = 0
+                self.view.layoutSubtreeIfNeeded()
+            }, completionHandler: { [weak drawer] in
+                // Skip teardown if a quick re-open reset the constant.
+                guard constraint.constant == 0 else { return }
+                drawer?.isHidden = true
+                afterClose?()
+            })
+        }
+    }
+
     /// Toggle the bottom terminal drawer.
     func toggleTerminalDrawer() {
         terminalVisible.toggle()
         if terminalVisible {
-            terminalView.isHidden = false
-            terminalView.cwd = activeTab.currentURL
-            terminalHeightConstraint.constant = 220
+            animateDrawer(terminalView, terminalHeightConstraint, open: true, size: 220,
+                          onOpen: { [weak self] in self?.terminalView.cwd = self?.activeTab.currentURL ?? URL(fileURLWithPath: NSHomeDirectory()) })
             DispatchQueue.main.async { [weak self] in self?.terminalView.focusInput() }
         } else {
-            terminalHeightConstraint.constant = 0
-            terminalView.isHidden = true
-            terminalView.terminateRunning()   // don't keep a child running off-screen
+            animateDrawer(terminalView, terminalHeightConstraint, open: false, size: 220,
+                          afterClose: { [weak self] in self?.terminalView.terminateRunning() })
         }
     }
 
     func toggleGitDiffDrawer() {
         gitDiffVisible.toggle()
         if gitDiffVisible {
-            gitDiffView.isHidden = false
-            gitDiffWidthConstraint.constant = 400
-            if let first = selectedURLs().first,
-               (try? first.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true {
-                gitDiffView.fileURL = first
-            } else {
-                gitDiffView.fileURL = nil
-            }
+            animateDrawer(gitDiffView, gitDiffWidthConstraint, open: true, size: 400, onOpen: { [weak self] in
+                guard let self else { return }
+                if let first = self.selectedURLs().first,
+                   (try? first.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true {
+                    self.gitDiffView.fileURL = first
+                } else {
+                    self.gitDiffView.fileURL = nil
+                }
+            })
         } else {
-            gitDiffWidthConstraint.constant = 0
-            gitDiffView.isHidden = true
+            animateDrawer(gitDiffView, gitDiffWidthConstraint, open: false, size: 400)
         }
     }
 
     func showGitDiffDrawer(for url: URL) {
         if !gitDiffVisible {
             gitDiffVisible = true
-            gitDiffView.isHidden = false
-            gitDiffWidthConstraint.constant = 400
+            animateDrawer(gitDiffView, gitDiffWidthConstraint, open: true, size: 400)
         }
         gitDiffView.fileURL = url
     }
@@ -132,25 +163,27 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func toggleNotesDrawer() {
         notesVisible.toggle()
         if notesVisible {
-            notesView.isHidden = false
-            notesView.folderURL = activeTab.currentURL
-            notesWidthConstraint.constant = 280
+            animateDrawer(notesView, notesWidthConstraint, open: true, size: 280,
+                          onOpen: { [weak self] in self?.notesView.folderURL = self?.activeTab.currentURL })
         } else {
             notesView.saveNow()
-            notesWidthConstraint.constant = 0
-            notesView.isHidden = true
+            animateDrawer(notesView, notesWidthConstraint, open: false, size: 280)
         }
     }
 
     func togglePreviewDrawer() {
         previewVisible.toggle()
-        previewView.isHidden = !previewVisible
-        previewWidthConstraint.constant = previewVisible ? 260 : 0
         if previewVisible {
-            // Lay out the new 260pt width before loading, so QuickLook never renders
-            // a preview into a zero-width view (which crashes — see PreviewDrawerView).
-            view.layoutSubtreeIfNeeded()
-            updatePreviewContent()
+            // Load the preview only once the drawer has slid to full width —
+            // QuickLook needs a non-zero frame (PreviewDrawerView guards this,
+            // but loading at full size avoids a blank first paint).
+            animateDrawer(previewView, previewWidthConstraint, open: true, size: 260,
+                          afterOpen: { [weak self] in
+                              guard let self, self.previewVisible else { return }
+                              self.updatePreviewContent()
+                          })
+        } else {
+            animateDrawer(previewView, previewWidthConstraint, open: false, size: 260)
         }
     }
 
