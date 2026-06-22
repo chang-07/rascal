@@ -108,8 +108,20 @@ final class DirectoryModel {
             }
             return
         }
-        reload(sync: true)
+        // A slow or wedged network mount would freeze the main thread if we
+        // scanned it synchronously. Local volumes load sync (instant, no
+        // flicker); network volumes load async so navigation never beachballs —
+        // the path bar updates immediately and the list fills in when the scan
+        // returns (directoryModelDidUpdate refreshes every view).
+        reload(sync: DirectoryModel.isLocalVolume(url))
         startWatcher()
+    }
+
+    /// Whether `url` lives on a local volume. Network mounts (SMB / AFP / NFS /
+    /// WebDAV) report false. Defaults to true when the flag can't be read, so an
+    /// ordinary local path keeps its snappy synchronous load.
+    static func isLocalVolume(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.volumeIsLocalKey]).volumeIsLocal) ?? true
     }
 
     /// Trigger a reload. By default async on a background queue. Set sync=true
