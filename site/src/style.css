@@ -215,7 +215,7 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 
 /* ── demos grid ── */
 .shots { margin-top: 44px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; max-width: 980px; margin-inline: auto; }
-.shots.shots-3 { grid-template-columns: repeat(3, 1fr); max-width: var(--maxw); gap: 22px; }
+.shots.shots-3 { grid-template-columns: repeat(3, 1fr); max-width: 1360px; gap: 26px; }
 .shot { transition: transform .2s ease, box-shadow .3s ease; }
 .shot:hover { transform: translateY(-5px); box-shadow: 0 40px 80px -34px rgba(70,40,12,.4); }
 .shot.span-all { grid-column: 1 / -1; }
