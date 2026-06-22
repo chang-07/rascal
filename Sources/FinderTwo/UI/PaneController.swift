@@ -1025,9 +1025,32 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
             } else {
                 emptyState.configureEmpty()
             }
-            emptyState.isHidden = false
+            setEmptyStateVisible(true)
         } else {
-            emptyState.isHidden = true
+            setEmptyStateVisible(false)
+        }
+    }
+
+    /// Fade the empty-state card in/out, but only on an actual visibility change
+    /// — updateStatus() runs on every recompute and selection change, so we must
+    /// not re-animate while it's already in its target state.
+    private func setEmptyStateVisible(_ visible: Bool) {
+        let currentlyVisible = !emptyState.isHidden && emptyState.alphaValue > 0
+        guard visible != currentlyVisible else { return }
+        if visible {
+            emptyState.alphaValue = 0
+            emptyState.isHidden = false
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                self.emptyState.animator().alphaValue = 1
+            }
+        } else {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.12
+                self.emptyState.animator().alphaValue = 0
+            }, completionHandler: { [weak self] in
+                if self?.emptyState.alphaValue == 0 { self?.emptyState.isHidden = true }
+            })
         }
     }
 
