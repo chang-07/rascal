@@ -604,8 +604,13 @@ final class TestRunner {
         let beforeVim = VimMode.shared.enabled
         VimMode.shared.setEnabled(true)
         assert("vim mode enabled", VimMode.shared.enabled, "not enabled")
+        // Status-bar indicator reflects state: shows NORMAL when on, "" when off.
+        assert("vim status indicator shows NORMAL when enabled",
+               VimMode.shared.statusText == "NORMAL", "got '\(VimMode.shared.statusText)'")
         VimMode.shared.setEnabled(false)
         assert("vim mode disabled", !VimMode.shared.enabled, "still enabled")
+        assert("vim status indicator is empty when disabled",
+               VimMode.shared.statusText.isEmpty, "got '\(VimMode.shared.statusText)'")
         VimMode.shared.setEnabled(beforeVim)
 
         // --- T27: Workspaces save + open ---
