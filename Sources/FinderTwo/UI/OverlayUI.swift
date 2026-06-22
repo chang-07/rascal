@@ -45,12 +45,6 @@ enum OverlayUI {
         return p
     }
 
-    /// Position a floating finder over its parent window instead of the screen,
-    /// so the palette / Find Files / Search Contents appear on the window the
-    /// user is actually using (matters most with multiple windows or displays).
-    /// Sits a little above the parent's vertical centre — the conventional spot
-    /// for a launcher overlay — and stays fully on the parent's screen. Falls
-    /// back to screen-centring when there's no parent window.
     /// Center the overlay over its parent and fade it in, instead of a bare
     /// makeKeyAndOrderFront, so the finders get a quick, soft entrance.
     static func present(_ panel: NSWindow, over parent: NSWindow?) {
@@ -63,6 +57,12 @@ enum OverlayUI {
         }
     }
 
+    /// Position a floating finder over its parent window instead of the screen,
+    /// so the palette / Find Files / Search Contents appear on the window the
+    /// user is actually using (matters most with multiple windows or displays).
+    /// Sits a little above the parent's vertical centre — the conventional spot
+    /// for a launcher overlay — and stays fully on the parent's screen. Falls
+    /// back to screen-centring when there's no parent window.
     static func center(_ panel: NSWindow, over parent: NSWindow?) {
         guard let parent, let screen = parent.screen ?? NSScreen.main else {
             panel.center(); return
