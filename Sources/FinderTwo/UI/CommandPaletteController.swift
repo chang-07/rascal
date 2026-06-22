@@ -79,8 +79,7 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
         PresentedControllers.existing(SearchSheetController.self)?.close()
         let palette = CommandPaletteController(target: wc)
         PresentedControllers.retain(palette)
-        if let w = palette.window { OverlayUI.center(w, over: wc.window) }
-        palette.window?.makeKeyAndOrderFront(nil)
+        if let w = palette.window { OverlayUI.present(w, over: wc.window) }
     }
 
     init(target: BrowserWindowController) {

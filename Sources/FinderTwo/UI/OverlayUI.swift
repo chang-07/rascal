@@ -51,6 +51,18 @@ enum OverlayUI {
     /// Sits a little above the parent's vertical centre — the conventional spot
     /// for a launcher overlay — and stays fully on the parent's screen. Falls
     /// back to screen-centring when there's no parent window.
+    /// Center the overlay over its parent and fade it in, instead of a bare
+    /// makeKeyAndOrderFront, so the finders get a quick, soft entrance.
+    static func present(_ panel: NSWindow, over parent: NSWindow?) {
+        center(panel, over: parent)
+        panel.alphaValue = 0
+        panel.makeKeyAndOrderFront(nil)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.12
+            panel.animator().alphaValue = 1
+        }
+    }
+
     static func center(_ panel: NSWindow, over parent: NSWindow?) {
         guard let parent, let screen = parent.screen ?? NSScreen.main else {
             panel.center(); return

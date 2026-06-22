@@ -48,8 +48,7 @@ final class SearchSheetController: NSWindowController, NSTextFieldDelegate, NSTa
         guard let pane = wc.testActivePane else { return }
         let s = SearchSheetController(target: wc, mode: mode, rootURL: pane.currentURL)
         PresentedControllers.retain(s)
-        if let w = s.window { OverlayUI.center(w, over: wc.window) }
-        s.window?.makeKeyAndOrderFront(nil)
+        if let w = s.window { OverlayUI.present(w, over: wc.window) }
         s.window?.makeFirstResponder(s.searchField)
     }
 
