@@ -96,9 +96,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if let cliPath = AppDelegate.cliPath() {
             openNewBrowserWindow(at: URL(fileURLWithPath: cliPath))
-        } else if !(Settings.restoreSession && restoreSession()) {
-            // Restore disabled (or nothing to restore): open at the configured
-            // default location, falling back to home.
+        } else {
+            // Always open exactly one fresh window at the configured default
+            // location (home fallback). We deliberately do NOT reopen a previous
+            // multi-window session — relaunching gives a single clean window.
             let target = Settings.defaultLocation.url ?? FileManager.default.homeDirectoryForCurrentUser
             let dir = FileManager.default.fileExists(atPath: target.path)
                 ? target : FileManager.default.homeDirectoryForCurrentUser
@@ -123,52 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) { saveSession() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    // MARK: - Session
-
-    private static let sessionKey = "FinderTwo.session.v1"
-    private func saveSession() {
-        let windows = windowControllers.compactMap { wc -> [String: Any]? in
-            let snap = wc.sessionSnapshot()
-            return (snap["panes"] as? [Any])?.isEmpty == false ? snap : nil
-        }
-        if windows.isEmpty {
-            UserDefaults.standard.removeObject(forKey: AppDelegate.sessionKey)
-        } else {
-            UserDefaults.standard.set(["windows": windows], forKey: AppDelegate.sessionKey)
-        }
-    }
-
-    @discardableResult
-    private func restoreSession() -> Bool {
-        guard let raw = UserDefaults.standard.dictionary(forKey: AppDelegate.sessionKey),
-              let windows = raw["windows"] as? [[String: Any]],
-              !windows.isEmpty else { return false }
-        for w in windows {
-            let firstURL: URL = {
-                if let panes = w["panes"] as? [[String: Any]],
-                   let firstPane = panes.first,
-                   let urls = firstPane["urls"] as? [String],
-                   let first = urls.first,
-                   FileManager.default.fileExists(atPath: first) {
-                    return URL(fileURLWithPath: first)
-                }
-                return FileManager.default.homeDirectoryForCurrentUser
-            }()
-            let wc = openBrowserWindowAndReturn(at: firstURL)
-            wc.restoreFromSnapshot(w)
-        }
-        return !windowControllers.isEmpty
-    }
-
-    @discardableResult
-    private func openBrowserWindowAndReturn(at url: URL) -> BrowserWindowController {
-        let wc = BrowserWindowController(rootURL: url)
-        finishOpening(wc)
-        return wc
-    }
+    // MARK: - Windows
 
     func openNewBrowserWindow(at url: URL) {
         let wc = BrowserWindowController(rootURL: url)

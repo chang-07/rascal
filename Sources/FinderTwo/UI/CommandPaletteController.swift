@@ -70,9 +70,16 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
 
     /// Show (or refocus) the palette for the given window controller.
     static func show(for wc: BrowserWindowController) {
+        // Single-instance: if a palette is already up, pressing the shortcut
+        // again toggles it closed rather than stacking another copy.
+        if let open = PresentedControllers.existing(CommandPaletteController.self) {
+            open.close()
+            return
+        }
+        PresentedControllers.existing(SearchSheetController.self)?.close()
         let palette = CommandPaletteController(target: wc)
         PresentedControllers.retain(palette)
-        palette.window?.center()
+        if let w = palette.window { OverlayUI.center(w, over: wc.window) }
         palette.window?.makeKeyAndOrderFront(nil)
     }
 

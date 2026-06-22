@@ -82,6 +82,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         window.setFrame(initialFrame, display: false)
         window.center()
         window.delegate = self
+        // Each launch opens a single fresh window (see AppDelegate). Leaving
+        // AppKit's automatic window restoration on would make it reopen its own
+        // copy of every window from the last session on relaunch — the classic
+        // duplicate-windows-on-launch bug. Opt out of it entirely.
+        window.isRestorable = false
 
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarVC)
         sidebarItem.minimumThickness = 130

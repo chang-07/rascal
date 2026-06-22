@@ -45,6 +45,28 @@ enum OverlayUI {
         return p
     }
 
+    /// Position a floating finder over its parent window instead of the screen,
+    /// so the palette / Find Files / Search Contents appear on the window the
+    /// user is actually using (matters most with multiple windows or displays).
+    /// Sits a little above the parent's vertical centre — the conventional spot
+    /// for a launcher overlay — and stays fully on the parent's screen. Falls
+    /// back to screen-centring when there's no parent window.
+    static func center(_ panel: NSWindow, over parent: NSWindow?) {
+        guard let parent, let screen = parent.screen ?? NSScreen.main else {
+            panel.center(); return
+        }
+        let p = parent.frame
+        let size = panel.frame.size
+        var origin = NSPoint(
+            x: p.midX - size.width / 2,
+            y: p.midY - size.height / 2 + p.height * 0.12   // nudge above centre
+        )
+        let vf = screen.visibleFrame
+        origin.x = min(max(origin.x, vf.minX), max(vf.minX, vf.maxX - size.width))
+        origin.y = min(max(origin.y, vf.minY), max(vf.minY, vf.maxY - size.height))
+        panel.setFrameOrigin(origin)
+    }
+
     /// The big rounded search field used at the top of every overlay finder.
     static func makeSearchField(placeholder: String) -> NSTextField {
         let f = NSTextField()
