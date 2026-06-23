@@ -2,6 +2,8 @@
 
 ![Rascal, a keyboard-first Finder replacement for macOS](media/rascal-banner.png)
 
+[![Downloads](https://img.shields.io/github/downloads/chang-07/rascal/total?color=ff8635&label=downloads)](https://github.com/chang-07/rascal/releases)
+
 Rascal is a Finder replacement for macOS, built for people who'd rather not reach for the mouse. It has dual panes, a fuzzy command palette, vim keys, a live disk treemap, real Finder tags, and an inline terminal. It's plain AppKit, it launches fast, and it runs entirely on your Mac.
 
 Free and open source. macOS 13 or later, Apple Silicon or Intel.
