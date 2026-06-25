@@ -1027,6 +1027,68 @@ final class TestRunner {
         FolderViewPrefs.clearAll()
         assert("clearAll empties the store", FolderViewPrefs.count == 0, "count=\(FolderViewPrefs.count)")
 
+        // --- T-listcols: configurable list-view column model + persistence ---
+        // Runs against the headless test store key (FT_HEADLESS_TESTING=1), so it
+        // never touches the user's real chosen columns.
+        ListColumnPrefs.reset()
+        // The required columns exist and Name is the only mandatory one.
+        assert("Name is a mandatory column", ListColumn.name.isMandatory, "not mandatory")
+        assert("only Name is mandatory",
+               ListColumn.allCases.filter { $0.isMandatory } == [.name],
+               "got \(ListColumn.allCases.filter { $0.isMandatory })")
+        assert("Tags / Comments / Date Added columns exist",
+               ListColumn(rawValue: "tags") == .tags
+                && ListColumn(rawValue: "comments") == .comments
+                && ListColumn(rawValue: "dateAdded") == .dateAdded, "missing a column")
+        // Default (uncustomized) visible set matches the historical fixed layout.
+        assert("default columns = Name/Modified/Size/Kind",
+               ListColumnPrefs.visible == [.name, .modified, .size, .kind],
+               "got \(ListColumnPrefs.visible)")
+        assert("Tags hidden by default", !ListColumnPrefs.isVisible(.tags), "visible")
+        // Tags / Comments have no sort key; the date/size/name columns do.
+        assert("Tags column is not sortable", ListColumn.tags.sortKey == nil, "has sort key")
+        assert("Comments column is not sortable", ListColumn.comments.sortKey == nil, "has sort key")
+        assert("Date Added has no FileItem sort key", ListColumn.dateAdded.sortKey == nil, "has sort key")
+        assert("Name column sorts by name", ListColumn.name.sortKey == .name, "wrong key")
+        assert("Created column sorts by dateCreated", ListColumn.created.sortKey == .dateCreated, "wrong key")
+        // Spotlight-backed columns are flagged for the off-main fetch.
+        assert("Comments needs Spotlight", ListColumn.comments.needsSpotlight, "not flagged")
+        assert("Date Added needs Spotlight", ListColumn.dateAdded.needsSpotlight, "not flagged")
+        assert("Tags does NOT need Spotlight", !ListColumn.tags.needsSpotlight, "wrongly flagged")
+        // Toggle a column on → it persists and reports visible.
+        let tagsNowOn = ListColumnPrefs.toggle(.tags)
+        assert("toggle(.tags) turns it on", tagsNowOn, "still off")
+        assert("toggled column is persisted visible", ListColumnPrefs.isVisible(.tags), "not visible")
+        assert("visible set keeps canonical order",
+               ListColumnPrefs.visible == ListColumn.allCases.filter { ListColumnPrefs.visible.contains($0) },
+               "got \(ListColumnPrefs.visible)")
+        // Toggle it back off.
+        let tagsNowOff = ListColumnPrefs.toggle(.tags)
+        assert("toggle(.tags) again turns it off", !tagsNowOff, "still on")
+        assert("toggled-off column not visible", !ListColumnPrefs.isVisible(.tags), "still visible")
+        // Mandatory column can't be hidden, even by direct toggle or an empty set.
+        assert("toggle(.name) keeps it visible", ListColumnPrefs.toggle(.name), "Name turned off")
+        ListColumnPrefs.visible = []   // explicit "everything off"
+        assert("empty set still shows Name", ListColumnPrefs.isVisible(.name), "Name hidden")
+        assert("empty set collapses to just Name",
+               ListColumnPrefs.visible == [.name], "got \(ListColumnPrefs.visible)")
+        // A corrupt stored value with no usable column id falls back to defaults
+        // rather than blanking the list (the getter's last-resort guard).
+        UserDefaults.standard.set(["bogus", "nonsense"], forKey: "FinderTwo.listColumns.test")
+        assert("corrupt stored columns fall back to defaults",
+               ListColumnPrefs.visible == [.name, .modified, .size, .kind],
+               "got \(ListColumnPrefs.visible)")
+        // Setter canonicalizes (dedupes, forces Name on, enum order).
+        ListColumnPrefs.visible = [.comments, .comments, .kind]
+        assert("setter forces Name on + dedupes + orders",
+               ListColumnPrefs.visible == [.name, .kind, .comments],
+               "got \(ListColumnPrefs.visible)")
+        // reset() restores the default set.
+        ListColumnPrefs.reset()
+        assert("reset restores default columns",
+               ListColumnPrefs.visible == [.name, .modified, .size, .kind],
+               "got \(ListColumnPrefs.visible)")
+
         // --- T-eta: transfer throughput + ETA ---
         let etaOp = TransferOp(id: 1, move: false, plan: [])
         assert("a waiting op has no throughput", etaOp.bytesPerSecond == 0, "got \(etaOp.bytesPerSecond)")
@@ -1680,6 +1742,30 @@ final class TestRunner {
         assert("vim nav in gallery mode is safe", pane.viewMode == .gallery, "mode changed")
         pane.setViewMode(.list)
         assert("setViewMode(.list) honored", pane.viewMode == .list, "got=\(pane.viewMode)")
+
+        // --- T-listcols-live: the real FileListController builds every column and
+        // its header-chooser menu reflects the persisted visible set. ---
+        let listTV = pane.testFileList.tableView
+        let builtIDs = Set(listTV.tableColumns.map { $0.identifier.rawValue })
+        assert("list view builds every ListColumn",
+               builtIDs == Set(ListColumn.allCases.map { $0.id }),
+               "got \(builtIDs.sorted())")
+        // Header context menu offers exactly the toggleable (non-mandatory) cols.
+        if let headerMenu = listTV.headerView?.menu {
+            let menuIDs = Set(headerMenu.items.compactMap { $0.representedObject as? String })
+            assert("header menu lists all toggleable columns",
+                   menuIDs == Set(ListColumn.allCases.filter { !$0.isMandatory }.map { $0.id }),
+                   "got \(menuIDs.sorted())")
+            assert("header menu omits the mandatory Name column",
+                   !menuIDs.contains(ListColumn.name.id), "Name present")
+        } else {
+            assert("list view has a header chooser menu", false, "no menu")
+        }
+        // A hidden-by-default column (Tags) is actually hidden on the live table.
+        if let tagsCol = listTV.tableColumns.first(where: { $0.identifier.rawValue == ListColumn.tags.id }) {
+            assert("Tags column hidden on a fresh list view", tagsCol.isHidden, "visible")
+        } else { assert("Tags column present on the table", false, "missing") }
+        ListColumnPrefs.reset()
 
         // setViewMode(persist:false) must NOT record a per-folder pref (used for
         // the launch-time global default); a normal user change must.
