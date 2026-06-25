@@ -368,6 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         goMenu.addItem(NSMenuItem.separator())
         goMenu.addItem(routed("nav.goto", title: "Go to Folder…"))
         goMenu.addItem(routed("nav.home", title: "Home"))
+        goMenu.addItem(routed("nav.recent-directories", title: "Recent Directories"))
         goMenu.addItem(routed("project.jump-root", title: "Jump to Project Root"))
         goMenu.addItem(routed("net.connect-server", title: "Connect to Server…"))
         goMenu.addItem(routed("net.mount-volume", title: "Mount Network Volume…"))
