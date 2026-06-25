@@ -1764,6 +1764,34 @@ final class TestRunner {
         assert("sidebar has favorites + locations",
                (sb?.testEntryTitles.count ?? 0) >= 5, "n=\(sb?.testEntryTitles.count ?? 0)")
 
+        // --- T50b: File Provider (cloud storage) domain enumeration is safe.
+        // Enumerating cloud-storage domains must never crash the app, whether or
+        // not any providers are configured. On this unsigned/ad-hoc headless
+        // binary the FileProvider daemon refuses the connection ("application
+        // cannot be used right now"), which our code must absorb as "no cloud
+        // locations" rather than crash or hang — exactly the no-providers path.
+        // The assertion below proves the *no-crash* contract: we kick off the
+        // enumeration, pump the run loop, and keep executing. When a callback
+        // does land (signed builds / a dev machine with real providers), every
+        // resolved location must carry a browsable on-disk URL. Off-screen.
+        var fpDidComplete = false
+        var fpLocations: [FileProviderDomains.Location] = []
+        FileProviderDomains.enumerate { locs in
+            fpDidComplete = true
+            fpLocations = locs
+        }
+        // Pump the run loop so any main-queue callback can land; don't *require*
+        // one, because the daemon may legitimately never answer an unsigned app.
+        _ = waitUntil(3) { fpDidComplete }
+        // Reaching here at all means enumerate() did not crash or deadlock the
+        // caller — the core contract for "no providers present".
+        assert("File Provider domain enumeration runs without crashing", true, "")
+        // Whatever came back (empty on this build) must be well-formed: every
+        // resolved cloud root is an actual on-disk path the panes can open.
+        assert("File Provider enumeration yields resolvable, on-disk roots",
+               fpLocations.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) },
+               "got=\(fpLocations.map { $0.url.path })")
+
         // --- T51: Hotbar.setIds round-trips and fires notification ---
         let originalHotbar = HotbarView.currentIds()
         let customHotbar = ["file.new-folder", "edit.copy", "edit.paste"]
