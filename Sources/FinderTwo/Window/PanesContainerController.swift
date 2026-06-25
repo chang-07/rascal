@@ -168,6 +168,67 @@ final class PanesContainerController: NSSplitViewController {
         }
     }
 
+    // MARK: Divider layout (save / restore)
+
+    /// Capture each divider's position as a FRACTION of the split view's content
+    /// width (0…1), so the layout restores proportionally regardless of the
+    /// window size at restore time. With N panes there are N-1 dividers; an
+    /// empty array means "no custom sizing" (panes fall back to equal widths).
+    func dividerFractions() -> [Double] {
+        let count = splitView.arrangedSubviews.count
+        guard count > 1 else { return [] }
+        let total = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        guard total > 1 else { return [] }
+        var fractions: [Double] = []
+        // The position of divider i is the trailing edge of arranged subview i.
+        var running: CGFloat = 0
+        for i in 0..<(count - 1) {
+            let v = splitView.arrangedSubviews[i]
+            running += splitView.isVertical ? v.frame.width : v.frame.height
+            fractions.append(Double(max(0, min(1, running / total))))
+        }
+        return fractions
+    }
+
+    /// Apply previously captured divider fractions (see `dividerFractions`).
+    /// Runs after the next layout pass so the split view already has its final
+    /// bounds — setting positions against a zero-width split view would clamp
+    /// everything to the minimum thickness.
+    func applyDividerFractions(_ fractions: [Double]) {
+        guard !fractions.isEmpty else { return }
+        pendingDividerFractions = fractions
+        view.needsLayout = true
+        // Defer to the next runloop turn: during launch/restore the split view's
+        // bounds aren't established until the window has been sized, and tests
+        // build controllers without ever showing the window.
+        DispatchQueue.main.async { [weak self] in self?.applyPendingDividerFractions() }
+    }
+
+    /// Divider fractions captured from a snapshot, waiting for the split view to
+    /// gain non-zero bounds before they can be applied.
+    private var pendingDividerFractions: [Double]?
+
+    private func applyPendingDividerFractions() {
+        guard let fractions = pendingDividerFractions else { return }
+        let count = splitView.arrangedSubviews.count
+        // Need one fraction per divider; bail (and keep them pending) until the
+        // pane set and the split view bounds are both ready.
+        guard count > 1, fractions.count == count - 1 else { return }
+        let total = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        guard total > 1 else { return }   // not laid out yet — try again after layout
+        view.layoutSubtreeIfNeeded()
+        for (i, f) in fractions.enumerated() {
+            splitView.setPosition(CGFloat(f) * total, ofDividerAt: i)
+        }
+        pendingDividerFractions = nil
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        // Apply any pending restore once the split view finally has real bounds.
+        applyPendingDividerFractions()
+    }
+
     /// Move keyboard focus to the next/previous pane (wraps). No-op with one pane.
     func focusPane(by delta: Int) {
         guard panes.count > 1 else { return }

@@ -50,6 +50,42 @@ enum WorkspaceStore {
     }
 }
 
+/// The auto-saved last-session layout (one window's pane/tab/divider state).
+/// Unlike `WorkspaceStore` this is implicit: it's written when the app quits or
+/// the last window closes, and restored into the first window on the next
+/// launch (gated by `Settings.restoreLastSession`). Stored as a plain snapshot
+/// dictionary — the same shape `BrowserWindowController.sessionSnapshot()`
+/// returns — serialized to JSON so it survives relaunch.
+enum SessionStore {
+    private static let key = "FinderTwo.session.v1"
+
+    /// Persist a window snapshot as the last session. A nil/empty snapshot
+    /// clears it (so a quit with no usable window doesn't strand stale state).
+    static func save(_ snapshot: [String: Any]?) {
+        guard let snapshot,
+              let panes = snapshot["panes"] as? [Any], !panes.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: snapshot) else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    /// The last saved session snapshot, or nil if none/invalid.
+    static func load() -> [String: Any]? {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let panes = obj["panes"] as? [Any], !panes.isEmpty else {
+            return nil
+        }
+        return obj
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
 enum WorkspaceController {
     static func promptSave(in wc: BrowserWindowController) {
         guard let win = wc.window else { return }

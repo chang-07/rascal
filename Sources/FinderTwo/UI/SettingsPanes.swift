@@ -505,6 +505,11 @@ final class AdvancedPane: SettingsPane {
         rememberViews.state = Settings.rememberFolderViews ? .on : .off
         addRow("", rememberViews)
 
+        let restoreSession = NSButton(checkboxWithTitle: "Restore last window layout on launch (panes, tabs, divider sizes)",
+                                      target: self, action: #selector(restoreSessionChanged(_:)))
+        restoreSession.state = Settings.restoreLastSession ? .on : .off
+        addRow("Layout:", restoreSession)
+
         let confirmTrash = NSButton(checkboxWithTitle: "Warn before moving items to Trash",
                                     target: self, action: #selector(confirmTrashChanged(_:)))
         confirmTrash.state = Settings.confirmTrash ? .on : .off
@@ -532,6 +537,7 @@ final class AdvancedPane: SettingsPane {
     @objc private func calcSizesChanged(_ s: NSButton) { Settings.calculateFolderSizes = s.state == .on }
     @objc private func confirmTrashChanged(_ s: NSButton) { Settings.confirmTrash = s.state == .on }
     @objc private func rememberViewsChanged(_ s: NSButton) { Settings.rememberFolderViews = s.state == .on }
+    @objc private func restoreSessionChanged(_ s: NSButton) { Settings.restoreLastSession = s.state == .on }
 
     @objc private func vimChanged(_ s: NSButton) { VimMode.shared.setEnabled(s.state == .on) }
 
