@@ -15,7 +15,10 @@ let package = Package(
                 // NetFSMountURLSync for SMB / FTP / AFP / WebDAV mounts.
                 .linkedFramework("NetFS"),
                 // SecCode* APIs for detecting ad-hoc signing (PermissionsManager).
-                .linkedFramework("Security")
+                .linkedFramework("Security"),
+                // NSFileProviderManager for surfacing cloud-storage domains
+                // (Google Drive, Dropbox, OneDrive, ShareFile, …) in the sidebar.
+                .linkedFramework("FileProvider")
             ]
         )
     ]
