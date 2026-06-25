@@ -237,6 +237,14 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.doubleClickFolderOpensNewTab"); notify() }
     }
 
+    /// Restore the last window's pane layout (pane count, each pane's tabs, and
+    /// the divider positions) on the next launch. On by default; when off, each
+    /// launch opens a single fresh window at the default location.
+    static var restoreLastSession: Bool {
+        get { d.object(forKey: "FinderTwo.restoreLastSession") as? Bool ?? true }
+        set { d.set(newValue, forKey: "FinderTwo.restoreLastSession"); notify() }
+    }
+
     // MARK: Notifications
 
     private static func notify() {

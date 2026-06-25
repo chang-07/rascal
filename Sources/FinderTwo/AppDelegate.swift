@@ -96,13 +96,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let cliPath = AppDelegate.cliPath() {
             openNewBrowserWindow(at: URL(fileURLWithPath: cliPath))
         } else {
-            // Always open exactly one fresh window at the configured default
-            // location (home fallback). We deliberately do NOT reopen a previous
-            // multi-window session — relaunching gives a single clean window.
+            // Open exactly one window. We deliberately do NOT reopen a previous
+            // MULTI-window session (that's the classic duplicate-windows bug);
+            // instead, restore the last window's pane LAYOUT (pane count + each
+            // pane's tabs + divider positions) into that single window. Falls
+            // back to a fresh window at the default location when restore is off
+            // or no usable session was saved.
             let target = Settings.defaultLocation.url ?? FileManager.default.homeDirectoryForCurrentUser
             let dir = FileManager.default.fileExists(atPath: target.path)
                 ? target : FileManager.default.homeDirectoryForCurrentUser
-            openNewBrowserWindow(at: dir)
+            if Settings.restoreLastSession, let snap = SessionStore.load() {
+                let wc = BrowserWindowController(rootURL: dir)
+                wc.restoreFromSnapshot(snap)
+                finishOpening(wc)
+            } else {
+                openNewBrowserWindow(at: dir)
+            }
         }
         let isHeadless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1"
         if !isHeadless {
@@ -124,6 +133,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Persist the frontmost (else most-recent) window's pane layout as the
+    /// last session so the next launch can restore it. Skipped in headless/test
+    /// runs so an off-screen harness window never overwrites the real session.
+    func applicationWillTerminate(_ notification: Notification) {
+        guard ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] != "1" else { return }
+        saveSessionSnapshot()
+    }
+
+    /// Capture the current frontmost window's layout into SessionStore. Called on
+    /// quit and whenever a window closes, so the latest layout is always saved
+    /// even if the app is force-quit later.
+    private func saveSessionSnapshot() {
+        let wc = currentBrowserWC() ?? windowControllers.last
+        SessionStore.save(wc?.sessionSnapshot())
+    }
 
     // MARK: - Windows
 
@@ -154,7 +179,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         box.token = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: wc.window, queue: .main
         ) { [weak self, weak wc] _ in
-            if let self, let wc { self.windowControllers.removeAll { $0 === wc } }
+            if let self, let wc {
+                // Snapshot the closing window's layout while it's still intact, so
+                // closing the last window (then quitting) still restores its panes.
+                if !isHeadless { SessionStore.save(wc.sessionSnapshot()) }
+                self.windowControllers.removeAll { $0 === wc }
+            }
             if let token = box.token { NotificationCenter.default.removeObserver(token) }   // one-shot
         }
     }
