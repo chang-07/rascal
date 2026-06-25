@@ -2267,6 +2267,9 @@ final class TestRunner {
             assert("command palette Open With test file exists", false, "test file not found")
         }
 
+        // --- T62: RecentDirectories store (push / dedup / cap / ordering) ---
+        testRecentDirectories(sandbox: sandbox)
+
         finish()
     }
 
@@ -3251,6 +3254,88 @@ final class TestRunner {
         guard let window else { return }
         window.setFrame(NSRect(x: -30000, y: -30000, width: 600, height: 400), display: false)
         window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    /// Pure-logic coverage for the global recent-directories history: ordering
+    /// (most-recent-first), de-duplication (re-visit promotes, no copy), the
+    /// no-op when re-recording the front, the cap, and clear(). Runs entirely on
+    /// the store; saves/restores the live UserDefaults value so it doesn't
+    /// disturb the developer's real history.
+    private func testRecentDirectories(sandbox: URL) {
+        let defaultsKey = "FinderTwo.recentDirectories.v1"
+        let saved = UserDefaults.standard.array(forKey: defaultsKey)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: defaultsKey) }
+            else { UserDefaults.standard.removeObject(forKey: defaultsKey) }
+        }
+        RecentDirectories.clear()
+
+        // Real, existing dirs so the existence filter in all() keeps them.
+        let fm = FileManager.default
+        let root = sandbox.appendingPathComponent("recents_test", isDirectory: true)
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        func dir(_ n: Int) -> URL {
+            let u = root.appendingPathComponent("d\(n)", isDirectory: true)
+            try? fm.createDirectory(at: u, withIntermediateDirectories: true)
+            return u
+        }
+
+        assert("recents: empty to start", RecentDirectories.all().isEmpty,
+               "got \(RecentDirectories.all().count)")
+
+        // Ordering: most-recent-first.
+        let a = dir(1), b = dir(2), c = dir(3)
+        RecentDirectories.record(a)
+        RecentDirectories.record(b)
+        RecentDirectories.record(c)
+        assert("recents: most-recent-first ordering",
+               RecentDirectories.all().map { $0.path } == [c.path, b.path, a.path],
+               "got \(RecentDirectories.all().map { $0.lastPathComponent })")
+
+        // Dedup: re-visiting an older entry promotes it to the front (no copy).
+        RecentDirectories.record(a)
+        assert("recents: revisit promotes + dedups",
+               RecentDirectories.all().map { $0.path } == [a.path, c.path, b.path],
+               "got \(RecentDirectories.all().map { $0.lastPathComponent })")
+        assert("recents: no duplicate entries after revisit",
+               RecentDirectories.all().filter { $0.path == a.path }.count == 1,
+               "got \(RecentDirectories.all().filter { $0.path == a.path }.count)")
+
+        // No-op: recording the current front again doesn't reorder or duplicate.
+        let beforeFront = RecentDirectories.all().map { $0.path }
+        RecentDirectories.record(a)
+        assert("recents: re-recording front is a no-op",
+               RecentDirectories.all().map { $0.path } == beforeFront,
+               "changed to \(RecentDirectories.all().map { $0.lastPathComponent })")
+
+        // Cap: pushing more than maxCount keeps only the most recent maxCount,
+        // newest first, and evicts the oldest.
+        RecentDirectories.clear()
+        let cap = RecentDirectories.maxCount
+        var pushed: [URL] = []
+        for i in 0..<(cap + 5) {
+            let u = dir(100 + i)
+            pushed.append(u)
+            RecentDirectories.record(u)
+        }
+        let capped = RecentDirectories.all()
+        assert("recents: capped at maxCount", capped.count == cap, "got \(capped.count)")
+        assert("recents: cap keeps newest first",
+               capped.first?.path == pushed.last?.path,
+               "front=\(capped.first?.lastPathComponent ?? "nil")")
+        assert("recents: cap evicts the oldest",
+               !capped.contains { $0.path == pushed.first?.path },
+               "oldest still present")
+
+        // clear() empties the history.
+        RecentDirectories.clear()
+        assert("recents: clear empties", RecentDirectories.all().isEmpty,
+               "got \(RecentDirectories.all().count)")
+
+        // The action is registered (so palette + menus surface it).
+        assert("recents: action registered",
+               ActionRegistry.action(id: "nav.recent-directories") != nil,
+               "nav.recent-directories missing from ActionRegistry")
     }
 
     // MARK: Helpers
