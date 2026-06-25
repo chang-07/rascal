@@ -78,9 +78,7 @@ declare -a EXPECT=(
     "File|Search File Contents…"
     "File|Copy Path"
     "File|Open in Terminal"
-    "File|Find Duplicate Files…"
-    "File|Compare Two Files…"
-    "File|Open in Editor"
+    "File|Tools"
     "Edit|Cut"
     "Edit|Copy"
     "Edit|Paste"
@@ -96,6 +94,8 @@ declare -a EXPECT=(
     "View|as Gallery"
     "View|Show Hidden Files"
     "View|Open Extra Pane"
+    "View|Panes"
+    "View|Panels"
     "Go|Back"
     "Go|Forward"
     "Go|Enclosing Folder"
@@ -103,13 +103,8 @@ declare -a EXPECT=(
     "Go|Open"
     "Go|Go to Folder…"
     "Go|Home"
-    "Go|Jump to Project Root"
-    "View|Focus Next Pane"
-    "View|Focus Previous Pane"
-    "View|Synchronized Browsing"
+    "Go|Developer"
     "View|Use Groups"
-    "View|Transfer Activity"
-    "View|Drop Stack"
     "View|Theme"
     "Window|Minimize"
     "Window|Zoom"
@@ -126,24 +121,65 @@ for spec in "${EXPECT[@]}"; do
     [[ "$out" == "true" ]] && pass "$menu → $item" || fail "$menu → $item MISSING"
 done
 
+# -- Phase 2b: items now nested under submenus ------------------------------
+# After the menu declutter, less-frequent and developer-oriented commands live
+# in submenus (File ▸ Tools, View ▸ Panes/Panels, Go ▸ Developer). Verify each
+# stays reachable at its submenu path. Format: "Menu|Submenu|Item".
+echo "=== Phase 2b: submenu items ==="
+declare -a EXPECT_SUB=(
+    "File|Tools|Find Duplicate Files…"
+    "File|Tools|Compare Two Files…"
+    "File|Tools|Analyze Disk Usage…"
+    "File|Tools|Browse Archive…"
+    "File|Tools|Sync Folder…"
+    "File|Tools|Uninstall App…"
+    "View|Panes|Add Pane"
+    "View|Panes|Close Pane"
+    "View|Panes|Focus Next Pane"
+    "View|Panes|Focus Previous Pane"
+    "View|Panes|Synchronized Browsing"
+    "View|Panels|Show Preview"
+    "View|Panels|Toggle Terminal"
+    "View|Panels|Transfer Activity"
+    "View|Panels|Drop Stack"
+    "Go|Developer|Jump to Project Root"
+    "Go|Developer|Open in Editor"
+    "Go|Developer|View Git Diffs"
+)
+for spec in "${EXPECT_SUB[@]}"; do
+    IFS="|" read -r menu sub item <<< "$spec"
+    out=$(osa "tell application \"System Events\" to tell ($PROC) to exists menu item \"$item\" of menu 1 of menu item \"$sub\" of menu \"$menu\" of menu bar item \"$menu\" of menu bar 1")
+    [[ "$out" == "true" ]] && pass "$menu → $sub → $item" || fail "$menu → $sub → $item MISSING"
+done
+
 # -- Phase 3: keyboard shortcuts on advertised items -----------------------
 
 echo "=== Phase 3: shortcuts ==="
 # AX reports AXMenuItemCmdChar as the uppercase character regardless of how
 # we set it on the menu item. Compare case-insensitively.
 check_shortcut() {
-    local menu="$1" item="$2" expected_key="$3" expected_mods="$4"
+    local menu="$1" item="$2" expected_key="$3" expected_mods="$4" submenu="${5:-}"
+    # Build the AX element path: items in a submenu need an extra hop through
+    # `menu 1 of menu item "<submenu>"`.
+    local path label
+    if [[ -n "$submenu" ]]; then
+        path="menu item \"$item\" of menu 1 of menu item \"$submenu\" of menu \"$menu\" of menu bar item \"$menu\" of menu bar 1"
+        label="$menu → $submenu → $item"
+    else
+        path="menu item \"$item\" of menu \"$menu\" of menu bar item \"$menu\" of menu bar 1"
+        label="$menu → $item"
+    fi
     local key=$(osa "tell application \"System Events\" to tell ($PROC) to ¬
-        get value of attribute \"AXMenuItemCmdChar\" of menu item \"$item\" of menu \"$menu\" of menu bar item \"$menu\" of menu bar 1")
+        get value of attribute \"AXMenuItemCmdChar\" of $path")
     local mods=$(osa "tell application \"System Events\" to tell ($PROC) to ¬
-        get value of attribute \"AXMenuItemCmdModifiers\" of menu item \"$item\" of menu \"$menu\" of menu bar item \"$menu\" of menu bar 1")
+        get value of attribute \"AXMenuItemCmdModifiers\" of $path")
     # Normalize to uppercase for comparison
     local norm_got=$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')
     local norm_exp=$(printf '%s' "$expected_key" | tr '[:lower:]' '[:upper:]')
     if [[ "$norm_got" == "$norm_exp" && "$mods" == "$expected_mods" ]]; then
-        pass "$menu → $item shortcut ⌘$key (mods=$mods)"
+        pass "$label shortcut ⌘$key (mods=$mods)"
     else
-        fail "$menu → $item shortcut got '$key' mods=$mods, expected '$expected_key' mods=$expected_mods"
+        fail "$label shortcut got '$key' mods=$mods, expected '$expected_key' mods=$expected_mods"
     fi
 }
 # AXMenuItemCmdModifiers bitmask:
@@ -166,7 +202,7 @@ check_shortcut "Go" "Home" "h" "1"
 check_shortcut "Rascal" "Settings…" "," "0"
 check_shortcut "File" "New Window" "n" "0"
 check_shortcut "File" "New Smart Folder…" "n" "2"
-check_shortcut "View" "Drop Stack" "d" "4"
+check_shortcut "View" "Drop Stack" "d" "4" "Panels"
 check_shortcut "View" "Show Hidden Files" "." "1"
 check_shortcut "File" "Get Info" "i" "0"
 check_shortcut "Go" "Back" "[" "0"

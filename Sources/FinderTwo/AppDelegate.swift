@@ -249,14 +249,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("file.copy-path"))
         fileMenu.addItem(routed("file.open-in-terminal"))
-        fileMenu.addItem(routed("project.open-editor", title: "Open in Editor"))
+        // Developer-only commands appear inline only when developer mode is on;
+        // otherwise they live under the Go ▸ Developer submenu + the palette.
+        if Settings.developerMode {
+            fileMenu.addItem(routed("project.open-editor", title: "Open in Editor"))
+            fileMenu.addItem(routed("git.view-diffs"))
+        }
         fileMenu.addItem(NSMenuItem.separator())
-        fileMenu.addItem(routed("tool.browse-archive"))
-        fileMenu.addItem(routed("tool.folder-sync"))
-        fileMenu.addItem(routed("tool.analyze-disk"))
-        fileMenu.addItem(routed("tool.find-duplicates"))
-        fileMenu.addItem(routed("tool.compare-files"))
-        fileMenu.addItem(routed("tool.uninstall-app"))
+        // Less-frequent utilities tucked into a Tools submenu to keep File lean.
+        let toolsItem = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
+        let toolsMenu = NSMenu(title: "Tools")
+        toolsMenu.addItem(routed("tool.browse-archive"))
+        toolsMenu.addItem(routed("tool.folder-sync"))
+        toolsMenu.addItem(routed("tool.analyze-disk"))
+        toolsMenu.addItem(routed("tool.find-duplicates"))
+        toolsMenu.addItem(routed("tool.compare-files"))
+        toolsMenu.addItem(routed("tool.uninstall-app"))
+        toolsItem.submenu = toolsMenu
+        fileMenu.addItem(toolsItem)
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(routed("file.trash"))
         fileMenu.addItem(routed("file.delete-immediately"))
@@ -309,15 +319,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let hiddenItem = routed("view.toggle-hidden", title: "Show Hidden Files")
         viewMenu.addItem(hiddenItem); chromeHiddenItem = hiddenItem
         viewMenu.addItem(NSMenuItem.separator())
+        // Keep the headline split-pane toggle (⌘\) at the top level; corral the
+        // rest of the pane-management commands into a Panes submenu.
         viewMenu.addItem(routed("pane.toggle-extra", title: "Open Extra Pane"))
-        viewMenu.addItem(routed("pane.add"))
-        viewMenu.addItem(routed("pane.close"))
-        viewMenu.addItem(routed("pane.focus-next"))
-        viewMenu.addItem(routed("pane.focus-prev"))
-        viewMenu.addItem(routed("pane.copy-to-other"))
-        viewMenu.addItem(routed("pane.move-to-other"))
+        let panesItem = NSMenuItem(title: "Panes", action: nil, keyEquivalent: "")
+        let panesMenu = NSMenu(title: "Panes")
+        panesMenu.addItem(routed("pane.add"))
+        panesMenu.addItem(routed("pane.close"))
+        panesMenu.addItem(routed("pane.focus-next"))
+        panesMenu.addItem(routed("pane.focus-prev"))
+        panesMenu.addItem(routed("pane.copy-to-other"))
+        panesMenu.addItem(routed("pane.move-to-other"))
         let syncItem = routed("pane.sync-browsing")
-        viewMenu.addItem(syncItem); chromeSyncBrowsingItem = syncItem
+        panesMenu.addItem(syncItem); chromeSyncBrowsingItem = syncItem
+        panesItem.submenu = panesMenu
+        viewMenu.addItem(panesItem)
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(routed("view.toggle-sidebar"))
         viewMenu.addItem(routed("view.toggle-statusbar"))
@@ -325,11 +341,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(routed("view.calculate-sizes"))
         viewMenu.addItem(routed("view.type-to-select"))
         viewMenu.addItem(NSMenuItem.separator())
-        viewMenu.addItem(routed("panel.preview"))
-        viewMenu.addItem(routed("panel.terminal"))
-        viewMenu.addItem(routed("panel.notes"))
-        viewMenu.addItem(routed("panel.transfers"))
-        viewMenu.addItem(routed("panel.shelf"))
+        // Panels (drawers + overlays) grouped together to slim the View menu.
+        let panelsItem = NSMenuItem(title: "Panels", action: nil, keyEquivalent: "")
+        let panelsMenu = NSMenu(title: "Panels")
+        panelsMenu.addItem(routed("panel.preview"))
+        panelsMenu.addItem(routed("panel.terminal"))
+        panelsMenu.addItem(routed("panel.notes"))
+        panelsMenu.addItem(routed("panel.transfers"))
+        panelsMenu.addItem(routed("panel.shelf"))
+        panelsItem.submenu = panelsMenu
+        viewMenu.addItem(panelsItem)
         viewMenu.addItem(NSMenuItem.separator())
         let showHotbar = NSMenuItem(title: "Show Hotbar",
                                     action: #selector(toggleHotbarMenu(_:)), keyEquivalent: "b")
@@ -368,9 +389,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         goMenu.addItem(NSMenuItem.separator())
         goMenu.addItem(routed("nav.goto", title: "Go to Folder…"))
         goMenu.addItem(routed("nav.home", title: "Home"))
-        goMenu.addItem(routed("project.jump-root", title: "Jump to Project Root"))
+        if Settings.developerMode {
+            // Inline when developer mode is on; otherwise these live in the
+            // Developer submenu added below.
+            goMenu.addItem(routed("project.jump-root", title: "Jump to Project Root"))
+        }
         goMenu.addItem(routed("net.connect-server", title: "Connect to Server…"))
         goMenu.addItem(routed("net.mount-volume", title: "Mount Network Volume…"))
+        if !Settings.developerMode {
+            // Developer-oriented commands kept out of the default menus; still
+            // fully reachable here and in the command palette.
+            goMenu.addItem(NSMenuItem.separator())
+            let devItem = NSMenuItem(title: "Developer", action: nil, keyEquivalent: "")
+            let devMenu = NSMenu(title: "Developer")
+            devMenu.addItem(routed("project.jump-root", title: "Jump to Project Root"))
+            devMenu.addItem(routed("project.open-editor", title: "Open in Editor"))
+            devMenu.addItem(routed("git.view-diffs"))
+            devItem.submenu = devMenu
+            goMenu.addItem(devItem)
+        }
         goMenu.addItem(NSMenuItem.separator())
         let goHome = FileManager.default.homeDirectoryForCurrentUser.path
         func goItem(_ title: String, _ path: String, _ key: String = "", _ mods: NSEvent.ModifierFlags = []) {
