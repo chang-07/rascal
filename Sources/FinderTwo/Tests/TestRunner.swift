@@ -2267,7 +2267,111 @@ final class TestRunner {
             assert("command palette Open With test file exists", false, "test file not found")
         }
 
+        // --- T62: Explorer-style sidebar folder tree (lazy, off-screen) ---
+        runSidebarFolderTreeTests(sandbox)
+
         finish()
+    }
+
+    /// Off-screen assertions for the lazily-expanding sidebar folder tree.
+    /// Verifies: a node's children equal the subdirectories of a known temp
+    /// dir; expansion is lazy (children load only on first access); and empty,
+    /// unreadable, file, and symlink-cycle folders all degrade without crashing.
+    private func runSidebarFolderTreeTests(_ sandbox: URL) {
+        let fm = FileManager.default
+        let treeRoot = sandbox.appendingPathComponent("tree_root_\(UUID().uuidString)")
+        try? fm.createDirectory(at: treeRoot, withIntermediateDirectories: true)
+        // Three subdirectories + two files + one hidden dir.
+        for d in ["zebra", "alpha", "Mango"] {
+            try? fm.createDirectory(at: treeRoot.appendingPathComponent(d), withIntermediateDirectories: true)
+        }
+        try? "x".write(to: treeRoot.appendingPathComponent("file1.txt"), atomically: true, encoding: .utf8)
+        try? "x".write(to: treeRoot.appendingPathComponent("file2.txt"), atomically: true, encoding: .utf8)
+        try? fm.createDirectory(at: treeRoot.appendingPathComponent(".hidden_dir"), withIntermediateDirectories: true)
+
+        // Laziness: a freshly built node has NOT scanned the disk yet.
+        let node = SidebarController.testMakeTreeNode(url: treeRoot)
+        assert("tree node is not loaded before expansion",
+               !SidebarController.testIsLoaded(node), "node pre-loaded")
+
+        // Children equal the directory's subdirectories (folders only, no files),
+        // sorted case-insensitively. Hidden dirs are excluded by default.
+        let childURLs = SidebarController.testLoadChildURLs(of: node)
+        let childNames = childURLs.map { $0.lastPathComponent }
+        assert("tree node loaded after first child access",
+               SidebarController.testIsLoaded(node), "still not loaded")
+        assert("tree children are exactly the visible subdirectories (sorted, no files)",
+               childNames == ["alpha", "Mango", "zebra"], "got=\(childNames)")
+        let onDiskSubdirs = Set(((try? fm.contentsOfDirectory(atPath: treeRoot.path)) ?? [])
+            .filter { name in
+                var isDir: ObjCBool = false
+                fm.fileExists(atPath: treeRoot.appendingPathComponent(name).path, isDirectory: &isDir)
+                return isDir.boolValue && !name.hasPrefix(".")
+            })
+        assert("tree children match the directory's actual subdirectory set",
+               Set(childNames) == onDiskSubdirs, "tree=\(Set(childNames)) disk=\(onDiskSubdirs)")
+
+        // Lazy expansion populates a child's OWN children on demand.
+        let nested = treeRoot.appendingPathComponent("alpha")
+        try? fm.createDirectory(at: nested.appendingPathComponent("deep"), withIntermediateDirectories: true)
+        if let alphaNode = SidebarController.testLoadChildren(of: node).first(where: { $0.url.lastPathComponent == "alpha" }) {
+            assert("nested tree node starts unloaded (lazy)",
+                   !SidebarController.testIsLoaded(alphaNode), "nested pre-loaded")
+            let grand = SidebarController.testLoadChildURLs(of: alphaNode).map { $0.lastPathComponent }
+            assert("expanding a nested node lists ITS subdirectories",
+                   grand == ["deep"], "got=\(grand)")
+        } else {
+            assert("found nested 'alpha' tree node", false, "missing")
+        }
+
+        // Empty folder → zero children, no crash.
+        let emptyDir = treeRoot.appendingPathComponent("Mango")
+        let emptyNode = SidebarController.testMakeTreeNode(url: emptyDir)
+        assert("empty folder yields no children (no crash)",
+               SidebarController.testLoadChildURLs(of: emptyNode).isEmpty, "non-empty")
+
+        // A file (non-directory) node → zero children, no crash.
+        let fileNode = SidebarController.testMakeTreeNode(url: treeRoot.appendingPathComponent("file1.txt"))
+        assert("file node yields no children (no crash)",
+               SidebarController.testLoadChildURLs(of: fileNode).isEmpty, "file had children")
+
+        // Unreadable (permission-denied) folder → zero children, no crash.
+        let denied = treeRoot.appendingPathComponent("denied")
+        try? fm.createDirectory(at: denied, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: denied.appendingPathComponent("inside"), withIntermediateDirectories: true)
+        try? fm.setAttributes([.posixPermissions: 0], ofItemAtPath: denied.path)
+        let deniedNode = SidebarController.testMakeTreeNode(url: denied)
+        let deniedChildren = SidebarController.testLoadChildURLs(of: deniedNode)
+        assert("permission-denied folder degrades to no children (no crash)",
+               deniedChildren.isEmpty, "got=\(deniedChildren.map { $0.lastPathComponent })")
+        // Restore perms so the sandbox can be torn down.
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: denied.path)
+
+        // Symlink cycle: a symlink pointing back to its own parent must NOT be
+        // followed when enumerating, so expansion can't recurse forever.
+        let loopDir = treeRoot.appendingPathComponent("loopdir")
+        try? fm.createDirectory(at: loopDir, withIntermediateDirectories: true)
+        try? fm.createSymbolicLink(at: loopDir.appendingPathComponent("self_link"),
+                                   withDestinationURL: loopDir)
+        let loopNode = SidebarController.testMakeTreeNode(url: treeRoot)
+        // Find the freshly-added loopdir node and expand it.
+        let freshChildren = SidebarController.testLoadChildren(of: SidebarController.testMakeTreeNode(url: treeRoot))
+        if let loopChild = freshChildren.first(where: { $0.url.lastPathComponent == "loopdir" }) {
+            let loopKids = SidebarController.testLoadChildURLs(of: loopChild).map { $0.lastPathComponent }
+            assert("symlink-to-parent is dropped (cycle guard)",
+                   !loopKids.contains("self_link"), "followed loop: \(loopKids)")
+        } else {
+            assert("found loopdir tree node", false, "missing")
+        }
+        _ = node; _ = loopNode  // silence unused in case branches above don't fire
+
+        // The live sidebar exposes a "Folders" section with browsable roots.
+        let liveSidebar = SidebarController(); _ = liveSidebar.view
+        assert("live sidebar has a Folders section",
+               liveSidebar.testHasFoldersSection, "no Folders section")
+        assert("folder tree roots include the home folder",
+               liveSidebar.testTreeRootTitles.contains(NSUserName()),
+               "roots=\(liveSidebar.testTreeRootTitles)")
     }
 
     /// Build every modal/window controller and force its view to load. A crash
