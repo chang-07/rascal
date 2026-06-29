@@ -2267,7 +2267,56 @@ final class TestRunner {
             assert("command palette Open With test file exists", false, "test file not found")
         }
 
+        // --- T62: ⌘N opens ADDITIONAL, independent browser windows ---
+        // Regression guard for the multi-window bug: invoking the new-window
+        // code path N times must yield N *distinct* browser window controllers,
+        // each with its own active pane. (The bug shared one frame autosave name
+        // across all windows, so additional windows stacked invisibly on the
+        // first — it looked like ⌘N did nothing.)
+        runMultiWindowTests(appDelegate: appDelegate, sandbox: sandbox)
+
         finish()
+    }
+
+    /// Drive the new-window path repeatedly and assert each call produces a
+    /// fresh, independent BrowserWindowController. Runs headless (windows are
+    /// parked far off-screen by AppDelegate.finishOpening), so nothing appears.
+    private func runMultiWindowTests(appDelegate: AppDelegate, sandbox: URL) {
+        // Start from a clean slate so the count is unambiguous.
+        for w in NSApp.windows { w.close() }
+        wait(0.05)
+        let before = appDelegate.testWindowControllers.count
+
+        let n = 3
+        for _ in 0..<n {
+            // Exactly the path ⌘N takes (AppDelegate.newWindow → this).
+            appDelegate.openNewBrowserWindow(at: sandbox)
+            wait(0.05)
+        }
+
+        let controllers = appDelegate.testWindowControllers
+        assert("new-window path opens N additional windows",
+               controllers.count == before + n,
+               "expected \(before + n), got \(controllers.count)")
+
+        // Each must be a distinct controller instance (no single-instance dedupe
+        // collapsing them into one).
+        let recent = Array(controllers.suffix(n))
+        let distinct = Set(recent.map { ObjectIdentifier($0) })
+        assert("each new window is a distinct controller",
+               distinct.count == n,
+               "got \(distinct.count) unique of \(recent.count)")
+
+        // Each window must own its own active pane (independent state).
+        let panes = recent.compactMap { $0.testActivePane }
+        let distinctPanes = Set(panes.map { ObjectIdentifier($0) })
+        assert("each new window has its own pane",
+               panes.count == n && distinctPanes.count == n,
+               "panes=\(panes.count) distinct=\(distinctPanes.count)")
+
+        // Clean up the windows this test opened.
+        for w in NSApp.windows { w.close() }
+        wait(0.05)
     }
 
     /// Build every modal/window controller and force its view to load. A crash
