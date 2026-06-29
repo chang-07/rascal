@@ -483,7 +483,29 @@ final class DeveloperPane: SettingsPane {
 // MARK: - Advanced
 
 final class AdvancedPane: SettingsPane {
+    private var dfmStatus: NSTextField?
+    private var dfmButton: NSButton?
+
     override func build() {
+        // Default file manager — own the open-folder role so folders, drives, and
+        // "reveal" actions from other apps open in Rascal instead of Finder.
+        let dfmBtn = NSButton(title: "", target: self, action: #selector(toggleDefaultFileManager))
+        dfmBtn.bezelStyle = .rounded
+        let dfmStat = NSTextField(labelWithString: "")
+        dfmStat.font = NSFont.systemFont(ofSize: 11)
+        dfmStat.textColor = .secondaryLabelColor
+        dfmButton = dfmBtn
+        dfmStatus = dfmStat
+        refreshDefaultFileManagerUI()
+        addRow("Default file manager:", dfmBtn)
+        addRow("", dfmStat)
+        let dfmHint = NSTextField(wrappingLabelWithString:
+            "Opens folders, drives, and 'reveal' actions from other apps in Rascal instead of Finder. macOS still keeps Finder for the desktop and for mounting drives — that part can't be replaced.")
+        dfmHint.font = NSFont.systemFont(ofSize: 11)
+        dfmHint.textColor = .tertiaryLabelColor
+        dfmHint.preferredMaxLayoutWidth = 380
+        addRow("", dfmHint)
+
         let spring = NSButton(checkboxWithTitle: "Spring-loaded folders (open on drag-hover)",
                               target: self, action: #selector(springChanged(_:)))
         spring.state = Settings.springLoadedFolders ? .on : .off
@@ -542,5 +564,29 @@ final class AdvancedPane: SettingsPane {
             SettingsController.show(selecting: .advanced)
             _ = win
         }
+    }
+
+    @objc private func toggleDefaultFileManager() {
+        let done: (Error?) -> Void = { [weak self] error in
+            self?.refreshDefaultFileManagerUI()
+            guard let error else { return }
+            let alert = NSAlert()
+            alert.messageText = "Couldn't change the default file manager"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+        if DefaultFileManager.isDefault {
+            DefaultFileManager.restoreFinder(completion: done)
+        } else {
+            DefaultFileManager.makeDefault(completion: done)
+        }
+    }
+
+    private func refreshDefaultFileManagerUI() {
+        let isDefault = DefaultFileManager.isDefault
+        dfmButton?.title = isDefault ? "Restore Finder" : "Make Rascal the Default"
+        dfmStatus?.stringValue = isDefault
+            ? "Rascal is the default — folders open here."
+            : "Finder is currently the default."
     }
 }
