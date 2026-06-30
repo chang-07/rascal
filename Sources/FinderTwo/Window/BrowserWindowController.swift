@@ -603,6 +603,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     /// the pane's back/forward) as a menu and navigate the ACTIVE pane to the
     /// chosen folder. Keyboard-first: the popped menu is arrow-key navigable and
     /// type-to-select, matching the workspace-open menu pattern.
+    /// Navigate the active pane to a folder chosen from the Recent Directories
+    /// menu. A thin production wrapper so the menu target routes through the real
+    /// `activePane` accessor instead of a test-only one.
+    func navigateActivePane(to url: URL) { activePane?.navigate(to: url) }
+
     @objc func showRecentDirectories(_ sender: Any?) {
         guard let pane = activePane else { NSSound.beep(); return }
         // Don't offer the folder you're already in.
@@ -866,7 +871,7 @@ final class RecentDirectoriesMenuTarget: NSObject {
 
     @objc func navigate(_ sender: NSMenuItem) {
         guard let p = sender.representedObject as? Payload else { return }
-        p.wc.testActivePane?.navigate(to: p.url)
+        p.wc.navigateActivePane(to: p.url)
     }
 
     @objc func clear(_ sender: NSMenuItem) {
