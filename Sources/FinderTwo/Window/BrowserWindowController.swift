@@ -599,6 +599,63 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     }
     @objc func goToFolder(_ sender: Any?) { activePane?.showGoToFolderSheet() }
 
+    /// Pop up the GLOBAL recent-directories history (session-wide, distinct from
+    /// the pane's back/forward) as a menu and navigate the ACTIVE pane to the
+    /// chosen folder. Keyboard-first: the popped menu is arrow-key navigable and
+    /// type-to-select, matching the workspace-open menu pattern.
+    /// Navigate the active pane to a folder chosen from the Recent Directories
+    /// menu. A thin production wrapper so the menu target routes through the real
+    /// `activePane` accessor instead of a test-only one.
+    func navigateActivePane(to url: URL) { activePane?.navigate(to: url) }
+
+    @objc func showRecentDirectories(_ sender: Any?) {
+        guard let pane = activePane else { NSSound.beep(); return }
+        // Don't offer the folder you're already in.
+        let current = pane.currentURL.path
+        let recents = RecentDirectories.all().filter { $0.path != current }
+        guard !recents.isEmpty else { NSSound.beep(); return }
+
+        let menu = NSMenu(title: "Recent Directories")
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        for url in recents {
+            let name = url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent
+            let item = NSMenuItem(title: name,
+                                  action: #selector(RecentDirectoriesMenuTarget.navigate(_:)),
+                                  keyEquivalent: "")
+            // Show the abbreviated parent path so duplicate folder names (e.g. two
+            // "src" folders) are still distinguishable at a glance.
+            let parent = url.deletingLastPathComponent().path
+            let shown = parent.hasPrefix(home)
+                ? "~" + parent.dropFirst(home.count)
+                : parent
+            item.toolTip = url.path
+            item.representedObject = RecentDirectoriesMenuTarget.Payload(url: url, wc: self)
+            item.target = RecentDirectoriesMenuTarget.shared
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            icon.size = NSSize(width: 16, height: 16)
+            item.image = icon
+            // Attributed title puts the dimmed parent path after the folder name.
+            let title = NSMutableAttributedString(string: name)
+            title.append(NSAttributedString(
+                string: "   \(shown)",
+                attributes: [.foregroundColor: NSColor.secondaryLabelColor,
+                             .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]))
+            item.attributedTitle = title
+            menu.addItem(item)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let clear = NSMenuItem(title: "Clear Recent Directories",
+                               action: #selector(RecentDirectoriesMenuTarget.clear(_:)),
+                               keyEquivalent: "")
+        clear.target = RecentDirectoriesMenuTarget.shared
+        menu.addItem(clear)
+
+        if let view = window?.contentView {
+            let p = NSPoint(x: 20, y: view.bounds.height - 20)
+            menu.popUp(positioning: nil, at: p, in: view)
+        }
+    }
+
     @objc func renameSelection(_ sender: Any?) {
         activePane?.beginRenameSelection()
     }
@@ -802,5 +859,22 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
 final class OffscreenSafeWindow: NSWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect   // never clamp onto a display
+    }
+}
+
+/// Target for the "Recent Directories" pop-up menu items. Menu items need a
+/// concrete target/action; a shared object keeps that off the controller and
+/// mirrors `WorkspaceMenuTarget`. The chosen folder navigates the ACTIVE pane.
+final class RecentDirectoriesMenuTarget: NSObject {
+    static let shared = RecentDirectoriesMenuTarget()
+    struct Payload { let url: URL; let wc: BrowserWindowController }
+
+    @objc func navigate(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? Payload else { return }
+        p.wc.navigateActivePane(to: p.url)
+    }
+
+    @objc func clear(_ sender: NSMenuItem) {
+        RecentDirectories.clear()
     }
 }
