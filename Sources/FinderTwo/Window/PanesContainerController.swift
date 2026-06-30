@@ -207,8 +207,13 @@ final class PanesContainerController: NSSplitViewController {
     /// Divider fractions captured from a snapshot, waiting for the split view to
     /// gain non-zero bounds before they can be applied.
     private var pendingDividerFractions: [Double]?
+    /// Re-entrancy guard: setPosition() dirties layout, so applying fractions can
+    /// itself trigger another viewDidLayout. Without this, viewDidLayout →
+    /// applyPendingDividerFractions → setPosition → viewDidLayout … can loop.
+    private var isApplyingDividerFractions = false
 
     private func applyPendingDividerFractions() {
+        guard !isApplyingDividerFractions else { return }
         guard let fractions = pendingDividerFractions else { return }
         let count = splitView.arrangedSubviews.count
         // Need one fraction per divider; bail (and keep them pending) until the
@@ -216,11 +221,17 @@ final class PanesContainerController: NSSplitViewController {
         guard count > 1, fractions.count == count - 1 else { return }
         let total = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         guard total > 1 else { return }   // not laid out yet — try again after layout
-        view.layoutSubtreeIfNeeded()
+        isApplyingDividerFractions = true
+        defer { isApplyingDividerFractions = false }
+        // Clear FIRST so this is strictly one-shot: even if setPosition re-enters
+        // viewDidLayout synchronously, there's nothing left pending to re-apply.
+        pendingDividerFractions = nil
+        // Don't force layout here — we may be inside a layout pass (viewDidLayout);
+        // the guards above already confirm the split view has real bounds, which is
+        // all setPosition needs.
         for (i, f) in fractions.enumerated() {
             splitView.setPosition(CGFloat(f) * total, ofDividerAt: i)
         }
-        pendingDividerFractions = nil
     }
 
     override func viewDidLayout() {

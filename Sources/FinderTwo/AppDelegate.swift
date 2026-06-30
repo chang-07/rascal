@@ -142,12 +142,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         saveSessionSnapshot()
     }
 
-    /// Capture the current frontmost window's layout into SessionStore. Called on
-    /// quit and whenever a window closes, so the latest layout is always saved
-    /// even if the app is force-quit later.
-    private func saveSessionSnapshot() {
-        let wc = currentBrowserWC() ?? windowControllers.last
-        SessionStore.save(wc?.sessionSnapshot())
+    /// True once a session snapshot has been committed for the current shutdown /
+    /// window-close, so the terminate path and the window-close path can't both
+    /// write (and clobber) the same key.
+    private var didSaveSessionSnapshot = false
+
+    /// Capture a specific window's layout into SessionStore. Called on quit and
+    /// whenever a window closes; coalesced so overlapping triggers write once. Pass
+    /// the closing window explicitly so we never snapshot a nil/torn-down window
+    /// (which would clear the key and wipe the just-saved layout).
+    private func saveSessionSnapshot(for wc: BrowserWindowController? = nil) {
+        guard !didSaveSessionSnapshot else { return }
+        guard let target = wc ?? currentBrowserWC() ?? windowControllers.last else { return }
+        let snap = target.sessionSnapshot()
+        // No usable layout to snapshot → leave whatever a previous save wrote intact
+        // rather than clearing the key.
+        guard let panes = snap["panes"] as? [Any], !panes.isEmpty else { return }
+        didSaveSessionSnapshot = true
+        SessionStore.save(snap)
     }
 
     // MARK: - Windows
@@ -182,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let self, let wc {
                 // Snapshot the closing window's layout while it's still intact, so
                 // closing the last window (then quitting) still restores its panes.
-                if !isHeadless { SessionStore.save(wc.sessionSnapshot()) }
+                if !isHeadless { self.saveSessionSnapshot(for: wc) }
                 self.windowControllers.removeAll { $0 === wc }
             }
             if let token = box.token { NotificationCenter.default.removeObserver(token) }   // one-shot
