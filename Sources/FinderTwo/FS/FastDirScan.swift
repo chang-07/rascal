@@ -39,30 +39,47 @@ enum FastDirScan {
         defer { closedir(d) }
 
         let parentPath = path.hasSuffix("/") ? path : path + "/"
+        // Raw bytes of the parent path (no trailing NUL), so each child's lstat path
+        // can be assembled from bytes rather than a lossy String round-trip.
+        let parentBytes: [CChar] = parentPath.withCString { p in
+            Array(UnsafeBufferPointer(start: p, count: strlen(p)))
+        }
         while let entryPtr = readdir(d) {
             let entry = entryPtr.pointee
-            // Skip "." and ".."
-            var name = withUnsafeBytes(of: entry.d_name) { rawPtr -> String in
-                let buf = rawPtr.bindMemory(to: CChar.self)
-                return String(cString: buf.baseAddress!)
-            }
-            if name == "." || name == ".." { continue }
 
-            // Build path C-string for lstat
-            let fullPath = parentPath + name
+            // Assemble "<parent><name>" as a NUL-terminated C path straight from the
+            // raw d_name bytes. Do NOT decode the name to a String and rebuild the
+            // path from it: String(cString:) substitutes U+FFFD for any byte that
+            // isn't valid UTF-8, so the path would point at a file that doesn't exist,
+            // lstat would fail, and the entry would silently vanish from the listing
+            // (names copied from Linux, legacy encodings, some network volumes) — the
+            // "some folders don't show all the files" bug.
+            var pathBytes = parentBytes
+            var isDotEntry = false
+            let displayName: String = withUnsafeBytes(of: entry.d_name) { rawPtr -> String in
+                let base = rawPtr.bindMemory(to: CChar.self).baseAddress!
+                let len = strlen(base)
+                if (len == 1 && base[0] == 0x2E) ||
+                   (len == 2 && base[0] == 0x2E && base[1] == 0x2E) {
+                    isDotEntry = true
+                    return ""
+                }
+                pathBytes.append(contentsOf: UnsafeBufferPointer(start: base, count: len))
+                return String(cString: base)   // display only; may contain U+FFFD
+            }
+            if isDotEntry { continue }          // "." / ".."
+            pathBytes.append(0)                 // NUL-terminate for the C calls
+
             var st = stat()
-            if lstat(fullPath, &st) != 0 { continue }
+            if lstat(pathBytes, &st) != 0 { continue }
 
             let isSymlink = (st.st_mode & S_IFMT) == S_IFLNK
             let isDir: Bool
             if isSymlink {
                 // Resolve symlinks once so directory icons follow Finder behavior.
                 var stTarget = stat()
-                if stat(fullPath, &stTarget) == 0 {
-                    isDir = (stTarget.st_mode & S_IFMT) == S_IFDIR
-                } else {
-                    isDir = false
-                }
+                isDir = (stat(pathBytes, &stTarget) == 0)
+                    && (stTarget.st_mode & S_IFMT) == S_IFDIR
             } else {
                 isDir = (st.st_mode & S_IFMT) == S_IFDIR
             }
@@ -76,18 +93,21 @@ enum FastDirScan {
             // is what `du` and Disk Utility's "used" are based on. For symlinks
             // this is the link's own (tiny) allocation, not the target's.
             let physicalSize = Int64(st.st_blocks) * 512
+            // Display name keeps its original encoding, precomposed for HFS+/APFS
+            // consistency (cheap for ASCII names).
+            let name = (displayName as NSString).precomposedStringWithCanonicalMapping
             let isHidden = name.hasPrefix(".")
             let dot = name.lastIndex(of: ".")
             let ext = (dot != nil && dot != name.startIndex)
                 ? String(name[name.index(after: dot!)...]).lowercased()
                 : ""
 
-            // Strip a take-it-while strategy: name keeps its original encoding
-            // even when filesystem returns precomposed unicode (HFS+/APFS varies).
-            // Compatibility-decompose only when needed (very cheap for ASCII names).
-            name = (name as NSString).precomposedStringWithCanonicalMapping
-
-            let url = URL(fileURLWithPath: fullPath, isDirectory: isDir)
+            // Build the URL from the file-system representation (the real bytes) so it
+            // round-trips to the actual file even when the name isn't valid UTF-8.
+            let url = pathBytes.withUnsafeBufferPointer { bp in
+                URL(fileURLWithFileSystemRepresentation: bp.baseAddress!,
+                    isDirectory: isDir, relativeTo: nil)
+            }
             out.append(Entry(
                 url: url, name: name,
                 isDirectory: isDir, isSymlink: isSymlink, isHidden: isHidden,
