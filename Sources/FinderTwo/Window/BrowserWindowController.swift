@@ -773,6 +773,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     var testAllPanes: [PaneController] { panesContainer.allPanes }
     var testActivePane: PaneController? { panesContainer.activePane }
     var testPaneCount: Int { panesContainer.testPaneCount }
+    /// The panes' NSSplitView, so tests can drag dividers and read positions.
+    var testPanesSplitView: NSSplitView { panesContainer.splitView }
     func testToggleExtraPane() { panesContainer.toggleExtraPane() }
     func testAddPane() { panesContainer.addExtraPane() }
     func testCloseActivePane() { panesContainer.closeActivePane() }
@@ -781,7 +783,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
 
     func sessionSnapshot() -> [String: Any] {
         let panes = panesContainer.allPanes.map { $0.sessionSnapshot() }
-        return ["panes": panes]
+        // Persist the divider positions (as width fractions) alongside the panes
+        // so a restored multi-pane window keeps the user's custom column widths.
+        return ["panes": panes, "dividers": panesContainer.dividerFractions()]
     }
     func restoreFromSnapshot(_ snap: [String: Any]) {
         guard let panes = snap["panes"] as? [[String: Any]], !panes.isEmpty else { return }
@@ -792,6 +796,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         panesContainer.allPanes.first?.restoreFromSnapshot(panes[0])
         for p in panes.dropFirst() {
             panesContainer.addPaneForRestore(snap: p)
+        }
+        // Re-apply saved divider positions once the rebuilt panes lay out.
+        if let dividers = snap["dividers"] as? [Double] {
+            panesContainer.applyDividerFractions(dividers)
         }
     }
 }

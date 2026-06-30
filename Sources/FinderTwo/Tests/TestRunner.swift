@@ -596,6 +596,79 @@ final class TestRunner {
         testWC.window?.close()
         restoredWC.window?.close()
 
+        // --- T24b: multi-pane layout round-trip (pane count + divider sizes) ---
+        // Build a 3-pane window, give it a concrete size, drag the dividers to
+        // custom positions, snapshot it, then restore into a fresh window and
+        // verify the pane count and the divider fractions both survive.
+        let mpRoot = sandbox.appendingPathComponent("subdir")
+        let mpWC = BrowserWindowController(rootURL: mpRoot)
+        mpWC.window?.setContentSize(NSSize(width: 1200, height: 700))
+        mpWC.testAddPane()                      // 2 panes
+        mpWC.testActivePane?.navigate(to: sandbox)
+        mpWC.testAddPane()                      // 3 panes
+        assert("multi-pane layout starts at 3 panes", mpWC.testPaneCount == 3, "panes=\(mpWC.testPaneCount)")
+        mpWC.window?.layoutIfNeeded()
+        wait(0.05)
+        // Drag dividers to deliberately-uneven positions (defaults are even).
+        let mpSplit = mpWC.testPanesSplitView
+        if mpSplit.bounds.width > 1 {
+            mpSplit.setPosition(mpSplit.bounds.width * 0.30, ofDividerAt: 0)
+            mpSplit.setPosition(mpSplit.bounds.width * 0.60, ofDividerAt: 1)
+            mpSplit.layoutSubtreeIfNeeded()
+        }
+        let mpSnap = mpWC.sessionSnapshot()
+        let savedFractions = mpSnap["dividers"] as? [Double] ?? []
+        assert("snapshot captures one divider fraction per gap (3 panes → 2)",
+               savedFractions.count == 2, "got=\(savedFractions)")
+
+        // Round-trip the snapshot through JSON (the real persistence path) and
+        // confirm the fractions are preserved verbatim.
+        let mpData = try? JSONSerialization.data(withJSONObject: mpSnap)
+        let mpDecoded = mpData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let decodedFractions = (mpDecoded?["dividers"] as? [Double]) ?? []
+        assert("divider fractions survive JSON round-trip",
+               decodedFractions == savedFractions, "got=\(decodedFractions) expected=\(savedFractions)")
+
+        // Restore into a brand-new window and check the layout rebuilds.
+        let mpRestored = BrowserWindowController(rootURL: FileManager.default.homeDirectoryForCurrentUser)
+        mpRestored.window?.setContentSize(NSSize(width: 1200, height: 700))
+        mpRestored.restoreFromSnapshot(mpSnap)
+        assert("restored window rebuilds all 3 panes", mpRestored.testPaneCount == 3,
+               "panes=\(mpRestored.testPaneCount)")
+        // The restore re-applies divider fractions on a deferred layout pass; the
+        // re-snapshot must carry the same number of dividers (and, once laid out,
+        // the same fractions within tolerance).
+        mpRestored.window?.layoutIfNeeded()
+        wait(0.1)
+        let reFractions = (mpRestored.sessionSnapshot()["dividers"] as? [Double]) ?? []
+        assert("restored layout re-exposes 2 divider fractions",
+               reFractions.count == 2, "got=\(reFractions)")
+        if !savedFractions.isEmpty && !reFractions.isEmpty && mpSplit.bounds.width > 1 {
+            // Geometry assertion — only meaningful once both split views actually
+            // laid out. Tolerance covers minimum-thickness clamping at small sizes.
+            let close = zip(savedFractions, reFractions).allSatisfy { abs($0 - $1) < 0.08 }
+            assert("restored divider positions match the saved layout", close,
+                   "saved=\(savedFractions) restored=\(reFractions)")
+        }
+        mpWC.window?.close()
+        mpRestored.window?.close()
+
+        // --- T24c: SessionStore (auto last-session) save / load round-trip ---
+        let sessWC = BrowserWindowController(rootURL: sandbox)
+        sessWC.testAddPane()
+        let sessSnap = sessWC.sessionSnapshot()
+        SessionStore.save(sessSnap)
+        let sessLoaded = SessionStore.load()
+        assert("SessionStore persists a saved session", sessLoaded != nil, "nil")
+        let sessLoadedPaneCount = (sessLoaded?["panes"] as? [Any])?.count ?? 0
+        assert("SessionStore round-trips the pane set", sessLoadedPaneCount == 2, "got=\(sessLoadedPaneCount)")
+        SessionStore.clear()
+        assert("SessionStore.clear removes the saved session", SessionStore.load() == nil, "still present")
+        // An empty/paneless snapshot must clear rather than persist garbage.
+        SessionStore.save(["panes": [[String: Any]]()])
+        assert("SessionStore ignores an empty snapshot", SessionStore.load() == nil, "stored empty")
+        sessWC.window?.close()
+
         // --- T25: Theme switching ---
         let initialTheme = ThemeManager.shared.current.id
         ThemeManager.shared.setTheme(id: "midnight")
