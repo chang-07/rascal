@@ -36,8 +36,12 @@ enum FileProviderDomains {
     /// framework reports an error, or when a domain has no resolvable root — the
     /// caller can then simply omit the section rather than show a dangling one.
     static func enumerate(completion: @escaping ([Location]) -> Void) {
-        // getDomainsWithCompletionHandler already calls back on a background
-        // queue, so we don't need to hop off-main ourselves to start it.
+        // getDomainsWithCompletionHandler calls back on a private queue; we never
+        // block it (or the main thread). Each domain's user-visible URL is resolved
+        // via its own async callback and joined with a DispatchGroup, so a wedged
+        // provider can't stall the others or the UI (the old code blocked up to 2s
+        // PER domain on a semaphore, and risked a deadlock if the callback was
+        // delivered on the very queue parked in the wait).
         NSFileProviderManager.getDomainsWithCompletionHandler { domains, error in
             if let error {
                 // No providers configured surfaces here as an error on some
@@ -46,52 +50,46 @@ enum FileProviderDomains {
                 DispatchQueue.main.async { completion([]) }
                 return
             }
-            guard !domains.isEmpty else {
+            // Hidden domains (e.g. a provider the user has hidden from Finder's
+            // sidebar) shouldn't appear here either.
+            let visible = domains.filter { !$0.isHidden }
+            guard !visible.isEmpty else {
                 DispatchQueue.main.async { completion([]) }
                 return
             }
 
+            // Resolve every domain's root URL concurrently. `locations` is only
+            // mutated inside `lock`, so the concurrent callbacks can't race.
+            let group = DispatchGroup()
+            let lock = NSLock()
             var locations: [Location] = []
-            for domain in domains {
-                // Hidden domains (e.g. a provider the user has hidden from
-                // Finder's sidebar) shouldn't appear here either.
-                if domain.isHidden { continue }
-                guard let root = resolveRootURL(for: domain) else { continue }
-                let title = domain.displayName.isEmpty ? root.lastPathComponent : domain.displayName
-                locations.append(Location(title: title, url: root))
+
+            for domain in visible {
+                guard let manager = NSFileProviderManager(for: domain) else { continue }
+                group.enter()
+                // `getUserVisibleURL(for:)` is async and runs the lookup off our
+                // thread; we just record the result when it lands. No semaphore, no
+                // per-domain blocking wait — a slow provider only delays its own row.
+                manager.getUserVisibleURL(for: .rootContainer) { url, _ in
+                    defer { group.leave() }
+                    guard let url, FileManager.default.fileExists(atPath: url.path) else { return }
+                    let title = domain.displayName.isEmpty ? url.lastPathComponent : domain.displayName
+                    lock.lock()
+                    locations.append(Location(title: title, url: url))
+                    lock.unlock()
+                }
             }
 
-            // Stable, predictable order in the sidebar.
-            locations.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-            DispatchQueue.main.async { completion(locations) }
-        }
-    }
-
-    /// Resolve a browsable on-disk root URL for a domain.
-    ///
-    /// Uses the documented user-visible URL for the domain's root container
-    /// (typically under `~/Library/CloudStorage/…`) — the supported way to get a
-    /// path the panes can navigate to on macOS. (`documentStorageURL` /
-    /// `pathRelativeToDocumentStorage` are iOS-only and unavailable here.)
-    /// Returns nil if the URL can't be resolved or isn't actually on disk yet,
-    /// so the caller silently skips that domain rather than adding a dead row.
-    private static func resolveRootURL(for domain: NSFileProviderDomain) -> URL? {
-        guard let manager = NSFileProviderManager(for: domain) else { return nil }
-
-        // `getUserVisibleURL(for:)` is async; resolve it synchronously here since
-        // we're already on a background queue. A short timeout keeps a wedged
-        // provider from blocking the enumeration indefinitely.
-        let semaphore = DispatchSemaphore(value: 0)
-        var resolved: URL?
-        manager.getUserVisibleURL(for: .rootContainer) { url, _ in
-            if let url, FileManager.default.fileExists(atPath: url.path) {
-                resolved = url
+            // Fire once all domains have reported, then hop to main with the
+            // assembled, stably-ordered set.
+            group.notify(queue: DispatchQueue.global(qos: .userInitiated)) {
+                lock.lock()
+                var result = locations
+                lock.unlock()
+                // Stable, predictable order in the sidebar.
+                result.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                DispatchQueue.main.async { completion(result) }
             }
-            semaphore.signal()
         }
-        // 2s is generous for a local metadata lookup; if it's slower the
-        // provider is likely wedged and we just skip it for this build.
-        _ = semaphore.wait(timeout: .now() + 2)
-        return resolved
     }
 }
