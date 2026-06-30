@@ -1746,6 +1746,31 @@ final class TestRunner {
         pane.toggleHidden()
         pane.testReloadSync()
 
+        // --- T48b: fast scan must list files with non-UTF-8 names ---
+        // Regression guard: the readdir fast path used to rebuild the lstat path from
+        // a lossy String(cString:) decode, so a file whose name isn't valid UTF-8 got
+        // a mangled path, lstat failed, and the entry silently vanished ("some folders
+        // don't show all the files").
+        let utf8Dir = sandbox.appendingPathComponent("utf8drop")
+        try? FileManager.default.createDirectory(at: utf8Dir, withIntermediateDirectories: true)
+        for n in ["a.txt", "b.txt", "c.txt"] {
+            try? "x".write(to: utf8Dir.appendingPathComponent(n), atomically: true, encoding: .utf8)
+        }
+        // "bad\u{FF}.txt": a stray 0xFF byte is not valid UTF-8 and can't be written
+        // through a Swift String path, so assemble the path from raw bytes.
+        var badNamePath = Array(utf8Dir.path.utf8CString.dropLast())   // drop trailing NUL
+        badNamePath.append(contentsOf: "/bad".utf8.map { CChar(bitPattern: $0) })
+        badNamePath.append(CChar(bitPattern: 0xFF))
+        badNamePath.append(contentsOf: ".txt".utf8.map { CChar(bitPattern: $0) })
+        badNamePath.append(0)
+        let badURL = badNamePath.withUnsafeBufferPointer {
+            URL(fileURLWithFileSystemRepresentation: $0.baseAddress!, isDirectory: false, relativeTo: nil)
+        }
+        try? Data("x".utf8).write(to: badURL)
+        let utf8Scan = FastDirScan.list(utf8Dir)
+        assert("fast scan lists files with non-UTF-8 names",
+               utf8Scan.count == 4, "expected 4, got \(utf8Scan.count): \(utf8Scan.map { $0.name })")
+
         // --- T49: PathBar emits ordered segments root → leaf ---
         let probeURL = URL(fileURLWithPath: "/Users/chang/Desktop")
         let segs = PathBarView.testSegments(for: probeURL)
