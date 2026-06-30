@@ -13,6 +13,12 @@ import CoreServices
 /// pattern.
 enum SpotlightMetadata {
 
+    // MDItemCreateWithURL / MDItemCopyAttribute are in CoreServices' audited
+    // bridging region (CF_IMPLICIT_BRIDGING_ENABLED), so Swift imports them as
+    // ARC-managed CF references — NOT Unmanaged — and ARC already balances the
+    // Create/Copy +1 retain. Do NOT add CFRelease / takeRetainedValue here: it
+    // double-frees the MDItem on every call (a use-after-free crash).
+
     /// The Finder comment for `url`, or empty string if none / unreadable.
     /// Safe to call off the main thread.
     static func finderComment(_ url: URL) -> String {

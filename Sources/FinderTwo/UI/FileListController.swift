@@ -505,6 +505,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     private let spotlightCache: NSCache<NSURL, SpotlightEntry> = {
         let c = NSCache<NSURL, SpotlightEntry>(); c.countLimit = 4096; return c
     }()
+    // Main-thread-confined: read + inserted in spotlightEntry(for:) (called from
+    // tableView(_:viewFor:) on main) and removed inside DispatchQueue.main.async.
+    // The off-main fetch (spotlightQueue.async) never touches this set, so it needs
+    // no lock — adding one would only add main-thread contention.
     private var spotlightInFlight: Set<URL> = []
 
     /// Cached Spotlight metadata for `url`, kicking off an off-main fetch (and
