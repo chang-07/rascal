@@ -26,6 +26,12 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     private var sections: [Section] = []
     private var selectedURL: URL?
 
+    /// Cloud-storage roots discovered via File Provider extensions. Resolved
+    /// asynchronously (see refreshFileProviderDomains) and folded into the
+    /// Locations section on the next rebuild. Empty until the first enumeration
+    /// returns, so no providers means no dangling rows.
+    private var fileProviderLocations: [FileProviderDomains.Location] = []
+
     var testEntryTitles: [String] {
         sections.flatMap { $0.items.map { $0.title } }
     }
@@ -112,6 +118,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         buildSections()
         outline.reloadData()
         for s in sections { outline.expandItem(s) }
+        refreshFileProviderDomains()
 
         NotificationCenter.default.addObserver(self, selector: #selector(bookmarksChanged),
                                                name: SidebarBookmarks.didChange, object: nil)
@@ -123,6 +130,27 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         buildSections()
         outline.reloadData()
         for s in sections { outline.expandItem(s) }
+    }
+
+    /// Enumerate cloud-storage (File Provider) domains off-main and fold the
+    /// results into the Locations section. Safe to call repeatedly; only rebuilds
+    /// the outline when the resolved set actually changes, so it won't fight the
+    /// asynchronously-loaded Tags section or cause flicker. No providers leaves
+    /// `fileProviderLocations` empty, so the section simply omits them.
+    private func refreshFileProviderDomains() {
+        // The headless suite builds dozens of windows; each sidebar firing a
+        // FileProvider XPC request would storm the (unreachable, on an unsigned
+        // binary) provider daemon. Skip the automatic enumeration under test —
+        // TestRunner exercises FileProviderDomains.enumerate() directly instead.
+        if ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1" { return }
+        FileProviderDomains.enumerate { [weak self] locations in
+            guard let self else { return }
+            let newKeys = locations.map { $0.url.path }
+            let oldKeys = self.fileProviderLocations.map { $0.url.path }
+            guard newKeys != oldKeys else { return }
+            self.fileProviderLocations = locations
+            self.bookmarksChanged()   // rebuild + reload + re-expand
+        }
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
@@ -283,6 +311,23 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                 icon.size = NSSize(width: 16, height: 16)
                 locations.append(Entry(title: name, url: v, icon: icon))
             }
+        }
+        // Cloud storage exposed via File Provider extensions (Google Drive,
+        // Dropbox, OneDrive, ShareFile, …). Resolved asynchronously elsewhere;
+        // here we just render whatever the last enumeration produced. The system
+        // icon for each on-disk root already carries the provider's badge.
+        let cloudFallback = NSImage(systemSymbolName: "cloud", accessibilityDescription: nil) ?? NSImage()
+        cloudFallback.size = NSSize(width: 16, height: 16)
+        for loc in fileProviderLocations where fm.fileExists(atPath: loc.url.path) {
+            let icon: NSImage
+            if !PermissionsManager.hasFullDiskAccess && PermissionsManager.isProtectedPath(loc.url.path) {
+                icon = cloudFallback
+            } else {
+                let resolved = NSWorkspace.shared.icon(forFile: loc.url.path)
+                resolved.size = NSSize(width: 16, height: 16)
+                icon = resolved
+            }
+            locations.append(Entry(title: loc.title, url: loc.url, icon: icon))
         }
         // Saved searches (smart folders) — synthetic `/smart/<id>` entries.
         let gear = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil) ?? NSImage()
