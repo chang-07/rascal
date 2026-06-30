@@ -365,10 +365,13 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         statusBarHeightConstraint.constant = Settings.showStatusBar ? 22 : 0
     }
 
-    /// When the window title bar is hidden, inset the toolbar from the top so it
-    /// clears the traffic lights and lines up with the (also-inset) sidebar.
+    /// Pin the toolbar to the top of the pane. The window's traffic lights sit at
+    /// the top-LEFT, over the sidebar — not over this main pane (which is to the
+    /// sidebar's right) — so the toolbar never needs to clear them. Pushing it down
+    /// when the title bar was hidden just left an empty band (a "blank row") at the
+    /// top of the pane; the sidebar keeps its own inset to clear the lights.
     private func applyTopInset() {
-        topInsetConstraint.constant = Settings.showTitleBar ? 0 : PaneController.hiddenTitleBarInset
+        topInsetConstraint.constant = 0
     }
 
     func setActive(_ active: Bool, showBorder: Bool = false) {

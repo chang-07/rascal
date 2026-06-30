@@ -2206,8 +2206,8 @@ final class TestRunner {
                wc.window?.titleVisibility == .hidden, "vis=\(String(describing: wc.window?.titleVisibility))")
         assert("title hidden → sidebar top inset \(inset)",
                chromeSidebar?.testTopInset == inset, "inset=\(chromeSidebar?.testTopInset ?? -9)")
-        assert("title hidden → pane toolbar top inset \(inset) (aligns with sidebar)",
-               pane.testToolbarTopInset == inset, "inset=\(pane.testToolbarTopInset)")
+        assert("title hidden → pane toolbar top inset 0 (lights are over the sidebar, not the main pane)",
+               pane.testToolbarTopInset == 0, "inset=\(pane.testToolbarTopInset)")
         Settings.showTitleBar = true
         wait(0.02)
         assert("title shown → no fullSizeContentView",
