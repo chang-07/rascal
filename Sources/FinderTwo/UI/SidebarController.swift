@@ -96,6 +96,36 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     }
 
     private var sections: [Section] = []
+    /// Tags load asynchronously (Spotlight); cached here so section assembly stays
+    /// driven by `canonicalRank`, never by completion-handler timing.
+    private var tagsSection: Section?
+
+    /// Fixed display order for sidebar sections. The visible array is always
+    /// rebuilt from this rank, so two in-flight async loads (Tags vs the folder
+    /// tree) can finish in any order without changing section order or flickering.
+    private static func canonicalRank(of title: String) -> Int {
+        switch title {
+        case "Favorites":                           return 0
+        case "Locations":                           return 1
+        case "Smart Folders":                       return 2
+        case "Tags":                                return 3
+        case SidebarController.foldersSectionTitle: return 4   // "Folders" — always last
+        default:                                    return 99
+        }
+    }
+
+    /// Assemble `sections` in canonical order from the synchronous sections plus
+    /// the (optional) cached async Tags section. Idempotent and order-stable; the
+    /// Folders section is kept even though its `items` are empty (it carries the
+    /// expandable `treeRoots`).
+    private func applySections(base: [Section]) {
+        var all = base
+        if let tags = tagsSection { all.append(tags) }
+        sections = all
+            .filter { !$0.items.isEmpty || $0.title == SidebarController.foldersSectionTitle }
+            .sorted { SidebarController.canonicalRank(of: $0.title)
+                    < SidebarController.canonicalRank(of: $1.title) }
+    }
     /// Top-level roots of the folder tree (Home + mounted volumes). Kept around
     /// so their lazily-built children survive `reloadData` across bookmark/theme
     /// changes (rebuilding them would collapse the user's expanded folders).
@@ -529,17 +559,16 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         let foldersSection = Section(title: SidebarController.foldersSectionTitle,
                                      items: [], treeRoots: treeRoots)
 
-        sections = [
+        applySections(base: [
             Section(title: "Favorites", items: favs),
             Section(title: "Locations", items: locations),
             Section(title: "Smart Folders", items: smartItems),
-        ].filter { !$0.items.isEmpty }
-        sections.append(foldersSection)
+            foldersSection,
+        ])
 
         // Populate Tags section asynchronously — Spotlight call.
         TagIndex.allTagSummaries { [weak self] summaries in
             guard let self else { return }
-            guard !summaries.isEmpty else { return }
             let tagItems = summaries.map { s -> Entry in
                 let img = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
                 let tinted = img?.tinted(s.tag.color.nsColor) ?? img ?? NSImage()
@@ -548,14 +577,13 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                 return Entry(title: label, url: URL(fileURLWithPath: "/tag/\(s.tag.name)"),
                              icon: tinted)
             }
-            // Keep the folder tree last: drop Tags in just above it if present.
-            let tagSection = Section(title: "Tags", items: tagItems)
-            if let folderIdx = self.sections.firstIndex(where: {
-                $0.title == SidebarController.foldersSectionTitle }) {
-                self.sections.insert(tagSection, at: folderIdx)
-            } else {
-                self.sections.append(tagSection)
-            }
+            // Cache the Tags section (nil when there are no tags) and re-derive the
+            // ordered list. Its slot is fixed by canonicalRank, so it's correct no
+            // matter whether this Spotlight load or the folder-tree build finished
+            // first — and a later rebuild keeps Tags rather than flickering it out.
+            self.tagsSection = tagItems.isEmpty ? nil : Section(title: "Tags", items: tagItems)
+            let base = self.sections.filter { $0.title != "Tags" }
+            self.applySections(base: base)
             self.outline.reloadData()
             for s in self.sections { self.outline.expandItem(s) }
         }
