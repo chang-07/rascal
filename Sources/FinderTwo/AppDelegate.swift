@@ -128,7 +128,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Windows
 
     func openNewBrowserWindow(at url: URL) {
-        let wc = BrowserWindowController(rootURL: url)
+        // Only the first live browser window owns the persisted frame; every
+        // additional window (⌘N, "Open in New Window", move-tab-out) cascades
+        // from it as an independent window. Binding the shared frame autosave
+        // name to all of them made each new window restore the first's exact
+        // frame and open directly on top of it — which read as "⌘N does nothing".
+        let isFirst = windowControllers.isEmpty
+        let wc = BrowserWindowController(rootURL: url, autosaveFrame: isFirst)
         finishOpening(wc)
     }
 
