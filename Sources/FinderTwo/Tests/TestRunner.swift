@@ -1758,6 +1758,25 @@ final class TestRunner {
         pane.toggleHidden()
         pane.testReloadSync()
 
+        // --- T48b: fast scan keeps entries even when lstat fails ---
+        // The real, locally-reproducible "some folders don't show all the files" bug:
+        // a directory that's readable but NOT searchable (mode r--, no execute) lets
+        // readdir list the names, but makes lstat on every entry fail (EACCES). The old
+        // fast path `continue`d on lstat failure and hid every file. (The earlier
+        // non-UTF-8-name variant can't be reproduced on APFS/HFS+, which enforce valid
+        // Unicode filenames — macOS rewrites bad bytes to U+FFFD, so no such file can
+        // exist locally to test against.)
+        let noExecDir = sandbox.appendingPathComponent("noexec")
+        try? FileManager.default.createDirectory(at: noExecDir, withIntermediateDirectories: true)
+        for n in ["p.txt", "q.txt", "r.txt"] {
+            try? "x".write(to: noExecDir.appendingPathComponent(n), atomically: true, encoding: .utf8)
+        }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: noExecDir.path)
+        let noExecScan = FastDirScan.list(noExecDir)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: noExecDir.path)  // restore so cleanup can delete
+        assert("fast scan keeps entries when lstat fails (readable-but-not-searchable dir)",
+               noExecScan.count == 3, "expected 3, got \(noExecScan.count): \(noExecScan.map { $0.name })")
+
         // --- T49: PathBar emits ordered segments root → leaf ---
         let probeURL = URL(fileURLWithPath: "/Users/chang/Desktop")
         let segs = PathBarView.testSegments(for: probeURL)
