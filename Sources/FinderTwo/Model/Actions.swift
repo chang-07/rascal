@@ -20,8 +20,28 @@ struct Action {
     /// Users may override via the shortcut editor; the menu rebuilds from
     /// the effective shortcut.
     let defaultShortcut: KeyShortcut?
+    /// Programmer-oriented command (git, project root, open-in-editor, …).
+    /// Kept out of the default menus and tucked under a "Developer" submenu
+    /// unless `Settings.developerMode` is on. Always reachable in the palette.
+    let isDeveloper: Bool
     /// Body of the action. Receives the active BrowserWindowController.
     let perform: (BrowserWindowController) -> Void
+
+    init(id: String,
+         title: String,
+         category: Category,
+         icon: String?,
+         defaultShortcut: KeyShortcut?,
+         isDeveloper: Bool = false,
+         perform: @escaping (BrowserWindowController) -> Void) {
+        self.id = id
+        self.title = title
+        self.category = category
+        self.icon = icon
+        self.defaultShortcut = defaultShortcut
+        self.isDeveloper = isDeveloper
+        self.perform = perform
+    }
 
     enum Category: String, CaseIterable {
         case navigation = "Navigation"
@@ -100,19 +120,22 @@ enum ActionRegistry {
               title: "Jump to Project Root",
               category: .navigation,
               icon: "arrow.up.to.line.circle",
-              defaultShortcut: KeyShortcut("r", [.command, .control])) { $0.jumpToProjectRoot(nil) },
+              defaultShortcut: KeyShortcut("r", [.command, .control]),
+              isDeveloper: true) { $0.jumpToProjectRoot(nil) },
         .init(id: "project.open-editor",
               title: "Open in Editor",
               category: .navigation,
               icon: "chevron.left.forwardslash.chevron.right",
-              defaultShortcut: KeyShortcut("o", [.command, .shift])) { $0.openInEditor(nil) },
+              defaultShortcut: KeyShortcut("o", [.command, .shift]),
+              isDeveloper: true) { $0.openInEditor(nil) },
 
         // -------- File --------
         .init(id: "git.view-diffs",
               title: "View Git Diffs",
               category: .file,
               icon: "arrow.triangle.branch",
-              defaultShortcut: nil) { $0.viewGitDiffs(nil) },
+              defaultShortcut: nil,
+              isDeveloper: true) { $0.viewGitDiffs(nil) },
         .init(id: "file.new-folder",
               title: "New Folder",
               category: .file,
