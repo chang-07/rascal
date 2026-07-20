@@ -1027,6 +1027,68 @@ final class TestRunner {
         FolderViewPrefs.clearAll()
         assert("clearAll empties the store", FolderViewPrefs.count == 0, "count=\(FolderViewPrefs.count)")
 
+        // --- T-listcols: configurable list-view column model + persistence ---
+        // Runs against the headless test store key (FT_HEADLESS_TESTING=1), so it
+        // never touches the user's real chosen columns.
+        ListColumnPrefs.reset()
+        // The required columns exist and Name is the only mandatory one.
+        assert("Name is a mandatory column", ListColumn.name.isMandatory, "not mandatory")
+        assert("only Name is mandatory",
+               ListColumn.allCases.filter { $0.isMandatory } == [.name],
+               "got \(ListColumn.allCases.filter { $0.isMandatory })")
+        assert("Tags / Comments / Date Added columns exist",
+               ListColumn(rawValue: "tags") == .tags
+                && ListColumn(rawValue: "comments") == .comments
+                && ListColumn(rawValue: "dateAdded") == .dateAdded, "missing a column")
+        // Default (uncustomized) visible set matches the historical fixed layout.
+        assert("default columns = Name/Modified/Size/Kind",
+               ListColumnPrefs.visible == [.name, .modified, .size, .kind],
+               "got \(ListColumnPrefs.visible)")
+        assert("Tags hidden by default", !ListColumnPrefs.isVisible(.tags), "visible")
+        // Tags / Comments have no sort key; the date/size/name columns do.
+        assert("Tags column is not sortable", ListColumn.tags.sortKey == nil, "has sort key")
+        assert("Comments column is not sortable", ListColumn.comments.sortKey == nil, "has sort key")
+        assert("Date Added has no FileItem sort key", ListColumn.dateAdded.sortKey == nil, "has sort key")
+        assert("Name column sorts by name", ListColumn.name.sortKey == .name, "wrong key")
+        assert("Created column sorts by dateCreated", ListColumn.created.sortKey == .dateCreated, "wrong key")
+        // Spotlight-backed columns are flagged for the off-main fetch.
+        assert("Comments needs Spotlight", ListColumn.comments.needsSpotlight, "not flagged")
+        assert("Date Added needs Spotlight", ListColumn.dateAdded.needsSpotlight, "not flagged")
+        assert("Tags does NOT need Spotlight", !ListColumn.tags.needsSpotlight, "wrongly flagged")
+        // Toggle a column on → it persists and reports visible.
+        let tagsNowOn = ListColumnPrefs.toggle(.tags)
+        assert("toggle(.tags) turns it on", tagsNowOn, "still off")
+        assert("toggled column is persisted visible", ListColumnPrefs.isVisible(.tags), "not visible")
+        assert("visible set keeps canonical order",
+               ListColumnPrefs.visible == ListColumn.allCases.filter { ListColumnPrefs.visible.contains($0) },
+               "got \(ListColumnPrefs.visible)")
+        // Toggle it back off.
+        let tagsNowOff = ListColumnPrefs.toggle(.tags)
+        assert("toggle(.tags) again turns it off", !tagsNowOff, "still on")
+        assert("toggled-off column not visible", !ListColumnPrefs.isVisible(.tags), "still visible")
+        // Mandatory column can't be hidden, even by direct toggle or an empty set.
+        assert("toggle(.name) keeps it visible", ListColumnPrefs.toggle(.name), "Name turned off")
+        ListColumnPrefs.visible = []   // explicit "everything off"
+        assert("empty set still shows Name", ListColumnPrefs.isVisible(.name), "Name hidden")
+        assert("empty set collapses to just Name",
+               ListColumnPrefs.visible == [.name], "got \(ListColumnPrefs.visible)")
+        // A corrupt stored value with no usable column id falls back to defaults
+        // rather than blanking the list (the getter's last-resort guard).
+        UserDefaults.standard.set(["bogus", "nonsense"], forKey: "FinderTwo.listColumns.test")
+        assert("corrupt stored columns fall back to defaults",
+               ListColumnPrefs.visible == [.name, .modified, .size, .kind],
+               "got \(ListColumnPrefs.visible)")
+        // Setter canonicalizes (dedupes, forces Name on, enum order).
+        ListColumnPrefs.visible = [.comments, .comments, .kind]
+        assert("setter forces Name on + dedupes + orders",
+               ListColumnPrefs.visible == [.name, .kind, .comments],
+               "got \(ListColumnPrefs.visible)")
+        // reset() restores the default set.
+        ListColumnPrefs.reset()
+        assert("reset restores default columns",
+               ListColumnPrefs.visible == [.name, .modified, .size, .kind],
+               "got \(ListColumnPrefs.visible)")
+
         // --- T-eta: transfer throughput + ETA ---
         let etaOp = TransferOp(id: 1, move: false, plan: [])
         assert("a waiting op has no throughput", etaOp.bytesPerSecond == 0, "got \(etaOp.bytesPerSecond)")
@@ -1681,6 +1743,30 @@ final class TestRunner {
         pane.setViewMode(.list)
         assert("setViewMode(.list) honored", pane.viewMode == .list, "got=\(pane.viewMode)")
 
+        // --- T-listcols-live: the real FileListController builds every column and
+        // its header-chooser menu reflects the persisted visible set. ---
+        let listTV = pane.testFileList.tableView
+        let builtIDs = Set(listTV.tableColumns.map { $0.identifier.rawValue })
+        assert("list view builds every ListColumn",
+               builtIDs == Set(ListColumn.allCases.map { $0.id }),
+               "got \(builtIDs.sorted())")
+        // Header context menu offers exactly the toggleable (non-mandatory) cols.
+        if let headerMenu = listTV.headerView?.menu {
+            let menuIDs = Set(headerMenu.items.compactMap { $0.representedObject as? String })
+            assert("header menu lists all toggleable columns",
+                   menuIDs == Set(ListColumn.allCases.filter { !$0.isMandatory }.map { $0.id }),
+                   "got \(menuIDs.sorted())")
+            assert("header menu omits the mandatory Name column",
+                   !menuIDs.contains(ListColumn.name.id), "Name present")
+        } else {
+            assert("list view has a header chooser menu", false, "no menu")
+        }
+        // A hidden-by-default column (Tags) is actually hidden on the live table.
+        if let tagsCol = listTV.tableColumns.first(where: { $0.identifier.rawValue == ListColumn.tags.id }) {
+            assert("Tags column hidden on a fresh list view", tagsCol.isHidden, "visible")
+        } else { assert("Tags column present on the table", false, "missing") }
+        ListColumnPrefs.reset()
+
         // setViewMode(persist:false) must NOT record a per-folder pref (used for
         // the launch-time global default); a normal user change must.
         FolderViewPrefs.clearAll()
@@ -1725,9 +1811,21 @@ final class TestRunner {
         assert("arrangeBy(.kind) sets the sort key", pane.testModel.sort.key == .kind,
                "got=\(pane.testModel.sort.key)")
         pane.arrangeBy(.name)
-        // Preview drawer toggles (builds the QLPreviewView without crashing).
+        // Preview drawer must actually BUILD the QuickLook view, not just flip the
+        // visible flag — regression guard for the blank-pane bug where content was
+        // loaded from the slide's completion handler before the host had a width.
+        pane.testReloadSync()
+        if let previewItem = pane.testCurrentItems.first(where: { !$0.isDirectory }) {
+            pane.testSelectItem(previewItem)
+        }
         pane.togglePreviewDrawer()
+        pane.view.layoutSubtreeIfNeeded()
         assert("preview drawer opens", pane.testPreviewVisible, "not visible")
+        assert("preview host laid out (non-zero)",
+               pane.testPreviewHostSize.width >= 1 && pane.testPreviewHostSize.height >= 1,
+               "host=\(pane.testPreviewHostSize)")
+        assert("preview builds a live QuickLook view",
+               pane.testPreviewHasQLView, "no QLPreviewView built")
         pane.togglePreviewDrawer()
         assert("preview drawer closes", !pane.testPreviewVisible, "still visible")
 
@@ -1745,6 +1843,25 @@ final class TestRunner {
                withHidden, "missing")
         pane.toggleHidden()
         pane.testReloadSync()
+
+        // --- T48b: fast scan keeps entries even when lstat fails ---
+        // The real, locally-reproducible "some folders don't show all the files" bug:
+        // a directory that's readable but NOT searchable (mode r--, no execute) lets
+        // readdir list the names, but makes lstat on every entry fail (EACCES). The old
+        // fast path `continue`d on lstat failure and hid every file. (The earlier
+        // non-UTF-8-name variant can't be reproduced on APFS/HFS+, which enforce valid
+        // Unicode filenames — macOS rewrites bad bytes to U+FFFD, so no such file can
+        // exist locally to test against.)
+        let noExecDir = sandbox.appendingPathComponent("noexec")
+        try? FileManager.default.createDirectory(at: noExecDir, withIntermediateDirectories: true)
+        for n in ["p.txt", "q.txt", "r.txt"] {
+            try? "x".write(to: noExecDir.appendingPathComponent(n), atomically: true, encoding: .utf8)
+        }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: noExecDir.path)
+        let noExecScan = FastDirScan.list(noExecDir)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: noExecDir.path)  // restore so cleanup can delete
+        assert("fast scan keeps entries when lstat fails (readable-but-not-searchable dir)",
+               noExecScan.count == 3, "expected 3, got \(noExecScan.count): \(noExecScan.map { $0.name })")
 
         // --- T49: PathBar emits ordered segments root → leaf ---
         let probeURL = URL(fileURLWithPath: "/Users/chang/Desktop")
@@ -2206,8 +2323,8 @@ final class TestRunner {
                wc.window?.titleVisibility == .hidden, "vis=\(String(describing: wc.window?.titleVisibility))")
         assert("title hidden → sidebar top inset \(inset)",
                chromeSidebar?.testTopInset == inset, "inset=\(chromeSidebar?.testTopInset ?? -9)")
-        assert("title hidden → pane toolbar top inset \(inset) (aligns with sidebar)",
-               pane.testToolbarTopInset == inset, "inset=\(pane.testToolbarTopInset)")
+        assert("title hidden → pane toolbar top inset 0 (lights are over the sidebar, not the main pane)",
+               pane.testToolbarTopInset == 0, "inset=\(pane.testToolbarTopInset)")
         Settings.showTitleBar = true
         wait(0.02)
         assert("title shown → no fullSizeContentView",
@@ -2267,7 +2384,18 @@ final class TestRunner {
             assert("command palette Open With test file exists", false, "test file not found")
         }
 
-        // --- T62: Explorer-style sidebar folder tree (lazy, off-screen) ---
+        // --- T62: ⌘N opens ADDITIONAL, independent browser windows ---
+        // Regression guard for the multi-window bug: invoking the new-window
+        // code path N times must yield N *distinct* browser window controllers,
+        // each with its own active pane. (The bug shared one frame autosave name
+        // across all windows, so additional windows stacked invisibly on the
+        // first — it looked like ⌘N did nothing.)
+        runMultiWindowTests(appDelegate: appDelegate, sandbox: sandbox)
+
+        // --- T63: RecentDirectories store (push / dedup / cap / ordering) ---
+        testRecentDirectories(sandbox: sandbox)
+
+        // --- T64: Explorer-style sidebar folder tree (lazy, off-screen) ---
         runSidebarFolderTreeTests(sandbox)
 
         finish()
@@ -2372,6 +2500,47 @@ final class TestRunner {
         assert("folder tree roots include the home folder",
                liveSidebar.testTreeRootTitles.contains(NSUserName()),
                "roots=\(liveSidebar.testTreeRootTitles)")
+    }
+
+    /// Drive the new-window path repeatedly and assert each call produces a
+    /// fresh, independent BrowserWindowController. Runs headless (windows are
+    /// parked far off-screen by AppDelegate.finishOpening), so nothing appears.
+    private func runMultiWindowTests(appDelegate: AppDelegate, sandbox: URL) {
+        // Start from a clean slate so the count is unambiguous.
+        for w in NSApp.windows { w.close() }
+        wait(0.05)
+        let before = appDelegate.testWindowControllers.count
+
+        let n = 3
+        for _ in 0..<n {
+            // Exactly the path ⌘N takes (AppDelegate.newWindow → this).
+            appDelegate.openNewBrowserWindow(at: sandbox)
+            wait(0.05)
+        }
+
+        let controllers = appDelegate.testWindowControllers
+        assert("new-window path opens N additional windows",
+               controllers.count == before + n,
+               "expected \(before + n), got \(controllers.count)")
+
+        // Each must be a distinct controller instance (no single-instance dedupe
+        // collapsing them into one).
+        let recent = Array(controllers.suffix(n))
+        let distinct = Set(recent.map { ObjectIdentifier($0) })
+        assert("each new window is a distinct controller",
+               distinct.count == n,
+               "got \(distinct.count) unique of \(recent.count)")
+
+        // Each window must own its own active pane (independent state).
+        let panes = recent.compactMap { $0.testActivePane }
+        let distinctPanes = Set(panes.map { ObjectIdentifier($0) })
+        assert("each new window has its own pane",
+               panes.count == n && distinctPanes.count == n,
+               "panes=\(panes.count) distinct=\(distinctPanes.count)")
+
+        // Clean up the windows this test opened.
+        for w in NSApp.windows { w.close() }
+        wait(0.05)
     }
 
     /// Build every modal/window controller and force its view to load. A crash
@@ -3355,6 +3524,88 @@ final class TestRunner {
         guard let window else { return }
         window.setFrame(NSRect(x: -30000, y: -30000, width: 600, height: 400), display: false)
         window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    /// Pure-logic coverage for the global recent-directories history: ordering
+    /// (most-recent-first), de-duplication (re-visit promotes, no copy), the
+    /// no-op when re-recording the front, the cap, and clear(). Runs entirely on
+    /// the store; saves/restores the live UserDefaults value so it doesn't
+    /// disturb the developer's real history.
+    private func testRecentDirectories(sandbox: URL) {
+        let defaultsKey = "FinderTwo.recentDirectories.v1"
+        let saved = UserDefaults.standard.array(forKey: defaultsKey)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: defaultsKey) }
+            else { UserDefaults.standard.removeObject(forKey: defaultsKey) }
+        }
+        RecentDirectories.clear()
+
+        // Real, existing dirs so the existence filter in all() keeps them.
+        let fm = FileManager.default
+        let root = sandbox.appendingPathComponent("recents_test", isDirectory: true)
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        func dir(_ n: Int) -> URL {
+            let u = root.appendingPathComponent("d\(n)", isDirectory: true)
+            try? fm.createDirectory(at: u, withIntermediateDirectories: true)
+            return u
+        }
+
+        assert("recents: empty to start", RecentDirectories.all().isEmpty,
+               "got \(RecentDirectories.all().count)")
+
+        // Ordering: most-recent-first.
+        let a = dir(1), b = dir(2), c = dir(3)
+        RecentDirectories.record(a)
+        RecentDirectories.record(b)
+        RecentDirectories.record(c)
+        assert("recents: most-recent-first ordering",
+               RecentDirectories.all().map { $0.path } == [c.path, b.path, a.path],
+               "got \(RecentDirectories.all().map { $0.lastPathComponent })")
+
+        // Dedup: re-visiting an older entry promotes it to the front (no copy).
+        RecentDirectories.record(a)
+        assert("recents: revisit promotes + dedups",
+               RecentDirectories.all().map { $0.path } == [a.path, c.path, b.path],
+               "got \(RecentDirectories.all().map { $0.lastPathComponent })")
+        assert("recents: no duplicate entries after revisit",
+               RecentDirectories.all().filter { $0.path == a.path }.count == 1,
+               "got \(RecentDirectories.all().filter { $0.path == a.path }.count)")
+
+        // No-op: recording the current front again doesn't reorder or duplicate.
+        let beforeFront = RecentDirectories.all().map { $0.path }
+        RecentDirectories.record(a)
+        assert("recents: re-recording front is a no-op",
+               RecentDirectories.all().map { $0.path } == beforeFront,
+               "changed to \(RecentDirectories.all().map { $0.lastPathComponent })")
+
+        // Cap: pushing more than maxCount keeps only the most recent maxCount,
+        // newest first, and evicts the oldest.
+        RecentDirectories.clear()
+        let cap = RecentDirectories.maxCount
+        var pushed: [URL] = []
+        for i in 0..<(cap + 5) {
+            let u = dir(100 + i)
+            pushed.append(u)
+            RecentDirectories.record(u)
+        }
+        let capped = RecentDirectories.all()
+        assert("recents: capped at maxCount", capped.count == cap, "got \(capped.count)")
+        assert("recents: cap keeps newest first",
+               capped.first?.path == pushed.last?.path,
+               "front=\(capped.first?.lastPathComponent ?? "nil")")
+        assert("recents: cap evicts the oldest",
+               !capped.contains { $0.path == pushed.first?.path },
+               "oldest still present")
+
+        // clear() empties the history.
+        RecentDirectories.clear()
+        assert("recents: clear empties", RecentDirectories.all().isEmpty,
+               "got \(RecentDirectories.all().count)")
+
+        // The action is registered (so palette + menus surface it).
+        assert("recents: action registered",
+               ActionRegistry.action(id: "nav.recent-directories") != nil,
+               "nav.recent-directories missing from ActionRegistry")
     }
 
     // MARK: Helpers
