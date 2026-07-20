@@ -1725,9 +1725,21 @@ final class TestRunner {
         assert("arrangeBy(.kind) sets the sort key", pane.testModel.sort.key == .kind,
                "got=\(pane.testModel.sort.key)")
         pane.arrangeBy(.name)
-        // Preview drawer toggles (builds the QLPreviewView without crashing).
+        // Preview drawer must actually BUILD the QuickLook view, not just flip the
+        // visible flag — regression guard for the blank-pane bug where content was
+        // loaded from the slide's completion handler before the host had a width.
+        pane.testReloadSync()
+        if let previewItem = pane.testCurrentItems.first(where: { !$0.isDirectory }) {
+            pane.testSelectItem(previewItem)
+        }
         pane.togglePreviewDrawer()
+        pane.view.layoutSubtreeIfNeeded()
         assert("preview drawer opens", pane.testPreviewVisible, "not visible")
+        assert("preview host laid out (non-zero)",
+               pane.testPreviewHostSize.width >= 1 && pane.testPreviewHostSize.height >= 1,
+               "host=\(pane.testPreviewHostSize)")
+        assert("preview builds a live QuickLook view",
+               pane.testPreviewHasQLView, "no QLPreviewView built")
         pane.togglePreviewDrawer()
         assert("preview drawer closes", !pane.testPreviewVisible, "still visible")
 
@@ -1745,6 +1757,25 @@ final class TestRunner {
                withHidden, "missing")
         pane.toggleHidden()
         pane.testReloadSync()
+
+        // --- T48b: fast scan keeps entries even when lstat fails ---
+        // The real, locally-reproducible "some folders don't show all the files" bug:
+        // a directory that's readable but NOT searchable (mode r--, no execute) lets
+        // readdir list the names, but makes lstat on every entry fail (EACCES). The old
+        // fast path `continue`d on lstat failure and hid every file. (The earlier
+        // non-UTF-8-name variant can't be reproduced on APFS/HFS+, which enforce valid
+        // Unicode filenames — macOS rewrites bad bytes to U+FFFD, so no such file can
+        // exist locally to test against.)
+        let noExecDir = sandbox.appendingPathComponent("noexec")
+        try? FileManager.default.createDirectory(at: noExecDir, withIntermediateDirectories: true)
+        for n in ["p.txt", "q.txt", "r.txt"] {
+            try? "x".write(to: noExecDir.appendingPathComponent(n), atomically: true, encoding: .utf8)
+        }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: noExecDir.path)
+        let noExecScan = FastDirScan.list(noExecDir)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: noExecDir.path)  // restore so cleanup can delete
+        assert("fast scan keeps entries when lstat fails (readable-but-not-searchable dir)",
+               noExecScan.count == 3, "expected 3, got \(noExecScan.count): \(noExecScan.map { $0.name })")
 
         // --- T49: PathBar emits ordered segments root → leaf ---
         let probeURL = URL(fileURLWithPath: "/Users/chang/Desktop")
@@ -2206,8 +2237,8 @@ final class TestRunner {
                wc.window?.titleVisibility == .hidden, "vis=\(String(describing: wc.window?.titleVisibility))")
         assert("title hidden → sidebar top inset \(inset)",
                chromeSidebar?.testTopInset == inset, "inset=\(chromeSidebar?.testTopInset ?? -9)")
-        assert("title hidden → pane toolbar top inset \(inset) (aligns with sidebar)",
-               pane.testToolbarTopInset == inset, "inset=\(pane.testToolbarTopInset)")
+        assert("title hidden → pane toolbar top inset 0 (lights are over the sidebar, not the main pane)",
+               pane.testToolbarTopInset == 0, "inset=\(pane.testToolbarTopInset)")
         Settings.showTitleBar = true
         wait(0.02)
         assert("title shown → no fullSizeContentView",
@@ -2267,10 +2298,59 @@ final class TestRunner {
             assert("command palette Open With test file exists", false, "test file not found")
         }
 
-        // --- T62: RecentDirectories store (push / dedup / cap / ordering) ---
+        // --- T62: ⌘N opens ADDITIONAL, independent browser windows ---
+        // Regression guard for the multi-window bug: invoking the new-window
+        // code path N times must yield N *distinct* browser window controllers,
+        // each with its own active pane. (The bug shared one frame autosave name
+        // across all windows, so additional windows stacked invisibly on the
+        // first — it looked like ⌘N did nothing.)
+        runMultiWindowTests(appDelegate: appDelegate, sandbox: sandbox)
+
+        // --- T63: RecentDirectories store (push / dedup / cap / ordering) ---
         testRecentDirectories(sandbox: sandbox)
 
         finish()
+    }
+
+    /// Drive the new-window path repeatedly and assert each call produces a
+    /// fresh, independent BrowserWindowController. Runs headless (windows are
+    /// parked far off-screen by AppDelegate.finishOpening), so nothing appears.
+    private func runMultiWindowTests(appDelegate: AppDelegate, sandbox: URL) {
+        // Start from a clean slate so the count is unambiguous.
+        for w in NSApp.windows { w.close() }
+        wait(0.05)
+        let before = appDelegate.testWindowControllers.count
+
+        let n = 3
+        for _ in 0..<n {
+            // Exactly the path ⌘N takes (AppDelegate.newWindow → this).
+            appDelegate.openNewBrowserWindow(at: sandbox)
+            wait(0.05)
+        }
+
+        let controllers = appDelegate.testWindowControllers
+        assert("new-window path opens N additional windows",
+               controllers.count == before + n,
+               "expected \(before + n), got \(controllers.count)")
+
+        // Each must be a distinct controller instance (no single-instance dedupe
+        // collapsing them into one).
+        let recent = Array(controllers.suffix(n))
+        let distinct = Set(recent.map { ObjectIdentifier($0) })
+        assert("each new window is a distinct controller",
+               distinct.count == n,
+               "got \(distinct.count) unique of \(recent.count)")
+
+        // Each window must own its own active pane (independent state).
+        let panes = recent.compactMap { $0.testActivePane }
+        let distinctPanes = Set(panes.map { ObjectIdentifier($0) })
+        assert("each new window has its own pane",
+               panes.count == n && distinctPanes.count == n,
+               "panes=\(panes.count) distinct=\(distinctPanes.count)")
+
+        // Clean up the windows this test opened.
+        for w in NSApp.windows { w.close() }
+        wait(0.05)
     }
 
     /// Build every modal/window controller and force its view to load. A crash

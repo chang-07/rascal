@@ -207,6 +207,15 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.showGitBranchInStatusBar"); notify() }
     }
 
+    /// Surface programmer-oriented commands (View Git Diffs, Jump to Project
+    /// Root, Open in Editor) directly in the menus. Off by default — those
+    /// actions live under a "Developer" submenu and the command palette so the
+    /// default menus stay lean for general users.
+    static var developerMode: Bool {
+        get { d.object(forKey: "FinderTwo.developerMode") as? Bool ?? false }
+        set { d.set(newValue, forKey: "FinderTwo.developerMode"); notify() }
+    }
+
     static var terminalShell: String {
         // Fall back to a sane default for a missing, empty, whitespace-only, or
         // non-executable value, so a bad custom path can't make every terminal
@@ -258,6 +267,7 @@ enum Settings {
                     "FinderTwo.springLoadedFolders", "FinderTwo.springLoadDelay",
                     "FinderTwo.useGroups",
                     "FinderTwo.gitIntegrationEnabled", "FinderTwo.showGitBranchInStatusBar",
+                    "FinderTwo.developerMode",
                     "FinderTwo.terminalShell", "FinderTwo.alwaysShowTabBar",
                     "FinderTwo.alternatingRows", "FinderTwo.doubleClickFolderOpensNewTab"] {
             d.removeObject(forKey: key)
