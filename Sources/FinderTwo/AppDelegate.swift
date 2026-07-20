@@ -395,6 +395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         goMenu.addItem(NSMenuItem.separator())
         goMenu.addItem(routed("nav.goto", title: "Go to Folder…"))
         goMenu.addItem(routed("nav.home", title: "Home"))
+        goMenu.addItem(routed("nav.recent-directories", title: "Recent Directories"))
         if Settings.developerMode {
             // Inline when developer mode is on; otherwise these live in the
             // Developer submenu added below.

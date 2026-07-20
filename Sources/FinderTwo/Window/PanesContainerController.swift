@@ -107,6 +107,10 @@ final class PanesContainerController: NSSplitViewController {
             let key = ObjectIdentifier(pane)
             let old = self.paneLastURL[key] ?? url
             self.paneLastURL[key] = url
+            // Global recent-directories history is session-wide and pane-agnostic:
+            // record every pane's visits here (the single funnel for pane folder
+            // changes), not just the active pane's.
+            RecentDirectories.record(url)
             if let idx = self.panes.firstIndex(where: { $0 === pane }), idx == self.activeIndex {
                 if self.syncBrowsing, !self.isMirroring, self.panes.count > 1 {
                     self.mirrorNavigation(from: old, to: url, sourcePane: pane)
