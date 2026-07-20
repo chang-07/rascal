@@ -1725,9 +1725,21 @@ final class TestRunner {
         assert("arrangeBy(.kind) sets the sort key", pane.testModel.sort.key == .kind,
                "got=\(pane.testModel.sort.key)")
         pane.arrangeBy(.name)
-        // Preview drawer toggles (builds the QLPreviewView without crashing).
+        // Preview drawer must actually BUILD the QuickLook view, not just flip the
+        // visible flag — regression guard for the blank-pane bug where content was
+        // loaded from the slide's completion handler before the host had a width.
+        pane.testReloadSync()
+        if let previewItem = pane.testCurrentItems.first(where: { !$0.isDirectory }) {
+            pane.testSelectItem(previewItem)
+        }
         pane.togglePreviewDrawer()
+        pane.view.layoutSubtreeIfNeeded()
         assert("preview drawer opens", pane.testPreviewVisible, "not visible")
+        assert("preview host laid out (non-zero)",
+               pane.testPreviewHostSize.width >= 1 && pane.testPreviewHostSize.height >= 1,
+               "host=\(pane.testPreviewHostSize)")
+        assert("preview builds a live QuickLook view",
+               pane.testPreviewHasQLView, "no QLPreviewView built")
         pane.togglePreviewDrawer()
         assert("preview drawer closes", !pane.testPreviewVisible, "still visible")
 
