@@ -70,29 +70,46 @@ enum FastDirScan {
             if isDotEntry { continue }          // "." / ".."
             pathBytes.append(0)                 // NUL-terminate for the C calls
 
+            // Fetch metadata — but do NOT drop the entry if lstat fails. readdir
+            // already reported the file exists; a failed lstat (a directory that's
+            // readable but not searchable — mode r-- with no x — or an item racing
+            // deletion) used to `continue` and silently hide the file, which is the
+            // real local "some folders don't show all the files" bug. Keep the row
+            // and fall back to readdir's d_type for the icon.
             var st = stat()
-            if lstat(pathBytes, &st) != 0 { continue }
+            let haveStat = lstat(pathBytes, &st) == 0
 
-            let isSymlink = (st.st_mode & S_IFMT) == S_IFLNK
+            let isSymlink: Bool
             let isDir: Bool
-            if isSymlink {
-                // Resolve symlinks once so directory icons follow Finder behavior.
-                var stTarget = stat()
-                isDir = (stat(pathBytes, &stTarget) == 0)
-                    && (stTarget.st_mode & S_IFMT) == S_IFDIR
+            if haveStat {
+                isSymlink = (st.st_mode & S_IFMT) == S_IFLNK
+                if isSymlink {
+                    // Resolve symlinks once so directory icons follow Finder behavior.
+                    var stTarget = stat()
+                    isDir = (stat(pathBytes, &stTarget) == 0)
+                        && (stTarget.st_mode & S_IFMT) == S_IFDIR
+                } else {
+                    isDir = (st.st_mode & S_IFMT) == S_IFDIR
+                }
             } else {
-                isDir = (st.st_mode & S_IFMT) == S_IFDIR
+                // No stat available — use the directory entry's own type, which
+                // readdir provides without a stat. DT_UNKNOWN falls through to file.
+                isSymlink = Int32(entry.d_type) == DT_LNK
+                isDir = Int32(entry.d_type) == DT_DIR
             }
-            let mtime = Date(timeIntervalSince1970: Double(st.st_mtimespec.tv_sec)
-                                + Double(st.st_mtimespec.tv_nsec) / 1_000_000_000)
-            let ctime = Date(timeIntervalSince1970: Double(st.st_birthtimespec.tv_sec)
-                                + Double(st.st_birthtimespec.tv_nsec) / 1_000_000_000)
-            let size = isDir ? Int64(-1) : Int64(st.st_size)
-            // st_blocks is in fixed 512-byte units (POSIX), independent of the
-            // filesystem block size — this is the actual on-disk footprint and
-            // is what `du` and Disk Utility's "used" are based on. For symlinks
-            // this is the link's own (tiny) allocation, not the target's.
-            let physicalSize = Int64(st.st_blocks) * 512
+            let mtime = haveStat
+                ? Date(timeIntervalSince1970: Double(st.st_mtimespec.tv_sec)
+                        + Double(st.st_mtimespec.tv_nsec) / 1_000_000_000)
+                : Date(timeIntervalSince1970: 0)
+            let ctime = haveStat
+                ? Date(timeIntervalSince1970: Double(st.st_birthtimespec.tv_sec)
+                        + Double(st.st_birthtimespec.tv_nsec) / 1_000_000_000)
+                : Date(timeIntervalSince1970: 0)
+            let size = isDir ? Int64(-1) : (haveStat ? Int64(st.st_size) : 0)
+            // st_blocks is in fixed 512-byte units (POSIX) — the actual on-disk
+            // footprint (what `du` / Disk Utility "used" report). For symlinks this
+            // is the link's own (tiny) allocation, not the target's.
+            let physicalSize = haveStat ? Int64(st.st_blocks) * 512 : 0
             // Display name keeps its original encoding, precomposed for HFS+/APFS
             // consistency (cheap for ASCII names).
             let name = (displayName as NSString).precomposedStringWithCanonicalMapping
@@ -112,8 +129,10 @@ enum FastDirScan {
                 url: url, name: name,
                 isDirectory: isDir, isSymlink: isSymlink, isHidden: isHidden,
                 size: size, modified: mtime, created: ctime, ext: ext,
-                physicalSize: physicalSize, inode: UInt64(st.st_ino),
-                device: Int32(st.st_dev), linkCount: Int(st.st_nlink)
+                physicalSize: physicalSize,
+                inode: haveStat ? UInt64(st.st_ino) : 0,
+                device: haveStat ? Int32(st.st_dev) : 0,
+                linkCount: haveStat ? Int(st.st_nlink) : 1
             ))
         }
         return out

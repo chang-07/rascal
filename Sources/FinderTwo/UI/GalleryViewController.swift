@@ -15,6 +15,9 @@ final class GalleryViewController: NSViewController, ThemeObserving {
     private var items: [FileItem] = []
     private(set) var focused: FileItem?
     private var stripButtons: [NSButton] = []
+    /// How many items the cap dropped from the current folder — drives the
+    /// "+N more" indicator so a large folder doesn't look like it's hiding files.
+    private var truncatedCount = 0
 
     override func loadView() {
         let root = NSView()
@@ -71,6 +74,7 @@ final class GalleryViewController: NSViewController, ThemeObserving {
     private static let maxStripItems = 400
 
     func reload(_ items: [FileItem]) {
+        truncatedCount = max(0, items.count - Self.maxStripItems)
         self.items = items.count > Self.maxStripItems ? Array(items.prefix(Self.maxStripItems)) : items
         rebuildStrip()
         focus(self.items.first)
@@ -97,6 +101,19 @@ final class GalleryViewController: NSViewController, ThemeObserving {
             b.addGestureRecognizer(dbl)
             strip.addArrangedSubview(b)
             stripButtons.append(b)
+        }
+        // The strip is capped for performance (see maxStripItems). Surface the
+        // remainder so a big folder doesn't look like it's silently dropping files —
+        // the full set is always in List/Column view and the status-bar count.
+        if truncatedCount > 0 {
+            let more = NSTextField(labelWithString: "+\(truncatedCount) more")
+            more.font = .systemFont(ofSize: 11)
+            more.textColor = .secondaryLabelColor
+            more.alignment = .center
+            more.translatesAutoresizingMaskIntoConstraints = false
+            more.widthAnchor.constraint(greaterThanOrEqualToConstant: 72).isActive = true
+            more.toolTip = "Gallery shows the first \(Self.maxStripItems) items for performance. Switch to List or Column view to see all \(items.count + truncatedCount)."
+            strip.addArrangedSubview(more)
         }
     }
 

@@ -1746,30 +1746,24 @@ final class TestRunner {
         pane.toggleHidden()
         pane.testReloadSync()
 
-        // --- T48b: fast scan must list files with non-UTF-8 names ---
-        // Regression guard: the readdir fast path used to rebuild the lstat path from
-        // a lossy String(cString:) decode, so a file whose name isn't valid UTF-8 got
-        // a mangled path, lstat failed, and the entry silently vanished ("some folders
-        // don't show all the files").
-        let utf8Dir = sandbox.appendingPathComponent("utf8drop")
-        try? FileManager.default.createDirectory(at: utf8Dir, withIntermediateDirectories: true)
-        for n in ["a.txt", "b.txt", "c.txt"] {
-            try? "x".write(to: utf8Dir.appendingPathComponent(n), atomically: true, encoding: .utf8)
+        // --- T48b: fast scan keeps entries even when lstat fails ---
+        // The real, locally-reproducible "some folders don't show all the files" bug:
+        // a directory that's readable but NOT searchable (mode r--, no execute) lets
+        // readdir list the names, but makes lstat on every entry fail (EACCES). The old
+        // fast path `continue`d on lstat failure and hid every file. (The earlier
+        // non-UTF-8-name variant can't be reproduced on APFS/HFS+, which enforce valid
+        // Unicode filenames — macOS rewrites bad bytes to U+FFFD, so no such file can
+        // exist locally to test against.)
+        let noExecDir = sandbox.appendingPathComponent("noexec")
+        try? FileManager.default.createDirectory(at: noExecDir, withIntermediateDirectories: true)
+        for n in ["p.txt", "q.txt", "r.txt"] {
+            try? "x".write(to: noExecDir.appendingPathComponent(n), atomically: true, encoding: .utf8)
         }
-        // "bad\u{FF}.txt": a stray 0xFF byte is not valid UTF-8 and can't be written
-        // through a Swift String path, so assemble the path from raw bytes.
-        var badNamePath = Array(utf8Dir.path.utf8CString.dropLast())   // drop trailing NUL
-        badNamePath.append(contentsOf: "/bad".utf8.map { CChar(bitPattern: $0) })
-        badNamePath.append(CChar(bitPattern: 0xFF))
-        badNamePath.append(contentsOf: ".txt".utf8.map { CChar(bitPattern: $0) })
-        badNamePath.append(0)
-        let badURL = badNamePath.withUnsafeBufferPointer {
-            URL(fileURLWithFileSystemRepresentation: $0.baseAddress!, isDirectory: false, relativeTo: nil)
-        }
-        try? Data("x".utf8).write(to: badURL)
-        let utf8Scan = FastDirScan.list(utf8Dir)
-        assert("fast scan lists files with non-UTF-8 names",
-               utf8Scan.count == 4, "expected 4, got \(utf8Scan.count): \(utf8Scan.map { $0.name })")
+        try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: noExecDir.path)
+        let noExecScan = FastDirScan.list(noExecDir)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: noExecDir.path)  // restore so cleanup can delete
+        assert("fast scan keeps entries when lstat fails (readable-but-not-searchable dir)",
+               noExecScan.count == 3, "expected 3, got \(noExecScan.count): \(noExecScan.map { $0.name })")
 
         // --- T49: PathBar emits ordered segments root → leaf ---
         let probeURL = URL(fileURLWithPath: "/Users/chang/Desktop")
