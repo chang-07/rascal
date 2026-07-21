@@ -1511,6 +1511,36 @@ final class TestRunner {
                lsEntries.contains { $0.name == "my folder" && $0.isDirectory },
                "got=\(lsEntries.map { $0.name })")
 
+        // --- T45d: SFTPLocation URL<->connection round-trip + FileItem.remote ---
+        let sconn = SFTPClient.Connection(user: "deploy", host: "box.example.com", port: 2222, remotePath: "~")
+        let surl = SFTPLocation.url(sconn, path: "/var/www/site")
+        assert("SFTPLocation builds a remote sftp:// URL",
+               surl.scheme == "sftp" && SFTPLocation.isRemote(surl),
+               "got=\(surl.absoluteString)")
+        if let parsed = SFTPLocation.parse(surl) {
+            assert("SFTPLocation round-trips user/host/port/path",
+                   parsed.conn.user == "deploy" && parsed.conn.host == "box.example.com"
+                   && parsed.conn.port == 2222 && parsed.path == "/var/www/site",
+                   "got=\(parsed.conn.user)@\(parsed.conn.host):\(parsed.conn.port) \(parsed.path)")
+        } else {
+            assert("SFTPLocation round-trips user/host/port/path", false, "parse returned nil")
+        }
+        let url22 = SFTPLocation.url(user: "u", host: "h", port: 22, path: "/a b/c")
+        assert("SFTPLocation defaults port 22 and round-trips a spaced path",
+               SFTPLocation.parse(url22)?.conn.port == 22 && SFTPLocation.parse(url22)?.path == "/a b/c",
+               "got=\(SFTPLocation.parse(url22).map { "\($0.conn.port) \($0.path)" } ?? "nil")")
+        assert("SFTPLocation.isRemote is false for a local file URL",
+               !SFTPLocation.isRemote(sandbox), "sandbox flagged remote")
+        let rfile = FileItem.remote(name: "notes.md", isDirectory: false, size: 42, parent: surl)
+        assert("FileItem.remote maps name/size/ext and nests the URL",
+               rfile.name == "notes.md" && rfile.size == 42 && rfile.ext == "md"
+               && !rfile.isDirectory && rfile.url.absoluteString.hasSuffix("/var/www/site/notes.md"),
+               "got=\(rfile.url.absoluteString) size=\(rfile.size) ext=\(rfile.ext)")
+        let rdir = FileItem.remote(name: ".hidden", isDirectory: true, size: -1, parent: surl)
+        assert("FileItem.remote flags dotfiles hidden, dirs as size -1",
+               rdir.isHidden && rdir.isDirectory && rdir.size == -1,
+               "hidden=\(rdir.isHidden) dir=\(rdir.isDirectory) size=\(rdir.size)")
+
         // --- T46: GitBranchWorkspaces repoRoot + currentBranch ---
         let gitProj = sandbox.appendingPathComponent("git_proj")
         try? FileManager.default.createDirectory(at: gitProj, withIntermediateDirectories: true)

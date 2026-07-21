@@ -78,6 +78,22 @@ enum SFTPClient {
         return nil
     }
 
+    /// Resolve a (possibly `~`, empty, or relative) path to an absolute remote
+    /// path, so every `sftp://` URL we build is canonical and navigation
+    /// (append/deleteLastPathComponent) stays consistent. Returns nil if the
+    /// connection fails.
+    static func realpath(_ conn: Connection, path: String) -> String? {
+        let batch = "cd \(escape(path.isEmpty ? "." : path))\npwd\nbye\n"
+        guard let raw = run(conn, stdin: batch) else { return nil }
+        // `sftp` prints: "Remote working directory: /home/user"
+        for line in raw.split(separator: "\n") {
+            if let r = line.range(of: "Remote working directory: ") {
+                return String(line[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
+
     // MARK: - Internals
 
     private static func escape(_ s: String) -> String {

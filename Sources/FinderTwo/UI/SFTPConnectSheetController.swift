@@ -143,8 +143,18 @@ final class SFTPConnectSheetController: NSWindowController, ThemeObserving {
         }
         guard let wc = target else { closeSheet(); return }
         SFTPBookmarks.add(c)
-        closeSheet()
-        SFTPBrowserController.show(for: wc, connection: c)
+        status.stringValue = "Connecting…"
+        // Resolve ~ / relative starting path to an absolute one off-main, then
+        // open the location in the ACTIVE PANE — first-class remote browsing in
+        // the normal file list, rather than the standalone modal browser.
+        let typed = c.remotePath
+        DispatchQueue.global(qos: .userInitiated).async {
+            let abs = SFTPClient.realpath(c, path: typed.isEmpty ? "~" : typed) ?? "/"
+            DispatchQueue.main.async { [weak self] in
+                self?.closeSheet()
+                wc.navigateActivePane(to: SFTPLocation.url(c, path: abs))
+            }
+        }
     }
 
     @objc private func closeSheet() {

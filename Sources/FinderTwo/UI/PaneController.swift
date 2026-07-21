@@ -1085,6 +1085,17 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     func fileListSelectionChanged() { updateStatus() }
     func fileListOpenItem(_ item: FileItem) {
+        if SFTPLocation.isRemote(item.url) {
+            // Remote: folders navigate in place; files download a copy and open
+            // it locally (read-only — we don't sync edits back to the server).
+            if item.isDirectory {
+                if Settings.doubleClickFolderOpensNewTab { newTab(at: item.url) }
+                else { navigate(to: item.url) }
+            } else {
+                downloadAndOpenRemote(item)
+            }
+            return
+        }
         if item.isPackage {
             NSWorkspace.shared.open(item.url)   // launch the app/bundle
         } else if item.isDirectory {
@@ -1099,6 +1110,22 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
             }
         } else {
             NSWorkspace.shared.open(item.url)
+        }
+    }
+
+    /// Download a remote (SFTP) file to a temp copy and open it with the default
+    /// app. Runs off-main; beeps on failure.
+    private func downloadAndOpenRemote(_ item: FileItem) {
+        guard let (conn, path) = SFTPLocation.parse(item.url) else { return }
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rascal-sftp", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let local = dir.appendingPathComponent(item.name)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ok = SFTPClient.download(conn, remotePath: path, to: local)
+            DispatchQueue.main.async {
+                if ok { NSWorkspace.shared.open(local) } else { NSSound.beep() }
+            }
         }
     }
     func fileListEnterParent() { goUp() }
