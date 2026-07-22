@@ -63,11 +63,21 @@ M1 Go SHALL 同时满足：`Core/**` domain 只依赖 Foundation/Darwin，native
 - **THEN** M1 判 No-go，不得继续 M2
 
 ### Requirement: M2 以完整 Copy 垂直切片作为 Go/No-go
-M2 Go SHALL要求所有mandatory fault、同卷与真实跨卷APFS、metadata、取消、竞态和性能证据通过，final path无partial，常用copy入口无旁路。M2只授权internal/debug vertical slice，正式release copy保持禁用直到M3 durable journal和M4主干切换通过。若窄适配需要结构性重写AppDelegate、BrowserWindow、PanesContainer、Pane、FileList、DirectoryModel中四个以上，或任一入口仍可回退legacy，M2 MUST No-go并重新评估新仓库。
+M2 Go SHALL要求所有mandatory fault、同卷与真实跨卷APFS、metadata、取消、竞态和性能证据通过，final path无partial，常用copy入口无旁路。M2只授权`#if DEBUG`且`RASCAL_ENABLE_M2_NATIVE_COPY=1`的vertical slice；`FT_RUN_TESTS`不得自动授权，release无论环境变量为何均保持禁用，直到M3 durable journal和M4主干切换通过。M2 volatile journal只证明当前进程一致性，不得宣称restart/crash durability。若窄适配需要结构性重写AppDelegate、BrowserWindow、PanesContainer、Pane、FileList、DirectoryModel中四个以上，或任一入口仍可回退legacy，M2 MUST No-go并重新评估新仓库。
+
+M2 constructor injection SHALL沿唯一composition root显式传播`AppDelegate → BrowserWindowController → PanesContainerController → PaneController/FileListController/DropStackController`，不得新增singleton或在任一UI owner内再次构造service。Paste、list drag、icon drag、pane-to-pane、Drop Stack和duplicate六类copy入口每次用户动作 MUST只产生一个OperationID、一次native engine submission和零legacy enqueue。
 
 #### Scenario: Mandatory volume case 被跳过
 - **WHEN** M2 gate 把真实跨卷 APFS 标为 skipped
 - **THEN** M2 gate 失败，safe copy 不得在正式构建启用
+
+#### Scenario: 测试环境变量未授权写能力
+- **WHEN** debug App仅设置`FT_RUN_TESTS=1`而未精确设置`RASCAL_ENABLE_M2_NATIVE_COPY=1`
+- **THEN** M2 native copy submit保持拒绝，route probe不得产生filesystem effect
+
+#### Scenario: Release 注入 M2 环境变量
+- **WHEN** release App设置`RASCAL_ENABLE_M2_NATIVE_COPY=1`
+- **THEN** composition root仍构造unavailable graph，六类copy入口均不得启用native或legacy写入
 
 ### Requirement: M4 关闭三条 P0 路径后才能启用主干
 M4 Go SHALL同时证明：旧streamed copy无调用入口、Replace不再预删/预Trash目标、跨卷move不在SHA-256/commit前改变source路径；一次操作只进入一个engine；旧TransferQueue不写用户数据；build、Swift tests、fault/crash tests、605项smoke、GUI与旁路扫描全部通过。M1 SHALL冻结605个assertion label/ID manifest及其SHA；M4迁移旧TransferQueue断言时保留稳定ID和安全语义，禁止删一项再用无关断言补足计数。

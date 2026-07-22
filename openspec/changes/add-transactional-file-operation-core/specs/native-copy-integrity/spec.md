@@ -77,7 +77,7 @@ Core SHALL 在 preflight、commit 前以及适用时的 source cleanup 前重新
 - **THEN** operation 不得将 sparse 标为 preserved，而应按 metadata/capability policy 处理降级
 
 ### Requirement: Native copy 垂直切片覆盖所有常用 copy 入口
-M2 internal/debug gate启用后，paste-copy、drag-copy、pane-to-pane copy和duplicate SHALL只进入新 service；这些入口 MUST NOT调用 `FileManager.copyItem`、旧 streamed copy或silent legacy fallback。M2在真实SQLite journal和启动恢复尚未通过前 MUST NOT启用正式 release UI；release主干切换只在M4进行。M2遇到任何 destination冲突 MUST只提供 skip/keepBoth/stop；replace/merge option保持 featureDisabled直到M3 replacement crash matrix通过。
+M2精确debug gate启用后，paste-copy、list drag-copy、icon drag-copy、pane-to-pane copy、Drop Stack copy和duplicate SHALL只进入新 service；这些入口 MUST NOT调用 `FileManager.copyItem`、旧 streamed copy或silent legacy fallback。Gate固定为`#if DEBUG`且`RASCAL_ENABLE_M2_NATIVE_COPY=1`，`FT_RUN_TESTS`不自动授权；release始终禁用。M2 volatile journal不提供restart/crash声明，在真实SQLite journal和启动恢复尚未通过前 MUST NOT启用正式 release UI；release主干切换只在M4进行。M2遇到任何 destination冲突 MUST只提供 skip/keepBoth/stop；replace/merge option保持 featureDisabled直到M3 replacement crash matrix通过。
 
 #### Scenario: 新 Core copy 失败
 - **WHEN** 已迁移入口提交的新 Core copy 失败

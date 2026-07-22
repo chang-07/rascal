@@ -92,7 +92,7 @@ public actor FileOperationService {
 }
 ```
 
-`ServiceConfiguration.default`固定指向Application Support live journal factory seam。M1提供可编译的`UnavailableOperationJournal` production placeholder，默认initializer因此只进入明确safe mode；M3在精确wiring allowlist内把factory切到SQLite adapter。Test target通过`@testable` internal dependency initializer注入fake/ephemeral adapter；production公开API不得选择ephemeral。M1/M2在SQLite尚未实现前只允许test/internal build执行operation，release UI保持disabled。`submit`只有在request已校验且`.planned` intent durable persist后才返回ID；返回ID不代表完成。Service初始化若无法安全打开/校验journal或取得process owner lock，则进入service-wide read-only safe mode。
+`ServiceConfiguration.default`固定指向Application Support live journal factory seam。M1提供可编译的`UnavailableOperationJournal` production placeholder，默认initializer因此只进入明确safe mode；M3在精确wiring allowlist内把factory切到SQLite adapter。Test target通过`@testable` internal dependency initializer注入fake/ephemeral adapter；production公开API不得选择ephemeral。M2新增package-internal `VolatileOperationJournal`，只允许在`#if DEBUG`且环境变量精确为`RASCAL_ENABLE_M2_NATIVE_COPY=1`时由唯一composition root构造；它只提供当前进程内的event/receipt一致性，不声明restart、crash或durability跨进程保证。`FT_RUN_TESTS`、`FT_DEMO`或legacy gate均不得隐式授予该能力。Release无论环境变量为何都继续使用unavailable graph并在submit前拒绝；M3再替换为SQLite，不把live journal提前到M2。`submit`只有在request已校验且当前journal的`.planned` intent成功persist后才返回ID；返回ID不代表完成。Service初始化若无法安全打开/校验journal或取得process owner lock，则进入service-wide read-only safe mode。
 
 `pause/resume/cancel`的签名按已锁定接口不抛错：已知ID的非法阶段在该operation下记录durable `controlRejected`；unknown ID只能产生transient service diagnostic，不能伪造带FK/sequence的event。重复控制无副作用。`recover`凭ActionID/expected sequence实现command幂等；`retry(OperationID)`受固定签名限制，只承诺filesystem-effect幂等，不承诺跨新failure epoch的at-most-once。每个attempt/effect仍必须由ledger、receipt和identity防止重复覆盖或删除。
 
@@ -642,6 +642,8 @@ M1 基线至少登记：FileOps/TransferQueue/FileActionLog、inline/Batch Renam
 - `Tests/RascalFileOperationsIntegrationTests/**`（新增）
 - `Sources/FileOpsCrashProbe/main.swift`（仅target skeleton）
 - `Sources/FinderTwo/AppDelegate.swift`
+- `Sources/FinderTwo/Tests/TestRunner.swift`（仅冻结605 smoke断言的确定性与M1 bridge/gate测试hook）
+- `Sources/FinderTwo/UI/SidebarController.swift`（仅修复冻结pixel assertion揭示的custom-theme background覆盖；不得结构性重写sidebar）
 - `Sources/FinderTwo/Integration/FileOperationCompositionRoot.swift`（新增）
 - `Sources/FinderTwo/FS/LegacyWriteGate.swift`（新增）
 - `Sources/FinderTwo/FS/FileOps.swift`（仅 gate，不重写执行）
@@ -655,6 +657,8 @@ M1 composition root只在AppDelegate构造一次service/bridge skeleton，不向
 
 ### M2 allowlist
 
+- `Package.swift`（仅把`Native`/`Copy`纳入`RascalFileOperations` sources）
+- `Scripts/verification/mutation-allowlist.json`（仅移除已迁移duplicate mutation owner、补Drop Stack copy入口及M2归因字段）
 - `Sources/RascalFileOperations/Core/**`、`Native/**`、`Copy/**`
 - `Tests/RascalFileOperationsTests/Copy/**`、`Tests/RascalFileOperationsIntegrationTests/Copy/**`
 - `Scripts/verification/m2-copy-static-scan.sh`、`m2-apfs-volume-matrix.sh`、`m2-copy-performance.sh`、`metadata-manifest.sh`
@@ -664,11 +668,13 @@ M1 composition root只在AppDelegate构造一次service/bridge skeleton，不向
 - `Sources/FinderTwo/FS/FileOps.swift`
 - `Sources/FinderTwo/UI/FileListController.swift`
 - `Sources/FinderTwo/UI/PaneController.swift`
+- `Sources/FinderTwo/Window/BrowserWindowController.swift`
 - `Sources/FinderTwo/Window/PanesContainerController.swift`
 - `Sources/FinderTwo/UI/DropStackController.swift`
 - `Sources/FinderTwo/UI/TransferActivityController.swift`
+- `Sources/FinderTwo/Tests/TestRunner.swift`（仅M2 route trace/test hook）
 
-M2仅允许窄constructor/event adapter与既有copy入口替换，不允许结构性重写其他UI owner。
+M2仅允许窄constructor/event adapter与既有copy入口替换，不允许结构性重写其他UI owner。依赖传播固定为`AppDelegate → BrowserWindowController → PanesContainerController → PaneController/FileListController/DropStackController`，不得新增全局service/bridge singleton。六类入口为paste、list drag、icon drag、pane-to-pane、Drop Stack、duplicate；动态trace必须证明每次调用一个OperationID、一次native engine submission、零legacy enqueue。
 
 ### M3 allowlist
 
@@ -719,7 +725,7 @@ M4 writer不得修改Core；发现Core bug或公共contract缺口时必须停工
 
 ### M2 — Native Copy 垂直切片
 
-- 实现native staged copy并在internal/debug gate迁移所有常用copy入口，无legacy fallback；M2不启用release UI，因为live durable journal在M3完成。
+- 实现native staged copy并在精确`RASCAL_ENABLE_M2_NATIVE_COPY=1` debug gate迁移所有常用copy入口，无legacy fallback；使用package-internal volatile journal且明确不声明restart/crash能力。`FT_RUN_TESTS`不自动打开写能力，release即使注入同名变量也固定拒绝。M2不启用release UI，因为live durable journal在M3完成。
 - Go：mandatory fault/真实双 APFS卷/metadata/cancel/race/perf全过；final无 partial；入口与 primitive双扫描通过。
 - No-go：任一旁路/静默 metadata丢失/最终 partial，或结构性重写 4/6 UI owner。
 

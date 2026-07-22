@@ -813,7 +813,11 @@ final class TestRunner {
         // prior result set, not rescan rawItems. Wait for the async narrow to
         // commit so `items` is the small set, then time the second narrow.
         perfModel.filterText = "item_000"
-        wait(0.20)
+        // Hosted runners can be busy enough that a fixed sleep expires before
+        // the background full-list filter publishes. Wait for the actual
+        // precondition; otherwise this measures a stale 5k rescan instead of
+        // the intended prefix-narrow hot path.
+        _ = waitUntil { perfModel.items.count < 100 }
         let t6 = Date()
         perfModel.filterText = "item_0001"
         let t7 = Date()

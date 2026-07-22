@@ -43,8 +43,8 @@
 ## 4. M2 — Copy 入口切换与硬门
 
 - [ ] 4.1 建立两个UUID不同的真实APFS fixture与metadata manifest工具，逐字段覆盖M2-META-001全部metadata及file/tree/package、symlink/hard-link/sparse、同/跨卷、真实ENOSPC。
-- [ ] 4.2 完成`@MainActor` internal-copy bridge的decision/progress/error/resync/refresh流程；Core无UI类型、一次submit一个ID、replace/merge unavailable，release UI仍禁用。
-- [ ] 4.3 在internal/debug gate迁移paste-copy、list/icon drag-copy、pane-to-pane、Drop Stack copy与duplicate；移除`FileManager.copyItem`、旧TransferQueue和silent fallback，不启用release主干。
+- [ ] 4.2 完成`@MainActor` internal-copy bridge的decision/progress/error/resync/refresh流程；新增package-internal `VolatileOperationJournal`只承诺当前进程一致性；唯一composition root以显式constructor injection传播，Core无UI类型、一次submit一个ID、replace/merge unavailable，release UI仍使用unavailable graph。
+- [ ] 4.3 在`#if DEBUG && RASCAL_ENABLE_M2_NATIVE_COPY == 1`精确gate迁移paste-copy、list/icon drag-copy、pane-to-pane、Drop Stack copy与duplicate；`FT_RUN_TESTS`不授权，release同名env仍拒绝；移除`FileManager.copyItem`、旧TransferQueue和silent fallback，不启用release主干。
 - [ ] 4.4 建立正向入口 trace + primitive静态扫描，证明常用 copy入口总数未缩水且每个只进入新 service。
 - [ ] 4.5 按M2-PERF-001固定protocol关闭clone、各1次预热+至少7次交替随机轮次，运行Rascal与`/bin/cp` 1GiB benchmark，记录每次/median/p95/cache限制及idle→peak RSS；median≥70%、RSS≤64MiB。
 - [ ] 4.6 主Codex按stable scenario IDs重跑全部Unit/Fault/Volume/UI/static/performance/build/smoke/GUI，并单独验证M2-RELEASE-DISABLED-001；M2 mandatory不得skip，case-sensitive/ExFAT以deferred-disabled三重证据验收。

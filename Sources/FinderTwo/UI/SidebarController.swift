@@ -361,6 +361,15 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         }
         
         let bg: NSColor = isSystem ? .clear : t.sidebarBackground
+        // On custom themes the clip/scroll surfaces must paint the exact same
+        // opaque color as the outline. AppKit can otherwise synthesize a system
+        // background for the empty document/scroller region on headless hosts,
+        // covering the tint despite the outline property being correct. System
+        // theme keeps every layer transparent so native vibrancy still shows.
+        scrollView.drawsBackground = !isSystem
+        scrollView.backgroundColor = bg
+        scrollView.contentView.drawsBackground = !isSystem
+        scrollView.contentView.backgroundColor = bg
         outline.backgroundColor = bg
         tintView.layer?.backgroundColor = bg.cgColor
         outline.reloadData()
