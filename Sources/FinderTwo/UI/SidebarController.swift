@@ -378,6 +378,10 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     /// Test hook: the surface the sidebar actually renders (the outline's own
     /// background). Clear / zero-alpha = native vibrancy.
     var testSidebarBackground: NSColor? { outline.backgroundColor }
+    /// Frontmost background-bearing surface. Sampling this clip view catches
+    /// the original z-order regression without depending on headless
+    /// NSVisualEffectView compositor behavior outside an onscreen window.
+    var testSidebarRenderedSurface: NSView { scrollView.contentView }
 
     func highlight(url: URL) {
         selectedURL = url

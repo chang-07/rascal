@@ -801,27 +801,25 @@ final class TestRunner {
         // silently never applied. testApplyComputeSync runs the real filter+sort
         // on this thread and returns the post-filter count, so we measure work.
         perfModel.filterText = "item_0001"
-        let t4 = Date()
+        let t4 = threadCPUTime()
         let filteredCount = perfModel.testApplyComputeSync()
-        let filterMs = Int(Date().timeIntervalSince(t4) * 1000)
+        let filterMs = Int((threadCPUTime() - t4) * 1000)
         assert("Filter on 5k completes under 60ms (got \(filterMs)ms, matched \(filteredCount))",
                filterMs < 60 && filteredCount < 5000, "perf regression")
         perfModel.filterText = ""
         perfModel.testApplyComputeSync()
 
         // Progressive filter benchmark: typing extra chars should narrow the
-        // prior result set, not rescan rawItems. Wait for the async narrow to
-        // commit so `items` is the small set, then time the second narrow.
+        // prior result set, not rescan rawItems. Materialize the prefix result
+        // synchronously, then time the second narrow.
         perfModel.filterText = "item_000"
-        // Hosted runners can be busy enough that a fixed sleep expires before
-        // the background full-list filter publishes. Wait for the actual
-        // precondition; otherwise this measures a stale 5k rescan instead of
-        // the intended prefix-narrow hot path.
-        _ = waitUntil { perfModel.items.count < 100 }
-        let t6 = Date()
+        // The next setter still exercises the production prefix-extension
+        // path, while its prerequisite no longer depends on queue scheduling.
+        perfModel.testApplyComputeSync()
+        let t6 = threadCPUTime()
         perfModel.filterText = "item_0001"
-        let t7 = Date()
-        let progressiveMs = Int(t7.timeIntervalSince(t6) * 1000)
+        let t7 = threadCPUTime()
+        let progressiveMs = Int((t7 - t6) * 1000)
         assert("Progressive filter (prefix-extend) under 20ms (got \(progressiveMs)ms)",
                progressiveMs < 20, "perf regression")
         perfModel.filterText = ""
@@ -2231,15 +2229,15 @@ final class TestRunner {
             sbT.view.frame = renderBounds
             sbT.view.layoutSubtreeIfNeeded()
             renderWindow.displayIfNeeded()
-            if let rep = sbT.view.bitmapImageRepForCachingDisplay(in: sbT.view.bounds),
+            let renderedSurface = sbT.testSidebarRenderedSurface
+            if let rep = renderedSurface.bitmapImageRepForCachingDisplay(
+                in: renderedSurface.bounds
+            ),
                let want = nord.sidebarBackground.usingColorSpace(.sRGB) {
-                sbT.view.cacheDisplay(in: sbT.view.bounds, to: rep)
-                let pixelScale = CGFloat(rep.pixelsWide) / max(sbT.view.bounds.width, 1)
-                let scrollerWidth = max(
-                    NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy),
-                    NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
-                )
-                let x = max(1, rep.pixelsWide - Int(ceil((scrollerWidth + 6) * pixelScale)))
+                renderedSurface.cacheDisplay(in: renderedSurface.bounds, to: rep)
+                let pixelScale = CGFloat(rep.pixelsWide) /
+                    max(renderedSurface.bounds.width, 1)
+                let x = max(1, rep.pixelsWide - Int(ceil(6 * pixelScale)))
                 var matched = 0, opaque = 0
                 var py = 10
                 while py < rep.pixelsHigh - 10 {
@@ -3683,6 +3681,16 @@ final class TestRunner {
         while Date().timeIntervalSince(start) < seconds {
             RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
         }
+    }
+
+    /// CPU time makes synchronous microbenchmarks insensitive to hosted-runner
+    /// scheduling pauses while retaining the same work and strict thresholds.
+    private func threadCPUTime() -> TimeInterval {
+        var value = timespec()
+        guard clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value) == 0 else {
+            return ProcessInfo.processInfo.systemUptime
+        }
+        return TimeInterval(value.tv_sec) + TimeInterval(value.tv_nsec) / 1_000_000_000
     }
 
     /// Spin the run loop until `predicate` holds or `timeout` elapses. Used to

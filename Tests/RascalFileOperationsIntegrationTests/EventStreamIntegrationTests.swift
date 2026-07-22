@@ -264,7 +264,13 @@ final class EventStreamIntegrationTests: XCTestCase {
         let executor = FakeOperationExecutor(modes: [.copy: .failed(.noSpace)])
         let harness = try ServiceTestHarness(journal: journal, executor: executor, idGenerator: ids)
         let id = try await harness.service.submit(copyRequest())
-        _ = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        // `failedRecoverable` is checkpointed before the recovery capability
+        // event. Wait for that final durable event so the original service can
+        // no longer overwrite this test's forced reservation with an in-flight
+        // journal projection.
+        _ = try await waitForSnapshot(id: id, service: harness.service) {
+            $0.state == .failedRecoverable && !$0.availableActions.isEmpty
+        }
         journal.forceReservedThrough(UInt64.max, operationID: id)
 
         let restarted = try ServiceTestHarness(journal: journal, executor: executor, idGenerator: ids)
