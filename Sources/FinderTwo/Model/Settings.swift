@@ -125,9 +125,43 @@ enum Settings {
     }
 
     /// Show the breadcrumb path bar. On by default.
+    /// Superseded by `pathControlStyle`; kept readable during deprecation.
     static var showPathBar: Bool {
         get { d.object(forKey: "FinderTwo.showPathBar") as? Bool ?? true }
         set { d.set(newValue, forKey: "FinderTwo.showPathBar"); notify() }
+    }
+
+    /// How the current path is presented in the pane chrome.
+    ///
+    /// Historically the pane showed BOTH an editable path field (in the toolbar)
+    /// and a breadcrumb bar directly beneath it — the same path rendered twice,
+    /// in two stacked bands. This collapses that into one choice.
+    enum PathControlStyle: String, CaseIterable {
+        case editableField   // toolbar path field only (default)
+        case breadcrumb      // clickable crumb bar only
+        case both            // the legacy stacked behavior
+        case hidden          // neither (path still shown in the window subtitle)
+
+        var title: String {
+            switch self {
+            case .editableField: return "Editable field"
+            case .breadcrumb:    return "Breadcrumbs"
+            case .both:          return "Both"
+            case .hidden:        return "Hidden"
+            }
+        }
+    }
+
+    /// Defaults to `.editableField`: one path control instead of two, which also
+    /// removes an entire stacked band from the top of every pane. `.both`
+    /// restores the previous look.
+    static var pathControlStyle: PathControlStyle {
+        get {
+            guard let raw = d.string(forKey: "FinderTwo.pathControlStyle"),
+                  let style = PathControlStyle(rawValue: raw) else { return .editableField }
+            return style
+        }
+        set { d.set(newValue.rawValue, forKey: "FinderTwo.pathControlStyle"); notifyAppearance() }
     }
 
     /// Compute and show recursive folder sizes in the Size column (Finder's

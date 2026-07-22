@@ -9,8 +9,19 @@ final class LayoutPane: SettingsPane {
 
     private var steppers: [NSStepper] = []
     private var valueLabels: [NSTextField] = []
+    private let stylePopup = NSPopUpButton()
 
     override func build() {
+        addFullWidth(sectionHeader("Path control"))
+        for style in Settings.PathControlStyle.allCases {
+            stylePopup.addItem(withTitle: style.title)
+        }
+        stylePopup.selectItem(at: Settings.PathControlStyle.allCases
+            .firstIndex(of: Settings.pathControlStyle) ?? 0)
+        stylePopup.target = self
+        stylePopup.action = #selector(styleChanged)
+        addRow("Show path as", stylePopup)
+
         addFullWidth(sectionHeader("Dimensions"))
 
         for (i, token) in LayoutToken.allCases.enumerated() {
@@ -56,6 +67,12 @@ final class LayoutPane: SettingsPane {
         guard LayoutToken.allCases.indices.contains(sender.tag) else { return }
         LayoutMetrics.set(LayoutToken.allCases[sender.tag], CGFloat(sender.doubleValue))
         refresh()
+    }
+
+    @objc private func styleChanged() {
+        let all = Settings.PathControlStyle.allCases
+        guard all.indices.contains(stylePopup.indexOfSelectedItem) else { return }
+        Settings.pathControlStyle = all[stylePopup.indexOfSelectedItem]
     }
 
     @objc private func resetLayout() {

@@ -1549,9 +1549,25 @@ final class TestRunner {
                SettingsController.Section.allCases.contains(.layout), "missing")
         let layoutPane = LayoutPane()
         _ = layoutPane.view     // force loadView() -> build()
-        assert("LayoutPane builds header + a row per token + reset",
-               layoutPane.grid.numberOfRows == LayoutToken.allCases.count + 2,
+        assert("LayoutPane builds path-control + a row per token + reset",
+               layoutPane.grid.numberOfRows == LayoutToken.allCases.count + 4,
                "rows=\(layoutPane.grid.numberOfRows) tokens=\(LayoutToken.allCases.count)")
+
+        // --- T45f: PathControlStyle collapses the duplicated path chrome ---
+        UserDefaults.standard.removeObject(forKey: "FinderTwo.pathControlStyle")
+        assert("pathControlStyle defaults to one path control, not two",
+               Settings.pathControlStyle == .editableField,
+               "got=\(Settings.pathControlStyle.rawValue)")
+        assert("PathControlStyle offers field/breadcrumb/both/hidden",
+               Settings.PathControlStyle.allCases.count == 4,
+               "got=\(Settings.PathControlStyle.allCases.count)")
+        let tbar = ToolbarView(frame: .zero)
+        tbar.setPathFieldVisible(false)
+        assert("ToolbarView can hide the editable path field",
+               !tbar.testPathFieldVisible, "still visible")
+        tbar.setPathFieldVisible(true)
+        assert("ToolbarView can show the editable path field",
+               tbar.testPathFieldVisible, "still hidden")
 
         // --- T46: GitBranchWorkspaces repoRoot + currentBranch ---
         let gitProj = sandbox.appendingPathComponent("git_proj")
