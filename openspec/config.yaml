@@ -1,0 +1,25 @@
+schema: spec-driven
+
+context: |
+  Project: Rascal, an MIT-licensed macOS 13+ AppKit file manager written in Swift 5.9/SwiftPM.
+  Current migration: keep the existing App/UI, replace the file-operation kernel in-repo, and migrate entry points incrementally.
+  Runtime dependencies: Swift, Foundation, Darwin, Apple/POSIX APIs, system SQLite3 and CommonCrypto only; no third-party runtime dependencies.
+  Architecture: FinderTwo App -> one @MainActor bridge/composition root -> AppKit-free RascalFileOperations library.
+  Safety invariants: no final-path partial copy; no source deletion before cross-volume move SHA-256 verification and durable destination commit; Replace keeps the old target until commit and records a durable backup receipt; unknown recovery state is recoveryRequired.
+  Migration policy: add-transactional-file-operation-core covers M1-M4 only. Release builds disable legacy high-risk writes; debug enables registered legacy paths only with RASCAL_ENABLE_LEGACY_WRITES=1.
+  Workflow: every milestone has an explicit user approval gate. Only the main Codex updates OpenSpec task status or declares a milestone complete.
+  Commands: all shell commands use the rtk prefix. Do not commit, push, create PRs, sync/archive OpenSpec, publish, or deploy without separate user authorization.
+
+rules:
+  proposal:
+    - Separate current umbrella scope from later OpenSpec changes and mark breaking safety gates explicitly.
+  design:
+    - Distinguish verified facts, inferences, and unknown platform behavior.
+    - Include state, sequence, transaction, metadata, journal, recovery, file allowlist, Go/No-go, and acceptance evidence boundaries.
+    - Nimble Commander may inform behavior and tests only; do not copy, translate, or AI-rewrite GPL implementation.
+  specs:
+    - Every destructive effect must have a scenario proving source, destination, receipt, and terminal-state behavior on failure or cancellation.
+    - Mandatory platform scenarios skipped in a milestone fail that milestone and leave the capability disabled.
+  tasks:
+    - Group tasks by M0-M4 milestone and include reviewer, main-agent verification, evidence, and user approval gates.
+    - A writer task must name its file allowlist or reference the design allowlist and must stop on any required scope expansion.

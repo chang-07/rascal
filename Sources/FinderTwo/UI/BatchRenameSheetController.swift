@@ -365,6 +365,7 @@ final class BatchRenameSheetController: NSWindowController, NSTextFieldDelegate,
     }
 
     @objc private func commit() {
+        guard LegacyWriteGate.allows(.batchRename) else { return }
         let fm = FileManager.default
         var renamed = 0
         for r in rows where !r.conflict && r.oldName != r.newName && !r.newName.isEmpty {

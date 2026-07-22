@@ -1,4 +1,5 @@
 import AppKit
+import RascalFileOperations
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var windowControllers: [BrowserWindowController] = []
@@ -17,8 +18,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private weak var themeMenu: NSMenu?
     /// Held strongly so the one-time permissions window isn't deallocated while shown.
     private var permissionsOnboarding: PermissionsOnboardingController?
+    private var fileOperationCompositionRoot: FileOperationCompositionRoot?
+    private var legacyWriteDenialObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The app owns exactly one service/bridge graph. UI injection begins in M2.
+        fileOperationCompositionRoot = try? FileOperationCompositionRoot()
+        legacyWriteDenialObserver = NotificationCenter.default.addObserver(
+            forName: .legacyWriteDenied, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let denial = note.object as? LegacyWriteDenial else { return }
+            self?.presentLegacyWriteDenial(denial)
+        }
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
         ThemeStore.ensureDirectory()   // so users have a place to drop themes
         // Re-probe Full Disk Access on activation (the user may have just granted
@@ -121,6 +132,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let firstWinMs = Int((m.firstWindowOnScreen - m.processStart) * 1000)
             NSLog("FT cold launch — to didFinishLaunching: \(didLaunchMs)ms · to first window: \(firstWinMs)ms")
         }
+    }
+
+    private func presentLegacyWriteDenial(_ denial: LegacyWriteDenial) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "File operation temporarily unavailable"
+        alert.informativeText = denial.reason
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

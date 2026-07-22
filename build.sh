@@ -6,7 +6,7 @@ set -euo pipefail
 CONFIG=${1:-debug}
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$ROOT/build/Rascal.app"
-SWIFT_BUILD_DIR="$ROOT/.build/$CONFIG"
+SWIFT_SCRATCH_PATH="${SWIFT_SCRATCH_PATH:-$ROOT/.build}"
 
 cd "$ROOT"
 
@@ -16,15 +16,12 @@ cd "$ROOT"
 # macOS's stock bash 3.2.
 if [[ -n "${ARCH:-}" ]]; then
     echo "→ Building Swift package ($CONFIG, arch=$ARCH)..."
-    swift build -c "$CONFIG" --arch "$ARCH"
-    BIN="$(swift build -c "$CONFIG" --arch "$ARCH" --show-bin-path)/FinderTwo"
+    swift build --disable-sandbox -c "$CONFIG" --product FinderTwo --scratch-path "$SWIFT_SCRATCH_PATH" --arch "$ARCH"
+    BIN="$(swift build --disable-sandbox -c "$CONFIG" --product FinderTwo --scratch-path "$SWIFT_SCRATCH_PATH" --arch "$ARCH" --show-bin-path)/FinderTwo"
 else
     echo "→ Building Swift package ($CONFIG)..."
-    swift build -c "$CONFIG"
-    BIN="$(swift build -c "$CONFIG" --show-bin-path)/FinderTwo"
-fi
-if [[ ! -x "$BIN" ]]; then
-    BIN=$(find "$ROOT/.build" -type f -name FinderTwo -perm +111 | head -n1)
+    swift build --disable-sandbox -c "$CONFIG" --product FinderTwo --scratch-path "$SWIFT_SCRATCH_PATH"
+    BIN="$(swift build --disable-sandbox -c "$CONFIG" --product FinderTwo --scratch-path "$SWIFT_SCRATCH_PATH" --show-bin-path)/FinderTwo"
 fi
 if [[ -z "${BIN:-}" || ! -x "$BIN" ]]; then
     echo "✗ Could not locate built FinderTwo binary"
@@ -44,13 +41,24 @@ cp "$ROOT/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 # volumes) across rebuilds — ad-hoc signing changes identity every build, which
 # makes macOS re-ask every time. Run ./setup-signing.sh once to create it.
 SIGN_CN="FinderTwo Local Signing"
-SIGN_HASH=$(security find-certificate -c "$SIGN_CN" -Z "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null \
-    | awk '/SHA-1 hash:/{print $NF; exit}')
-if [[ -n "${SIGN_HASH:-}" ]] && codesign --force --deep --sign "$SIGN_HASH" "$APP_DIR" >/dev/null 2>&1; then
+SECURITY_TOOL="${RASCAL_SECURITY_TOOL:-security}"
+CERT_OUTPUT=""
+if CERT_OUTPUT=$("$SECURITY_TOOL" find-certificate -c "$SIGN_CN" -Z "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null); then
+    SIGN_HASH=$(awk '/SHA-1 hash:/{print $NF; exit}' <<<"$CERT_OUTPUT")
+else
+    SIGN_HASH=""
+fi
+if [[ -n "$SIGN_HASH" ]]; then
+    codesign --force --deep --sign "$SIGN_HASH" "$APP_DIR"
     echo "  signed with stable identity ($SIGN_CN) — permissions persist across rebuilds"
 else
-    codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+    codesign --force --deep --sign - "$APP_DIR"
     echo "  ad-hoc signed"
 fi
+
+# Signing is a build invariant, not a best-effort decoration. Keep verbose
+# identity details in lane evidence while verifying the assembled bundle.
+codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+codesign --display --verbose=4 "$APP_DIR"
 
 echo "✓ Built $APP_DIR"

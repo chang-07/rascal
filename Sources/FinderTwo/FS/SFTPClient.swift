@@ -43,6 +43,7 @@ enum SFTPClient {
     /// Download a single file to a local destination. Uses `scp`.
     @discardableResult
     static func download(_ conn: Connection, remotePath: String, to local: URL) -> Bool {
+        guard LegacyWriteGate.allows(.sftpWrite) else { return false }
         let target = "\(conn.sshTarget):\(remoteQuote(remotePath))"
         let p = Process()
         p.launchPath = "/usr/bin/scp"
@@ -58,6 +59,7 @@ enum SFTPClient {
     /// Upload a local file to a remote path.
     @discardableResult
     static func upload(_ conn: Connection, local: URL, to remotePath: String) -> Bool {
+        guard LegacyWriteGate.allows(.sftpWrite) else { return false }
         let target = "\(conn.sshTarget):\(remoteQuote(remotePath))"
         let p = Process()
         p.launchPath = "/usr/bin/scp"

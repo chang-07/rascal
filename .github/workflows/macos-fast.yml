@@ -1,0 +1,30 @@
+name: macOS fast lane
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  m1-fast:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout attributable source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Run M1 fast lane
+        run: bash Scripts/verification/m1-fast-lane.sh
+      - name: Upload attributable evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m1-fast-evidence-${{ github.run_id }}
+          path: .build/verification/
+          include-hidden-files: true
+          if-no-files-found: error

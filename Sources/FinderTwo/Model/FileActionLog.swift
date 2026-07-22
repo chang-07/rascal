@@ -39,6 +39,7 @@ final class FileActionLog {
 
     @discardableResult
     func performUndo() -> Bool {
+        guard LegacyWriteGate.allows(.fileUndoRedo) else { return false }
         lock.lock(); let a = _undoStack.popLast(); lock.unlock()
         guard let a else { return false }
         let ok = a.undo()
@@ -49,6 +50,7 @@ final class FileActionLog {
 
     @discardableResult
     func performRedo() -> Bool {
+        guard LegacyWriteGate.allows(.fileUndoRedo) else { return false }
         lock.lock(); let a = _redoStack.popLast(); lock.unlock()
         guard let a else { return false }
         let ok = a.redo()

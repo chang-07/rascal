@@ -170,9 +170,12 @@ enum FileOps {
         // already moved away); copying a missing source would leave an empty stub.
         let urls = allURLs.filter { fm.fileExists(atPath: $0.path) }
         guard !urls.isEmpty else { return }
+        if move {
+            guard LegacyWriteGate.allows(.transferMove) else { return }
+        }
         // Phase 1 (main thread): resolve conflicts, build the work plan.
         var applyAll: Conflict?
-        var plan: [(src: URL, dst: URL, merge: Bool)] = []
+        var plan: [(src: URL, dst: URL, merge: Bool, replace: Bool)] = []
         var hasDirectory = false
         let dstStd = destination.standardizedFileURL.path
         for src in urls {
@@ -186,6 +189,7 @@ enum FileOps {
             if sameParent && move { continue }
             var dst = destination.appendingPathComponent(src.lastPathComponent)
             var merge = false
+            var replace = false
             if sameParent && !move {
                 // Copy into the same directory → unique-named duplicate (Finder
                 // behavior); don't raise a self-collision "already exists" prompt.
@@ -204,21 +208,88 @@ enum FileOps {
                 switch res {
                 case .skip: continue
                 case .keepBoth: dst = uniqueDestination(dst)
-                case .replace: try? fm.trashItem(at: dst, resultingItemURL: nil)
+                case .replace: replace = true
                 case .merge: merge = true
                 }
             }
             if isDir(src) { hasDirectory = true }
-            plan.append((src, dst, merge))
+            plan.append((src, dst, merge, replace))
         }
         guard !plan.isEmpty else { return }
+
+        // Classify every item before Replace can trash even one destination.
+        // TransferQueue independently repeats whole-plan and per-item checks
+        // because the queued work can start much later than this UI preflight.
+        let classified = plan.map { step in
+            (step, LegacyTransferClassifier.observe(source: step.src, destination: step.dst))
+        }
+        if move {
+            guard !classified.contains(where: {
+                [.remoteOrProvider, .unknown].contains($0.1.classification)
+            }) else {
+                LegacyWriteGate.deny(.crossVolumeMove,
+                                     reason: "Legacy move endpoint is remote/provider or unknown.")
+                return
+            }
+            if classified.contains(where: { $0.1.classification == .crossVolume }) {
+                guard LegacyWriteGate.allows(.crossVolumeMove) else { return }
+            }
+        }
+        if plan.contains(where: \.merge) {
+            guard !classified.contains(where: {
+                $0.0.merge && [.remoteOrProvider, .unknown].contains($0.1.classification)
+            }) else {
+                LegacyWriteGate.deny(.merge,
+                                     reason: "Legacy merge endpoint is remote/provider or unknown.")
+                return
+            }
+            guard LegacyWriteGate.allows(.merge) else { return }
+        }
+        if plan.contains(where: \.replace) {
+            guard !classified.contains(where: {
+                $0.0.replace && [.remoteOrProvider, .unknown].contains($0.1.classification)
+            }) else {
+                LegacyWriteGate.deny(.replace,
+                                     reason: "Legacy Replace endpoint is remote/provider or unknown.")
+                return
+            }
+            guard LegacyWriteGate.allows(.replace) else { return }
+        }
+        let replacements = classified.filter { $0.0.replace }
+        // A multi-item legacy Replace cannot make every per-item check adjacent
+        // to the first destructive mutation. Keep it completely disabled until
+        // the transactional replacement implementation arrives.
+        guard LegacyReplaceGuard.planIsExclusive(
+            itemCount: plan.count, replacementCount: replacements.count
+        ) else {
+            LegacyWriteGate.deny(
+                .replace,
+                reason: "Multi-item legacy Replace is disabled until transactional replacement is available."
+            )
+            return
+        }
+        for candidate in replacements {
+            // This observation is intentionally adjacent to the first Trash
+            // mutation. Any alias, ancestor, endpoint, locality, volume, or
+            // provider drift leaves the old destination untouched.
+            guard LegacyReplaceGuard.revalidateAndTrash(
+                initial: candidate.1,
+                source: candidate.0.src,
+                destination: candidate.0.dst,
+                trash: { canonicalDestination in
+                    _ = try fm.trashItem(at: canonicalDestination, resultingItemURL: nil)
+                }
+            ) else {
+                return
+            }
+        }
 
         // Phase 2: hand the plan to the shared transfer queue (serial, off-main,
         // pausable/cancellable, streamed). Surface the activity panel for
         // non-trivial work — but never in headless test runs (keeps tests
         // window-free).
         _ = window  // (the queue's activity panel is window-independent)
-        TransferQueue.shared.enqueue(plan: plan, move: move)
+        TransferQueue.shared.enqueue(plan: plan.map { ($0.src, $0.dst, $0.merge) }, move: move)
         let headless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] != nil
         if !headless && (plan.count > 1 || hasDirectory) {
             DispatchQueue.main.async { TransferActivityController.shared.present() }
@@ -232,6 +303,7 @@ enum FileOps {
     /// tests.
     @discardableResult
     static func mergeDirectory(src: URL, into dst: URL, move: Bool, fm: FileManager = .default) -> Int {
+        guard LegacyWriteGate.allows(.merge) else { return 1 }
         var failures = 0
         let children = (try? fm.contentsOfDirectory(at: src,
             includingPropertiesForKeys: [.isDirectoryKey], options: [])) ?? []
@@ -346,6 +418,7 @@ enum FileOps {
     @discardableResult
     static func deleteImmediately(_ urls: [URL]) -> Bool {
         guard !urls.isEmpty else { return false }
+        guard LegacyWriteGate.allows(.permanentDelete) else { return false }
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = urls.count == 1

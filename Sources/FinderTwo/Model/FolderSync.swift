@@ -87,6 +87,7 @@ enum FolderSync {
                                           source: URL,
                                           destination: URL,
                                           prune: Bool) -> Int {
+        guard LegacyWriteGate.allows(.folderSync) else { return 0 }
         let fm = FileManager.default
         var ops = 0
         for e in entries {
@@ -110,6 +111,7 @@ enum FolderSync {
     /// Nothing is ever deleted. Returns the number of files written.
     @discardableResult
     static func syncBothWays(source: URL, destination: URL) -> Int {
+        guard LegacyWriteGate.allows(.folderSync) else { return 0 }
         let src = listTree(source)
         let dst = listTree(destination)
         let fm = FileManager.default
@@ -142,6 +144,7 @@ enum FolderSync {
     /// original. Returns true on success.
     @discardableResult
     static func copyOverwrite(from: URL, to: URL, fm: FileManager = .default) -> Bool {
+        guard LegacyWriteGate.allows(.folderSync) else { return false }
         try? fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
         do {
             if fm.fileExists(atPath: to.path) {
