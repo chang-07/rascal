@@ -101,9 +101,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         window.isRestorable = false
 
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarVC)
-        sidebarItem.minimumThickness = 130
-        sidebarItem.maximumThickness = 240
-        sidebarItem.preferredThicknessFraction = 0.15   // ~165pt on the default window, capped at 240
+        sidebarItem.minimumThickness = LayoutToken.sidebarWidth.range.lowerBound
+        // Raise the drag ceiling to the customized width when it exceeds the
+        // stock 240 cap, so a wider sidebar is reachable by dragging too.
+        sidebarItem.maximumThickness = max(LayoutMetrics.value(.sidebarWidth), 240)
+        sidebarItem.preferredThicknessFraction = 0.15   // ~165pt on the default window
         sidebarItem.canCollapse = true
         // High holding priority pins the sidebar to its set width so the main
         // pane absorbs window resizing instead of the sidebar ballooning.
@@ -111,7 +113,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         splitVC.addSplitViewItem(sidebarItem)
 
         let mainItem = NSSplitViewItem(viewController: panesContainer)
-        mainItem.minimumThickness = 360
+        mainItem.minimumThickness = LayoutMetrics.value(.paneMinWidth)
         mainItem.holdingPriority = .defaultLow + 1
         splitVC.addSplitViewItem(mainItem)
 
@@ -159,6 +161,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         // (e.g. Miller-view column navigation) can no longer auto-grow it.
         (window as? UserResizeOnlyWindow)?.sizeLockedToUser = true
 
+        // A customized sidebar width is applied once the split view has laid
+        // out — setPosition before first layout doesn't stick. Untouched
+        // installs keep preferredThicknessFraction and skip this entirely.
+        if LayoutMetrics.isCustomized(.sidebarWidth) {
+            DispatchQueue.main.async { [weak self] in self?.applyLayoutMetrics() }
+        }
+
         sidebarVC.onSelect = { [weak self] url in
             self?.panesContainer.activePane?.navigate(to: url)
         }
@@ -203,7 +212,28 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         ThemeChrome.apply(to: window)
     }
 
-    @objc private func chromeSettingsChanged() { applyTitleBarVisibility() }
+    @objc private func chromeSettingsChanged() {
+        applyTitleBarVisibility()
+        applyLayoutMetrics()
+    }
+
+    /// Last sidebar width pushed via `setPosition`. We only re-position when the
+    /// token itself changes, so an unrelated settings change never snaps the
+    /// sidebar back and undoes the user's manual drag.
+    private var appliedSidebarWidth: CGFloat?
+
+    /// Apply the user-customizable split geometry (`LayoutMetrics` tokens).
+    private func applyLayoutMetrics() {
+        guard let splitVC = window?.contentViewController as? NSSplitViewController,
+              splitVC.splitViewItems.count >= 2 else { return }
+        splitVC.splitViewItems[1].minimumThickness = LayoutMetrics.value(.paneMinWidth)
+
+        let width = LayoutMetrics.value(.sidebarWidth)
+        splitVC.splitViewItems[0].maximumThickness = max(width, 240)
+        guard appliedSidebarWidth != width else { return }
+        appliedSidebarWidth = width
+        splitVC.splitView.setPosition(width, ofDividerAt: 0)
+    }
 
     /// Show/hide the window title bar. Hidden = full-size content under a
     /// transparent, title-less bar (traffic lights remain). The sidebar gets a

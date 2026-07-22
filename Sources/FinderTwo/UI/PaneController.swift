@@ -183,11 +183,12 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
             // the pane stayed permanently blank. Snapping open (vs. the other drawers'
             // slide) is the deliberate trade for a preview that always renders.
             previewView.isHidden = false
-            previewWidthConstraint.constant = 260
+            previewWidthConstraint.constant = LayoutMetrics.value(.previewPaneWidth)
             view.layoutSubtreeIfNeeded()
             updatePreviewContent()
         } else {
-            animateDrawer(previewView, previewWidthConstraint, open: false, size: 260)
+            animateDrawer(previewView, previewWidthConstraint,
+                          open: false, size: LayoutMetrics.value(.previewPaneWidth))
         }
     }
 
