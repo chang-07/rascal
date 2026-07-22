@@ -124,74 +124,6 @@ sha256_file() {
     printf '%s\n' "${output%% *}"
 }
 
-normalize_unsigned_macho_layout() {
-    local binary="$1"
-    "$PYTHON_BIN" - "$binary" <<'PY'
-import pathlib
-import struct
-import sys
-
-path = pathlib.Path(sys.argv[1])
-data = bytearray(path.read_bytes())
-
-# `codesign --remove-signature` removes LC_CODE_SIGNATURE and truncates the
-# signature bytes, but it intentionally leaves the signature-dependent
-# __LINKEDIT virtual size behind. Swift's linker signature uses 4 KiB code
-# pages while bundle signing uses 16 KiB pages on arm64, so otherwise identical
-# unsigned payloads can differ in this one derived field. Canonicalize only
-# that field; every content byte and every other Mach-O field remains covered
-# by the subsequent byte-for-byte comparison and its tamper negative control.
-MH_MAGIC_64 = 0xFEEDFACF
-CPU_TYPE_ARM64 = 0x0100000C
-MH_EXECUTE = 2
-LC_SEGMENT_64 = 0x19
-HEADER_SIZE = 32
-
-if len(data) < HEADER_SIZE:
-    raise SystemExit(f"unsigned Mach-O is too small: {path}")
-magic, cpu_type, _, file_type, command_count, command_bytes, _, _ = \
-    struct.unpack_from("<IiiIIIII", data, 0)
-if (magic, cpu_type, file_type) != (MH_MAGIC_64, CPU_TYPE_ARM64, MH_EXECUTE):
-    raise SystemExit(f"expected a thin arm64 MH_EXECUTE payload: {path}")
-
-command_offset = HEADER_SIZE
-command_limit = HEADER_SIZE + command_bytes
-if command_limit > len(data):
-    raise SystemExit(f"Mach-O load commands exceed payload: {path}")
-
-linkedit_vmsize_offsets = []
-for _ in range(command_count):
-    if command_offset + 8 > command_limit:
-        raise SystemExit(f"truncated Mach-O load command: {path}")
-    command, command_size = struct.unpack_from("<II", data, command_offset)
-    if command_size < 8 or command_offset + command_size > command_limit:
-        raise SystemExit(f"invalid Mach-O load command size: {path}")
-    if command == LC_SEGMENT_64:
-        if command_size < 72:
-            raise SystemExit(f"truncated LC_SEGMENT_64: {path}")
-        segment_name = bytes(data[command_offset + 8:command_offset + 24]) \
-            .split(b"\0", 1)[0]
-        if segment_name == b"__LINKEDIT":
-            _, virtual_size, file_offset, file_size = struct.unpack_from(
-                "<QQQQ", data, command_offset + 24
-            )
-            if file_offset + file_size != len(data):
-                raise SystemExit(f"unsigned __LINKEDIT does not end at EOF: {path}")
-            if virtual_size < file_size or virtual_size % 4096 != 0:
-                raise SystemExit(f"invalid unsigned __LINKEDIT virtual size: {path}")
-            linkedit_vmsize_offsets.append((command_offset + 32, file_size))
-    command_offset += command_size
-
-if command_offset != command_limit or len(linkedit_vmsize_offsets) != 1:
-    raise SystemExit(f"expected exactly one complete __LINKEDIT command: {path}")
-
-virtual_size_offset, file_size = linkedit_vmsize_offsets[0]
-canonical_virtual_size = (file_size + 16383) & ~16383
-struct.pack_into("<Q", data, virtual_size_offset, canonical_virtual_size)
-path.write_bytes(data)
-PY
-}
-
 find_matching_build_binary() {
     local build_root="$1" configuration="$2" app_binary="$3"
     local comparison_root="$4" report_path="$5"
@@ -206,7 +138,7 @@ find_matching_build_binary() {
         return 1
     }
     [[ ! -e "$comparison_root" ]] || {
-        echo "normalized comparison root already exists: $comparison_root" >&2
+        echo "provenance comparison root already exists: $comparison_root" >&2
         return 1
     }
     mkdir -p "$comparison_root" || return 1
@@ -229,46 +161,53 @@ find_matching_build_binary() {
     }
 
     candidate="$unique_candidate"
-    local build_copy="$comparison_root/build-signature-stripped"
-    local app_copy="$comparison_root/app-signature-stripped"
-    cp -p "$candidate" "$build_copy" || return 1
-    cp -p "$app_binary" "$app_copy" || return 1
-    codesign --remove-signature "$build_copy" \
-        > "$comparison_root/build-codesign-remove.stdout" \
-        2> "$comparison_root/build-codesign-remove.stderr" || return 1
-    codesign --remove-signature "$app_copy" \
-        > "$comparison_root/app-codesign-remove.stdout" \
-        2> "$comparison_root/app-codesign-remove.stderr" || return 1
-    normalize_unsigned_macho_layout "$build_copy" || return 1
-    normalize_unsigned_macho_layout "$app_copy" || return 1
+    local suffix="/Contents/MacOS/FinderTwo"
+    [[ "$app_binary" == *"$suffix" ]] || {
+        echo "assembled FinderTwo path is not inside an app bundle: $app_binary" >&2
+        return 1
+    }
+    local app_root="${app_binary%$suffix}"
+    local reference_app="$comparison_root/reference.app"
+    local reference_binary="$reference_app/Contents/MacOS/FinderTwo"
+    cp -R "$app_root" "$reference_app" || return 1
+    cp -p "$candidate" "$reference_binary" || return 1
+    codesign --force --deep --sign - --timestamp=none "$reference_app" \
+        > "$comparison_root/reference-codesign.stdout" \
+        2> "$comparison_root/reference-codesign.stderr" || return 1
 
     local build_raw_sha app_signed_sha build_payload_sha app_payload_sha
     build_raw_sha="$(sha256_file "$candidate")" || return 1
     app_signed_sha="$(sha256_file "$app_binary")" || return 1
-    build_payload_sha="$(sha256_file "$build_copy")" || return 1
-    app_payload_sha="$(sha256_file "$app_copy")" || return 1
+    build_payload_sha="$(sha256_file "$reference_binary")" || return 1
+    app_payload_sha="$(sha256_file "$app_binary")" || return 1
 
     local comparison_status payload_match=false
-    if cmp -s "$build_copy" "$app_copy"; then
+    if cmp -s "$reference_binary" "$app_binary"; then
         comparison_status=0
         payload_match=true
     else
         comparison_status=$?
         [[ "$comparison_status" == 1 ]] || {
-            echo "normalized $configuration payload comparison failed with exit $comparison_status" >&2
+            echo "reconstructed $configuration payload comparison failed with exit $comparison_status" >&2
             return 1
         }
     fi
     {
-        printf 'configuration\tbuild_candidate\tsigned_app\traw_build_sha256\tsigned_app_sha256\tstripped_build_payload_sha256\tstripped_app_payload_sha256\tpayload_match\n'
+        printf 'configuration\tbuild_candidate\tsigned_app\traw_build_sha256\tsigned_app_sha256\treconstructed_signed_sha256\tactual_signed_sha256\tpayload_match\n'
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$configuration" "$candidate" "$app_binary" "$build_raw_sha" \
             "$app_signed_sha" "$build_payload_sha" "$app_payload_sha" "$payload_match"
     } > "$report_path" || return 1
     [[ "$comparison_status" == 0 ]] || {
-        echo "assembled $configuration FinderTwo payload differs from its unique SwiftPM product" >&2
+        echo "assembled $configuration FinderTwo differs from deterministic ad-hoc reconstruction" >&2
         return 1
     }
+    codesign --verify --deep --strict "$app_root" \
+        > "$comparison_root/actual-codesign-verify.stdout" \
+        2> "$comparison_root/actual-codesign-verify.stderr" || return 1
+    codesign --verify --deep --strict "$reference_app" \
+        > "$comparison_root/reference-codesign-verify.stdout" \
+        2> "$comparison_root/reference-codesign-verify.stderr" || return 1
 
     MATCHED_BUILD_BIN="$candidate"
     MATCHED_BUILD_RAW_SHA256="$build_raw_sha"
@@ -300,8 +239,33 @@ record_environment() {
     }
     printf '%s\n' \
         'journal=M1 N/A; UnavailableOperationJournal safe mode, no live journal mutation' \
-        'M1-CI-001=not evaluated by this local lane; separate commit/push authorization required' \
+        'M1-CI-001=is finalized only after the complete lane and workspace-stability check' \
         > "$EVIDENCE/journal-and-remote-boundary.txt"
+    if [[ "${GITHUB_ACTIONS:-false}" == "true" ]]; then
+        local required_name
+        for required_name in GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_REPOSITORY \
+            GITHUB_REF GITHUB_SHA GITHUB_WORKFLOW GITHUB_JOB; do
+            [[ -n "${!required_name:-}" ]] || {
+                echo "GitHub Actions metadata is missing $required_name" >&2
+                exit 1
+            }
+        done
+        {
+            printf 'field\tvalue\n'
+            printf 'run_id\t%s\n' "$GITHUB_RUN_ID"
+            printf 'run_attempt\t%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'repository\t%s\n' "$GITHUB_REPOSITORY"
+            printf 'ref\t%s\n' "$GITHUB_REF"
+            printf 'sha\t%s\n' "$GITHUB_SHA"
+            printf 'workflow\t%s\n' "$GITHUB_WORKFLOW"
+            printf 'job\t%s\n' "$GITHUB_JOB"
+            printf 'server_url\t%s\n' "${GITHUB_SERVER_URL:-unknown}"
+        } > "$EVIDENCE/github-run-metadata.tsv"
+        [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+            echo "checked-out HEAD does not match GITHUB_SHA" >&2
+            exit 1
+        }
+    fi
     cat > "$EVIDENCE/test-manifest.tsv" <<'EOF'
 stable_id	test_name
 M1-UNIT-001	RascalFileOperationsTests.RequestValidatorTests/testAbsoluteFileURLsAndNormalizedDuplicateDirectoryEntries
@@ -349,6 +313,9 @@ M1-RECOVERY-030	RascalFileOperationsTests.RecoverySafetyTests/testRetainProjecti
 M1-RECOVERY-031	RascalFileOperationsTests.RecoverySafetyTests/testRollbackProjectionRepairsAfterItemsTerminalCheckpointFailure
 M1-RECOVERY-032	RascalFileOperationsTests.RecoverySafetyTests/testTwoItemRecoveryPersistsEachIntentAndInspectsOnlyAmbiguousSecondItem
 M1-RECOVERY-033	RascalFileOperationsTests.RecoverySafetyTests/testUnknownRecoveryInspectionPreservesIntentAndTokenWithoutNewMutation
+M1-RECOVERY-034	RascalFileOperationsTests.RecoverySafetyTests/testQueuedAdmissionIsReplayDiscoverableBeforeExecutionStarts
+M1-RECOVERY-035	RascalFileOperationsTests.RecoverySafetyTests/testQueuedPlannedOperationCanBeCancelledWithoutReleasingActiveSlot
+M1-RECOVERY-036	RascalFileOperationsTests.RecoverySafetyTests/testNotCommittedInspectionDurablyCleansStagingBeforeRollbackCancellation
 M1-EVENT-T001	RascalFileOperationsIntegrationTests.EventStreamIntegrationTests/testLongReplayIsPagedOutsideBoundedLiveQueue
 M1-EVENT-T002	RascalFileOperationsIntegrationTests.EventStreamIntegrationTests/testProgressCoalescesPerItemWithoutOverwritingAnotherItem
 M1-EVENT-T003	RascalFileOperationsIntegrationTests.EventStreamIntegrationTests/testProgressCoalescingNeverCrossesInterveningStateEvents
@@ -358,6 +325,7 @@ M1-EVENT-T006	RascalFileOperationsIntegrationTests.EventStreamIntegrationTests/t
 M1-EVENT-T007	RascalFileOperationsIntegrationTests.EventStreamIntegrationTests/testSlowSubscriberOverflowEndsOnlyThatStreamAndResubscribeConverges
 M1-EVENT-T008	RascalFileOperationsIntegrationTests.EventStreamIntegrationTests/testTwoSubscribersReceiveIndependentIdenticalBroadcasts
 M1-EVENT-T009	RascalFileOperationsIntegrationTests.EventStreamIntegrationTests/testZZCancellingAnIdleSubscriptionFinishesItsPendingPull
+M1-EVENT-T010	RascalFileOperationsIntegrationTests.EventStreamIntegrationTests/testRecoveryConvergenceIsDurableReplayableAndBindsSuccessorAction
 M1-SERVICE-001	RascalFileOperationsIntegrationTests.ServiceIntegrationTests/testCleanupGuardsStopBeforeAndAfterUnsafeJournalChanges
 M1-SERVICE-002	RascalFileOperationsIntegrationTests.ServiceIntegrationTests/testCleanupRecoveryRetriesActualEffectAndIsIdempotent
 M1-SERVICE-003	RascalFileOperationsIntegrationTests.ServiceIntegrationTests/testCommitPhaseRejectsCancellationAndCompletesOneCommitEffect
@@ -398,6 +366,25 @@ M1-CI-001	remote-github	true	false	GitHub macOS fast lane on attributable commit
 EOF
     shasum -a 256 "$EVIDENCE/test-manifest.tsv" "$EVIDENCE/scenario-manifest.tsv" \
         > "$EVIDENCE/stable-manifests.sha256"
+}
+
+verify_environment_unchanged() {
+    git rev-parse HEAD > "$EVIDENCE/head-end.txt"
+    git status --porcelain=v2 --untracked-files=all > "$EVIDENCE/git-status-v2-end.txt"
+    git diff --binary > "$EVIDENCE/unstaged-end.diff"
+    git diff --cached --binary > "$EVIDENCE/staged-end.diff"
+    : > "$EVIDENCE/untracked-content-end.sha256"
+    while IFS= read -r -d '' path; do
+        shasum -a 256 "$path" >> "$EVIDENCE/untracked-content-end.sha256"
+    done < <(git ls-files --others --exclude-standard -z | sort -z)
+    cmp "$EVIDENCE/head.txt" "$EVIDENCE/head-end.txt"
+    cmp "$EVIDENCE/git-status-v2.txt" "$EVIDENCE/git-status-v2-end.txt"
+    cmp "$EVIDENCE/unstaged.diff" "$EVIDENCE/unstaged-end.diff"
+    cmp "$EVIDENCE/staged.diff" "$EVIDENCE/staged-end.diff"
+    cmp "$EVIDENCE/untracked-content.sha256" "$EVIDENCE/untracked-content-end.sha256"
+    shasum -a 256 "$EVIDENCE/unstaged-end.diff" > "$EVIDENCE/unstaged-end-diff.sha256"
+    shasum -a 256 "$EVIDENCE/staged-end.diff" > "$EVIDENCE/staged-end-diff.sha256"
+    printf 'start_end_git_state\tPASS\n' > "$EVIDENCE/workspace-stability.tsv"
 }
 
 make_assertion_manifest() {
@@ -514,7 +501,7 @@ if any(left >= right for left, right in zip(sequences, sequences[1:])):
 state = r"(?:planned|preflight|waitingForDecision|staging|paused|metadata|verifying|committing|committedAwaitingCleanup|sourceQuarantining|cleaningSource|completed|completedWithSkips|completedWithSourceRetained|cancelled|failedRecoverable|recoveryRequired|cleanupRequired|rolledBack)"
 item_state = r"(?:pending|preflight|waitingForDecision|staging|paused|metadata|verifying|committing|committed|committedAwaitingCleanup|sourceQuarantining|cleaningSource|completed|skipped|cancelled|failedRecoverable|recoveryRequired|cleanupRequired|rolledBack)"
 payload_grammar = re.compile(
-    rf"^(?:state:{state}->{state}|item:{item_state}->{item_state}|"
+    rf"^(?:admitted|state:{state}->{state}|item:{item_state}->{item_state}|"
     r"progress:[0-9]+|receipt:cleanupPending=(?:true|false)|completed)$"
 )
 for row in parsed:
@@ -522,7 +509,7 @@ for row in parsed:
     if not payload_grammar.fullmatch(payload):
         raise SystemExit(f"payload violates strict grammar: {payload}")
     item_scoped = payload.startswith(("item:", "progress:", "receipt:"))
-    operation_scoped = payload.startswith("state:") or payload == "completed"
+    operation_scoped = payload == "admitted" or payload.startswith("state:") or payload == "completed"
     if item_scoped and row["item"] == "-":
         raise SystemExit(f"item-scoped payload lacks item ID: {payload}")
     if operation_scoped and row["item"] != "-":
@@ -532,27 +519,28 @@ for row in parsed:
         raise SystemExit(f"payload durability mismatch: {payload}")
 
 canonical = [
-    ("-", 1, "durable", "state:planned->preflight"),
-    ("item", 2, "durable", "item:pending->preflight"),
-    ("item", 3, "durable", "item:preflight->staging"),
-    ("-", 4, "durable", "state:preflight->staging"),
-    ("item", 5, "transient", "progress:1"),
-    ("item", 13, "durable", "item:staging->paused"),
-    ("-", 14, "durable", "state:staging->paused"),
-    ("item", 15, "durable", "item:paused->staging"),
-    ("-", 16, "durable", "state:paused->staging"),
-    ("item", 18, "transient", "progress:3"),
-    ("item", 25, "durable", "item:staging->metadata"),
-    ("-", 26, "durable", "state:staging->metadata"),
-    ("item", 27, "durable", "item:metadata->verifying"),
-    ("-", 28, "durable", "state:metadata->verifying"),
-    ("item", 29, "durable", "item:verifying->committing"),
-    ("-", 30, "durable", "state:verifying->committing"),
-    ("item", 31, "durable", "receipt:cleanupPending=false"),
-    ("item", 32, "durable", "item:committing->committed"),
-    ("item", 33, "durable", "item:committed->completed"),
-    ("-", 34, "durable", "state:committing->completed"),
-    ("-", 35, "durable", "completed"),
+    ("-", 1, "durable", "admitted"),
+    ("-", 2, "durable", "state:planned->preflight"),
+    ("item", 3, "durable", "item:pending->preflight"),
+    ("item", 4, "durable", "item:preflight->staging"),
+    ("-", 5, "durable", "state:preflight->staging"),
+    ("item", 6, "transient", "progress:1"),
+    ("item", 14, "durable", "item:staging->paused"),
+    ("-", 15, "durable", "state:staging->paused"),
+    ("item", 16, "durable", "item:paused->staging"),
+    ("-", 17, "durable", "state:paused->staging"),
+    ("item", 19, "transient", "progress:3"),
+    ("item", 26, "durable", "item:staging->metadata"),
+    ("-", 27, "durable", "state:staging->metadata"),
+    ("item", 28, "durable", "item:metadata->verifying"),
+    ("-", 29, "durable", "state:metadata->verifying"),
+    ("item", 30, "durable", "item:verifying->committing"),
+    ("-", 31, "durable", "state:verifying->committing"),
+    ("item", 32, "durable", "receipt:cleanupPending=false"),
+    ("item", 33, "durable", "item:committing->committed"),
+    ("item", 34, "durable", "item:committed->completed"),
+    ("-", 35, "durable", "state:committing->completed"),
+    ("-", 36, "durable", "completed"),
 ]
 observed_trace = [
     ("-" if row["item"] == "-" else "item", row["sequence_value"],
@@ -607,7 +595,8 @@ results = []
 for row in rows:
     stable_id = row["stable_id"]
     if stable_id == "M1-CI-001":
-        status = "NOT-EVALUATED-LOCAL-AUTHORIZATION-REQUIRED"
+        marker = marker_root / "scenario-M1-CI-001.pass"
+        status = "PASS" if marker.is_file() else "NOT-EVALUATED-LOCAL-RUN"
     else:
         marker = marker_root / f"scenario-{stable_id}.pass"
         status = "PASS" if marker.is_file() else "FAIL-MISSING-EVIDENCE"
@@ -673,8 +662,8 @@ touch "$EVIDENCE/scenario-M1-BUILD-001.pass"
 
 DEBUG_APP_BIN="$ROOT/build/Rascal.app/Contents/MacOS/FinderTwo"
 find_matching_build_binary "$SCRATCH/ad-hoc-build" debug "$DEBUG_APP_BIN" \
-    "$SCRATCH/provenance-normalization/debug" \
-    "$EVIDENCE/debug-normalized-provenance.tsv"
+    "$SCRATCH/provenance-comparison/debug" \
+    "$EVIDENCE/debug-reconstructed-provenance.tsv"
 DEBUG_BUILD_BIN="$MATCHED_BUILD_BIN"
 DEBUG_BUILD_RAW_SHA256="$MATCHED_BUILD_RAW_SHA256"
 DEBUG_APP_SIGNED_SHA256="$MATCHED_APP_SIGNED_SHA256"
@@ -686,60 +675,103 @@ chmod +x "$DEBUG_BIN"
 shasum -a 256 "$DEBUG_APP_BIN" > "$EVIDENCE/finder-two-debug-before-smoke.sha256"
 shasum -a 256 "$DEBUG_BIN" > "$EVIDENCE/finder-two-debug-saved.sha256"
 
-# Prove that signature normalization does not hide a changed Mach-O payload.
-# The disposable copy is stripped, mutated outside the signature, then signed
-# again so the comparator must reach and reject the normalized byte comparison.
+# Prove that deterministic bundle reconstruction rejects both a content-byte
+# mutation and the former __LINKEDIT.vmsize normalization escape hatch.
 PROVENANCE_NEGATIVE_DIR="$SCRATCH/provenance-negative"
 mkdir -p "$PROVENANCE_NEGATIVE_DIR"
-TAMPERED_APP_BIN="$PROVENANCE_NEGATIVE_DIR/FinderTwo"
-cp -p "$DEBUG_APP_BIN" "$TAMPERED_APP_BIN"
-codesign --remove-signature "$TAMPERED_APP_BIN" \
-    > "$EVIDENCE/negative-provenance-payload-remove.stdout" \
-    2> "$EVIDENCE/negative-provenance-payload-remove.stderr"
-"$PYTHON_BIN" - "$TAMPERED_APP_BIN" \
-    "$EVIDENCE/negative-provenance-payload-mutation.tsv" <<'PY'
+run_provenance_negative() {
+    local name="$1" mutation="$2"
+    local negative_root="$PROVENANCE_NEGATIVE_DIR/$name"
+    local tampered_app="$negative_root/Rascal.app"
+    local tampered_binary="$tampered_app/Contents/MacOS/FinderTwo"
+    mkdir -p "$negative_root"
+    cp -R "$ROOT/build/Rascal.app" "$tampered_app"
+    codesign --force --deep --sign - --timestamp=none "$tampered_app" \
+        > "$EVIDENCE/negative-$name-sign.stdout" \
+        2> "$EVIDENCE/negative-$name-sign.stderr"
+    codesign --verify --deep --strict "$tampered_app" \
+        > "$EVIDENCE/negative-$name-before-mutation-verify.stdout" \
+        2> "$EVIDENCE/negative-$name-before-mutation-verify.stderr"
+    "$PYTHON_BIN" - "$tampered_binary" "$mutation" \
+        "$EVIDENCE/negative-$name-mutation.tsv" <<'PY'
 import pathlib
+import struct
 import sys
 
 path = pathlib.Path(sys.argv[1])
+mutation = sys.argv[2]
 data = bytearray(path.read_bytes())
 if len(data) < 8192:
     raise SystemExit("FinderTwo payload is unexpectedly small")
-offset = len(data) // 2
-before = data[offset]
-data[offset] ^= 1
+if mutation == "payload":
+    offset = len(data) // 2
+    before = data[offset]
+    data[offset] ^= 1
+    after = data[offset]
+elif mutation == "linkedit-vmsize":
+    _, _, _, _, command_count, command_bytes, _, _ = struct.unpack_from(
+        "<IiiIIIII", data, 0
+    )
+    offset = 32
+    limit = 32 + command_bytes
+    found = []
+    for _ in range(command_count):
+        command, command_size = struct.unpack_from("<II", data, offset)
+        if command == 0x19 and data[offset + 8:offset + 24].split(b"\0", 1)[0] == b"__LINKEDIT":
+            found.append(offset + 32)
+        offset += command_size
+    if offset != limit or len(found) != 1:
+        raise SystemExit("expected one complete __LINKEDIT segment")
+    offset = found[0]
+    before = struct.unpack_from("<Q", data, offset)[0]
+    after = before + 4096
+    struct.pack_into("<Q", data, offset, after)
+else:
+    raise SystemExit(f"unknown mutation {mutation}")
 path.write_bytes(data)
-pathlib.Path(sys.argv[2]).write_text(
-    f"offset\tbefore\tafter\n{offset}\t{before}\t{data[offset]}\n"
+pathlib.Path(sys.argv[3]).write_text(
+    f"mutation\toffset\tbefore\tafter\n{mutation}\t{offset}\t{before}\t{after}\n"
 )
 PY
-codesign --force --sign - --timestamp=none "$TAMPERED_APP_BIN" \
-    > "$EVIDENCE/negative-provenance-payload-sign.stdout" \
-    2> "$EVIDENCE/negative-provenance-payload-sign.stderr"
-set +e
-find_matching_build_binary "$SCRATCH/ad-hoc-build" debug "$TAMPERED_APP_BIN" \
-    "$SCRATCH/provenance-normalization/debug-tampered" \
-    "$EVIDENCE/negative-provenance-payload-comparison.tsv" \
-    > "$EVIDENCE/negative-provenance-payload.stdout" \
-    2> "$EVIDENCE/negative-provenance-payload.stderr"
-PROVENANCE_PAYLOAD_NEGATIVE=$?
-set -e
-printf '%s\n' "$PROVENANCE_PAYLOAD_NEGATIVE" \
-    > "$EVIDENCE/negative-provenance-payload.exit"
-[[ "$PROVENANCE_PAYLOAD_NEGATIVE" != 0 ]] || {
-    echo "tampered non-signature payload was accepted" >&2
-    exit 1
+    set +e
+    codesign --verify --deep --strict "$tampered_app" \
+        > "$EVIDENCE/negative-$name-after-mutation-verify.stdout" \
+        2> "$EVIDENCE/negative-$name-after-mutation-verify.stderr"
+    local signature_status=$?
+    set -e
+    printf '%s\n' "$signature_status" \
+        > "$EVIDENCE/negative-$name-after-mutation-verify.exit"
+    [[ "$signature_status" != 0 ]] || {
+        echo "$name mutation unexpectedly preserved the code signature" >&2
+        exit 1
+    }
+    set +e
+    find_matching_build_binary "$SCRATCH/ad-hoc-build" debug "$tampered_binary" \
+        "$SCRATCH/provenance-comparison/debug-$name" \
+        "$EVIDENCE/negative-$name-comparison.tsv" \
+        > "$EVIDENCE/negative-$name.stdout" \
+        2> "$EVIDENCE/negative-$name.stderr"
+    local status=$?
+    set -e
+    printf '%s\n' "$status" > "$EVIDENCE/negative-$name.exit"
+    [[ "$status" != 0 ]] || { echo "$name provenance tamper was accepted" >&2; exit 1; }
+    grep -Fq $'\tfalse' "$EVIDENCE/negative-$name-comparison.tsv" || {
+        echo "$name tamper lacked exact comparison evidence" >&2
+        exit 1
+    }
+    ! grep -Eq 'M1-[A-Z0-9-]+ PASS' \
+        "$EVIDENCE/negative-$name.stdout" "$EVIDENCE/negative-$name.stderr" || {
+        echo "$name provenance negative printed PASS" >&2
+        exit 1
+    }
+    PROVENANCE_NEGATIVE_STATUS="$status"
 }
-grep -Fq $'\tfalse' "$EVIDENCE/negative-provenance-payload-comparison.tsv" || {
-    echo "tampered payload was rejected before normalized comparison evidence" >&2
-    exit 1
-}
-! grep -Eq 'M1-[A-Z0-9-]+ PASS' \
-    "$EVIDENCE/negative-provenance-payload.stdout" \
-    "$EVIDENCE/negative-provenance-payload.stderr" || {
-    echo "tampered payload negative control printed PASS" >&2
-    exit 1
-}
+
+PROVENANCE_NEGATIVE_STATUS=""
+run_provenance_negative provenance-payload payload
+PROVENANCE_PAYLOAD_NEGATIVE="$PROVENANCE_NEGATIVE_STATUS"
+run_provenance_negative provenance-linkedit-vmsize linkedit-vmsize
+PROVENANCE_LINKEDIT_NEGATIVE="$PROVENANCE_NEGATIVE_STATUS"
 
 run_timed smoke 300 env RASCAL_ENABLE_LEGACY_WRITES=1 bash ./smoketest.sh
 [[ "$(grep -Ec '^=== 605 passed, 0 failed ===$' "$EVIDENCE/smoke.stdout")" == "1" ]] || {
@@ -772,8 +804,8 @@ touch "$EVIDENCE/scenario-M1-COMPAT-001.pass"
 run release-build env RASCAL_SECURITY_TOOL=/usr/bin/false SWIFT_SCRATCH_PATH="$SCRATCH/release" bash ./build.sh release
 RELEASE_APP_BIN="$ROOT/build/Rascal.app/Contents/MacOS/FinderTwo"
 find_matching_build_binary "$SCRATCH/release" release "$RELEASE_APP_BIN" \
-    "$SCRATCH/provenance-normalization/release" \
-    "$EVIDENCE/release-normalized-provenance.tsv"
+    "$SCRATCH/provenance-comparison/release" \
+    "$EVIDENCE/release-reconstructed-provenance.tsv"
 RELEASE_BUILD_BIN="$MATCHED_BUILD_BIN"
 RELEASE_BUILD_RAW_SHA256="$MATCHED_BUILD_RAW_SHA256"
 RELEASE_APP_SIGNED_SHA256="$MATCHED_APP_SIGNED_SHA256"
@@ -786,7 +818,7 @@ shasum -a 256 "$RELEASE_BIN" > "$EVIDENCE/finder-two-release.sha256"
 DEBUG_EVIDENCE_SHA256="$(sha256_file "$DEBUG_BIN")" || exit 1
 RELEASE_EVIDENCE_SHA256="$(sha256_file "$RELEASE_BIN")" || exit 1
 {
-    printf 'configuration\tscratch_root\tbuilt_binary\traw_build_sha256\tsigned_app_binary\tsigned_app_sha256\tstripped_build_payload_sha256\tstripped_app_payload_sha256\tpayload_match\tevidence_binary\tevidence_binary_sha256\tevidence_binary_source\n'
+    printf 'configuration\tscratch_root\tbuilt_binary\traw_build_sha256\tsigned_app_binary\tsigned_app_sha256\treconstructed_signed_sha256\tactual_signed_sha256\tpayload_match\tevidence_binary\tevidence_binary_sha256\tevidence_binary_source\n'
     printf 'debug\t%s\t%s\t%s\t%s\t%s\t%s\t%s\ttrue\t%s\t%s\traw-swiftpm-product\n' \
         "$SCRATCH/ad-hoc-build" "$DEBUG_BUILD_BIN" "$DEBUG_BUILD_RAW_SHA256" \
         "$DEBUG_APP_BIN" "$DEBUG_APP_SIGNED_SHA256" "$DEBUG_BUILD_PAYLOAD_SHA256" \
@@ -806,16 +838,15 @@ touch "$EVIDENCE/scenario-M1-GATE-D-001.pass" \
     "$EVIDENCE/scenario-M1-GATE-L-001.pass" \
     "$EVIDENCE/scenario-M1-GATE-R-001.pass"
 
-validate_scenarios "$EVIDENCE/scenario-manifest.tsv" \
-    "$EVIDENCE/scenario-results.tsv" "$EVIDENCE"
-
 # Negative controls run only against disposable scratch or /tmp copies. Each validator
 # must reject its tampered input, and the timeout must reap the whole child
 # process group before the lane may claim its own positive evidence.
 NEGATIVE_DIR="$(mktemp -d /tmp/rascal-m1-negative.XXXXXX)"
 printf 'control\texit\texpected\n' > "$EVIDENCE/negative-controls.tsv"
-printf 'provenance-normalized-payload-tamper\t%s\tnonzero-no-pass\n' \
+printf 'provenance-reconstructed-payload-tamper\t%s\tnonzero-no-pass\n' \
     "$PROVENANCE_PAYLOAD_NEGATIVE" >> "$EVIDENCE/negative-controls.tsv"
+printf 'provenance-linkedit-vmsize-tamper\t%s\tnonzero-no-pass\n' \
+    "$PROVENANCE_LINKEDIT_NEGATIVE" >> "$EVIDENCE/negative-controls.tsv"
 
 expect_swift_rejection() {
     local name="$1" input="$2"
@@ -968,5 +999,17 @@ printf 'timeout-process-group\t%s\t124-and-child-reaped\n' "$TIMEOUT_NEGATIVE" \
     >> "$EVIDENCE/negative-controls.tsv"
 
 rm -rf "$NEGATIVE_DIR"
+
+verify_environment_unchanged
+if [[ "${GITHUB_ACTIONS:-false}" == "true" ]]; then
+    touch "$EVIDENCE/scenario-M1-CI-001.pass"
+    printf 'M1-CI-001=PASS; complete GitHub lane bound to github-run-metadata.tsv\n' \
+        >> "$EVIDENCE/journal-and-remote-boundary.txt"
+else
+    printf 'M1-CI-001=NOT-EVALUATED-LOCAL-RUN\n' \
+        >> "$EVIDENCE/journal-and-remote-boundary.txt"
+fi
+validate_scenarios "$EVIDENCE/scenario-manifest.tsv" \
+    "$EVIDENCE/scenario-results.tsv" "$EVIDENCE"
 
 echo "M1 local fast lane PASS evidence=$EVIDENCE"

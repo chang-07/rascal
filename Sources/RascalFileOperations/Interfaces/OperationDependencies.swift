@@ -75,7 +75,11 @@ package struct JournalOperation: Sendable {
 
 package struct JournalAdmission: Sendable {
     package let operation: JournalOperation
-    package init(operation: JournalOperation) { self.operation = operation }
+    package let event: OperationEvent
+    package init(operation: JournalOperation, event: OperationEvent) {
+        self.operation = operation
+        self.event = event
+    }
 }
 
 /// Synchronous by design: FileOperationService is the sole owner and never holds
@@ -83,7 +87,10 @@ package struct JournalAdmission: Sendable {
 package protocol OperationJournal: Sendable {
     var isWritable: Bool { get }
     func loadOperations() throws -> [JournalOperation]
-    func admit(_ snapshot: OperationSnapshot) throws -> JournalAdmission
+    /// Atomically admits the operation, allocates its first durable sequence,
+    /// and appends the discovery event. A queued operation must be discoverable
+    /// after restart even if it never becomes the active operation.
+    func admit(_ snapshot: OperationSnapshot, at timestamp: Date) throws -> JournalAdmission
     func reserveSequences(for id: OperationID, count: UInt64) throws -> ClosedRange<EventSequence>
     func commit(_ operation: JournalOperation, event: OperationEvent) throws
     func checkpoint(_ operation: JournalOperation) throws

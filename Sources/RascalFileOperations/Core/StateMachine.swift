@@ -2,9 +2,9 @@ import Foundation
 
 package enum ItemStateMachine {
     package static let allowed: [OperationItemState: Set<OperationItemState>] = [
-        .pending: [.preflight, .failedRecoverable, .cancelled, .skipped],
+        .pending: [.preflight, .cancelled, .skipped],
         .preflight: [.waitingForDecision, .staging, .failedRecoverable, .cancelled, .skipped],
-        .waitingForDecision: [.preflight, .failedRecoverable, .cancelled],
+        .waitingForDecision: [.preflight, .cancelled],
         .staging: [.paused, .metadata, .failedRecoverable, .cancelled, .cleanupRequired, .recoveryRequired],
         .paused: [.staging, .cancelled, .cleanupRequired, .recoveryRequired],
         .metadata: [.verifying, .failedRecoverable, .cancelled, .cleanupRequired, .recoveryRequired],
@@ -14,9 +14,9 @@ package enum ItemStateMachine {
         .committedAwaitingCleanup: [.completed, .sourceQuarantining, .failedRecoverable, .recoveryRequired],
         .sourceQuarantining: [.cleaningSource, .cleanupRequired, .recoveryRequired],
         .cleaningSource: [.completed, .cleanupRequired, .recoveryRequired],
-        .failedRecoverable: [.preflight, .completed, .skipped, .rolledBack, .recoveryRequired],
-        .cleanupRequired: [.completed, .cancelled, .failedRecoverable, .sourceQuarantining, .cleaningSource, .recoveryRequired, .rolledBack],
-        .recoveryRequired: [.completed, .failedRecoverable, .cleanupRequired, .sourceQuarantining, .rolledBack],
+        .failedRecoverable: [.preflight, .cancelled, .rolledBack, .recoveryRequired],
+        .cleanupRequired: [.cancelled, .failedRecoverable, .sourceQuarantining, .cleaningSource, .recoveryRequired],
+        .recoveryRequired: [.failedRecoverable, .cancelled, .rolledBack],
         .completed: [.rolledBack], .skipped: [], .cancelled: [], .rolledBack: []
     ]
 
@@ -70,10 +70,18 @@ package enum OperationAggregator {
         if items.contains(where: { $0.state == .recoveryRequired }) { return .recoveryRequired }
         if items.contains(where: { $0.state == .cleanupRequired }) { return .cleanupRequired }
         if items.contains(where: { $0.state == .failedRecoverable }) { return .failedRecoverable }
-        if sourceRetained { return .completedWithSourceRetained }
         let terminal = Set<OperationItemState>([.completed, .skipped, .cancelled, .rolledBack])
         guard items.allSatisfy({ terminal.contains($0.state) }) else { return nil }
-        if items.allSatisfy({ $0.state == .cancelled }) { return .cancelled }
+        let hasDurableCommit = items.contains { $0.receipt != nil }
+        if sourceRetained {
+            // Source-retained is a successful post-commit barrier result, not
+            // a flag that can turn an in-flight or receipt-free operation into
+            // a terminal success.
+            return hasDurableCommit ? .completedWithSourceRetained : .recoveryRequired
+        }
+        if items.allSatisfy({ $0.state == .cancelled }) {
+            return hasDurableCommit ? .failedRecoverable : .cancelled
+        }
         if items.contains(where: { $0.state == .skipped }) &&
             items.allSatisfy({ $0.state == .completed || $0.state == .skipped }) {
             return .completedWithSkips

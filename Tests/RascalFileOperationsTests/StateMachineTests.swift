@@ -4,9 +4,9 @@ import XCTest
 
 final class StateMachineTests: XCTestCase {
     private let expectedItemTransitions: [OperationItemState: Set<OperationItemState>] = [
-        .pending: [.preflight, .failedRecoverable, .cancelled, .skipped],
+        .pending: [.preflight, .cancelled, .skipped],
         .preflight: [.waitingForDecision, .staging, .failedRecoverable, .cancelled, .skipped],
-        .waitingForDecision: [.preflight, .failedRecoverable, .cancelled],
+        .waitingForDecision: [.preflight, .cancelled],
         .staging: [.paused, .metadata, .failedRecoverable, .cancelled, .cleanupRequired, .recoveryRequired],
         .paused: [.staging, .cancelled, .cleanupRequired, .recoveryRequired],
         .metadata: [.verifying, .failedRecoverable, .cancelled, .cleanupRequired, .recoveryRequired],
@@ -16,9 +16,9 @@ final class StateMachineTests: XCTestCase {
         .committedAwaitingCleanup: [.completed, .sourceQuarantining, .failedRecoverable, .recoveryRequired],
         .sourceQuarantining: [.cleaningSource, .cleanupRequired, .recoveryRequired],
         .cleaningSource: [.completed, .cleanupRequired, .recoveryRequired],
-        .failedRecoverable: [.preflight, .completed, .skipped, .rolledBack, .recoveryRequired],
-        .cleanupRequired: [.completed, .cancelled, .failedRecoverable, .sourceQuarantining, .cleaningSource, .recoveryRequired, .rolledBack],
-        .recoveryRequired: [.completed, .failedRecoverable, .cleanupRequired, .sourceQuarantining, .rolledBack],
+        .failedRecoverable: [.preflight, .cancelled, .rolledBack, .recoveryRequired],
+        .cleanupRequired: [.cancelled, .failedRecoverable, .sourceQuarantining, .cleaningSource, .recoveryRequired],
+        .recoveryRequired: [.failedRecoverable, .cancelled, .rolledBack],
         .completed: [.rolledBack], .skipped: [], .cancelled: [], .rolledBack: []
     ]
 
@@ -121,17 +121,22 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(aggregate([.completed, .cancelled], sourceRetained: true), .completedWithSourceRetained)
         XCTAssertEqual(aggregate([.recoveryRequired], sourceRetained: true), .recoveryRequired)
         XCTAssertEqual(aggregate([.completed], rollbackCompleted: true), .rolledBack)
+        XCTAssertEqual(aggregate([.cancelled], forceReceipt: true), .failedRecoverable)
+        XCTAssertEqual(aggregate([.pending], sourceRetained: true, forceReceipt: true), nil)
+        XCTAssertEqual(aggregate([.completed], sourceRetained: true, forceReceipt: false),
+                       .recoveryRequired)
     }
 
     private func aggregate(_ states: [OperationItemState], sourceRetained: Bool = false,
-                           rollbackCompleted: Bool = false) -> OperationState? {
+                           rollbackCompleted: Bool = false,
+                           forceReceipt: Bool? = nil) -> OperationState? {
         OperationAggregator.terminalState(
             items: states.enumerated().map { index, state in
                 OperationItemSnapshot(
                     id: OperationItemID(rawValue: UUID()),
                     source: URL(fileURLWithPath: "/source/\(index)"), destination: nil,
                     state: state, progress: .zero, metadata: nil, verification: nil,
-                    receipt: state == .completed ? OperationReceiptSummary(
+                    receipt: (forceReceipt ?? (state == .completed)) ? OperationReceiptSummary(
                         committedIdentityDigest: "id-\(index)", backupURL: nil,
                         quarantineURL: nil, sourceCleanupPending: false
                     ) : nil,

@@ -2197,18 +2197,45 @@ final class TestRunner {
                    sbT.testSidebarBackground?.hexString == nord.sidebarBackground.hexString,
                    "got \(sbT.testSidebarBackground?.hexString ?? "nil") vs \(nord.sidebarBackground.hexString)")
 
-            // Render-based proof: draw the sidebar into an OFF-SCREEN bitmap (no
-            // window, no display) and sample the ACTUAL painted pixels along the
-            // right-edge background column. Attempt 1 of this fix passed every
+            // Render-based proof: attach the sidebar to a borderless window far
+            // off-screen, then sample the ACTUAL painted pixels along a right-
+            // side background column. NSVisualEffectView's `.behindWindow`
+            // compositing is undefined while detached; a real window with fixed
+            // appearance makes local and hosted-runner rendering comparable
+            // without showing UI or stealing focus. Keep the probe left of the largest
+            // possible scroller gutter: GitHub's runner may use legacy always-
+            // visible scrollbars while developer machines typically use overlay
+            // scrollers. Sampling inside that environment-owned gutter tests the
+            // scrollbar, not the sidebar surface.
+            //
+            // Attempt 1 of this fix passed every
             // property check yet still rendered the system color, because an
             // opaque clip view sat IN FRONT of the tint — a z-order bug only a
             // real pixel read can catch.
-            sbT.view.frame = NSRect(x: 0, y: 0, width: 168, height: 400)
+            let renderBounds = NSRect(x: 0, y: 0, width: 168, height: 400)
+            let renderWindow = NSWindow(
+                contentRect: renderBounds,
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false
+            )
+            renderWindow.isReleasedWhenClosed = false
+            renderWindow.appearance = NSAppearance(named: .darkAqua)
+            renderWindow.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+            renderWindow.contentView = sbT.view
+            renderWindow.orderFront(nil)
+            sbT.view.frame = renderBounds
             sbT.view.layoutSubtreeIfNeeded()
+            renderWindow.displayIfNeeded()
             if let rep = sbT.view.bitmapImageRepForCachingDisplay(in: sbT.view.bounds),
                let want = nord.sidebarBackground.usingColorSpace(.sRGB) {
                 sbT.view.cacheDisplay(in: sbT.view.bounds, to: rep)
-                let x = rep.pixelsWide - 6
+                let pixelScale = CGFloat(rep.pixelsWide) / max(sbT.view.bounds.width, 1)
+                let scrollerWidth = max(
+                    NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy),
+                    NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+                )
+                let x = max(1, rep.pixelsWide - Int(ceil((scrollerWidth + 6) * pixelScale)))
                 var matched = 0, opaque = 0
                 var py = 10
                 while py < rep.pixelsHigh - 10 {
@@ -2231,6 +2258,9 @@ final class TestRunner {
                            "only \(matched)/\(opaque) opaque right-edge samples matched nord \(want.hexString)")
                 }
             }
+            renderWindow.orderOut(nil)
+            renderWindow.contentView = nil
+            renderWindow.close()
         }
         ThemeManager.shared.setTheme(id: "system"); wait(0.05)
         assert("sidebar background is clear on System theme (native vibrancy shows)",

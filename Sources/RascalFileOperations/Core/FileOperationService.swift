@@ -104,8 +104,16 @@ private struct ManagedOperation {
     }
 
     var hasPartialCommit: Bool {
-        let committed = items.filter { $0.receipt != nil }.count
-        return committed > 0 && items.contains { ![.completed, .skipped].contains($0.state) }
+        // Receipts are append-only audit evidence, so a successfully
+        // compensated item still has one. Only uncompensated receipts count
+        // toward a live partial commit; otherwise a terminal rollback would
+        // incorrectly continue to advertise an outstanding final effect.
+        let hasUncompensatedCommit = items.contains {
+            $0.receipt != nil && $0.state != .rolledBack
+        }
+        return hasUncompensatedCommit && items.contains {
+            ![.completed, .skipped, .rolledBack].contains($0.state)
+        }
     }
 
     func hasResolvedRecoveryEffect(for itemID: OperationItemID,
@@ -123,7 +131,8 @@ private struct ManagedOperation {
     }
 
     var hasUnexplainedFilesystemEffect: Bool {
-        if state == .committing || items.contains(where: { $0.state == .committing }) {
+        if (state == .committing || items.contains(where: { $0.state == .committing })) &&
+            resumableDurableReceiptProjectionIndex == nil {
             return true
         }
         return items.contains { item in
@@ -140,6 +149,7 @@ private struct ManagedOperation {
     }
 
     var hasInterruptedPrecommit: Bool {
+        if resumableDurableReceiptProjectionIndex != nil { return false }
         let interruptedOperations: Set<OperationState> = [
             .staging, .paused, .metadata, .verifying
         ]
@@ -148,6 +158,33 @@ private struct ManagedOperation {
         ]
         return interruptedOperations.contains(state) ||
             items.contains { interruptedItems.contains($0.state) }
+    }
+
+    /// A receipt-backed copy projection may be interrupted between its
+    /// durable, event-emitting phase checkpoints. Those checkpoints describe
+    /// an already completed external effect and are safe to resume without an
+    /// executor call. Cleanup-pending receipts remain explicit recovery work.
+    var resumableDurableReceiptProjectionIndex: Int? {
+        let operationPhases: Set<OperationState> = [
+            .preflight, .staging, .metadata, .verifying, .committing
+        ]
+        let itemPhases: Set<OperationItemState> = [
+            .preflight, .staging, .metadata, .verifying, .committing,
+            .committed, .completed
+        ]
+        guard operationPhases.contains(state) else { return nil }
+        return items.indices.first { index in
+            let item = items[index]
+            guard itemPhases.contains(item.state),
+                  let receipt = item.receipt, !receipt.sourceCleanupPending,
+                  committedEffects[item.id] == receipt,
+                  let verification = item.verification else { return false }
+            guard verification.policy == effectiveVerificationPolicy else { return false }
+            if item.state == .committed || item.state == .completed {
+                return state == .committing
+            }
+            return true
+        }
     }
 
     var snapshot: OperationSnapshot {
@@ -333,9 +370,10 @@ public actor FileOperationService {
             hasPartialCommit: false, sourceRetained: false
         )
         do {
-            let admission = try dependencies.journal.admit(initial)
+            let admission = try dependencies.journal.admit(initial, at: dependencies.clock.now())
             let stored = admission.operation
             operations[id] = ManagedOperation(journalOperation: stored)
+            broadcast(admission.event)
         } catch let failure as FileOperationFailure {
             throw failure
         } catch {
@@ -486,6 +524,14 @@ public actor FileOperationService {
         }
         switch operation.state {
         case .planned, .preflight:
+            if operation.state == .planned, activeID != id {
+                // A durably admitted queued operation owns no executor/control
+                // slot. Cancelling it must not depend on, or release, the
+                // different operation currently occupying the active slot.
+                do { try await cancelBeforeStaging(id: id, itemIndex: index) }
+                catch { enterSafeMode(error) }
+                return
+            }
             // Planning is executor work too. Wait for its cooperative
             // cancellation acknowledgement before releasing the active slot;
             // otherwise the next operation could overlap a still-running plan.
@@ -649,7 +695,9 @@ public actor FileOperationService {
             return
         }
 
-        guard let index = activeItemIndex(operation) ?? operation.items.indices.first(where: {
+        guard let index = activeItemIndex(operation) ??
+            operation.resumableDurableReceiptProjectionIndex ??
+            operation.items.indices.first(where: {
             [.failedRecoverable, .recoveryRequired, .cleanupRequired,
              .committedAwaitingCleanup, .cleaningSource].contains(operation.items[$0].state)
         }) else {
@@ -669,6 +717,8 @@ public actor FileOperationService {
                 try requireRecoveryLease(id: id, actionID: command.actionID,
                                          invocationID: lease.invocationID)
                 try await convergeRolledBack(id: id)
+            } else {
+                try await convergeConfirmedNoCommit(id: id)
             }
         case .resumeFromVerifiedStage:
             try requireRecoveryLease(id: id, actionID: command.actionID,
@@ -717,6 +767,8 @@ public actor FileOperationService {
                 try requireRecoveryLease(id: id, actionID: command.actionID,
                                          invocationID: lease.invocationID)
                 try await convergeFinalizedPartialCommit(id: id)
+            } else {
+                try await convergeConfirmedNoCommit(id: id)
             }
         }
         await dependencies.failpoints.hit(.recoveryProjectionConverged, operationID: id)
@@ -733,7 +785,11 @@ private extension FileOperationService {
     func runScheduler() async {
         guard normalWritesAllowed, activeID == nil else { return }
         let candidate = operations.values
-            .filter { $0.state == .planned || $0.state == .preflight || $0.state == .waitingForDecision }
+            .filter {
+                $0.state == .planned || $0.state == .preflight ||
+                    $0.state == .waitingForDecision ||
+                    $0.resumableDurableReceiptProjectionIndex != nil
+            }
             .min { $0.submissionOrdinal < $1.submissionOrdinal }
         guard let candidate else { return }
         activeID = candidate.id
@@ -768,6 +824,10 @@ private extension FileOperationService {
             guard var operation = operations[id], activeID == id else { return }
             if operation.state == .planned { try transitionOperation(id: id, to: .preflight) }
             operation = operations[id]!
+            if let index = operation.resumableDurableReceiptProjectionIndex {
+                try resumeDurableReceiptProjection(id: id, itemIndex: index)
+                return
+            }
             guard operation.state == .preflight else { return }
             guard let index = operation.items.firstIndex(where: { $0.state == .pending || $0.state == .preflight }) else {
                 try finishOrAdvance(id: id)
@@ -885,66 +945,81 @@ private extension FileOperationService {
             return
         }
 
-        try transitionItem(id: id, index: index, to: .staging)
-        try transitionOperation(id: id, to: .staging)
-        await dependencies.failpoints.hit(.stagingStarted, operationID: id)
-        guard await shouldContinuePhase(id: id, state: .staging, control: control) else { return }
-        let staged = await performPhase(.staging, context: context, plan: plan, control: control)
-        guard await shouldContinueAfter(outcome: staged, phase: .staging, id: id, index: index,
-                                        expected: .staging, control: control) else { return }
-        guard case .staged = staged else {
-            try failUnexpectedPhase(.staging, id: id, index: index)
-            return
-        }
-
-        try transitionItem(id: id, index: index, to: .metadata)
-        try transitionOperation(id: id, to: .metadata)
-        guard await shouldContinuePhase(id: id, state: .metadata, control: control) else { return }
-        let metadata = await performPhase(.metadata, context: context, plan: plan, control: control)
-        guard await shouldContinueAfter(outcome: metadata, phase: .metadata, id: id, index: index,
-                                        expected: .metadata, control: control) else { return }
-        guard case let .metadataApplied(metadataOutcome) = metadata else {
-            try failUnexpectedPhase(.metadata, id: id, index: index)
-            return
-        }
-
-        try transitionItem(id: id, index: index, to: .verifying) { managedItem in
-            managedItem.metadata = metadataOutcome
-        }
-        try transitionOperation(id: id, to: .verifying)
-        guard await shouldContinuePhase(id: id, state: .verifying, control: control) else { return }
-        let verification = await performPhase(
-            .verification, context: context, plan: plan, control: control
-        )
-        guard await shouldContinueAfter(outcome: verification, phase: .verification,
-                                        id: id, index: index, expected: .verifying,
-                                        control: control) else { return }
-        guard case let .verified(verificationOutcome) = verification else {
-            try failUnexpectedPhase(.verification, id: id, index: index)
-            return
-        }
-        guard verificationOutcome.policy == context.verificationPolicy else {
-            controls[id] = nil
-            try failItem(
-                id: id, itemIndex: index,
-                failure: FileOperationFailure(
-                    code: .verificationMismatch, operationID: id, itemID: item.id,
-                    phase: .verifying,
-                    diagnostic: "executor verification policy does not match effective policy",
-                    retryable: false
-                ), ambiguous: false
+        if let durableReceipt = plan.durableCommitReceipt {
+            // A durable commit ledger suppresses every earlier filesystem
+            // phase as well as commit. Re-project the normative phase states
+            // from already durable metadata/verification facts without
+            // invoking executor effects a second time.
+            try projectDurableCommitIntent(
+                id: id, itemIndex: index, receipt: durableReceipt
             )
-            return
-        }
+        } else {
+            try transitionItem(id: id, index: index, to: .staging)
+            try transitionOperation(id: id, to: .staging)
+            await dependencies.failpoints.hit(.stagingStarted, operationID: id)
+            guard await shouldContinuePhase(id: id, state: .staging, control: control) else { return }
+            let staged = await performPhase(.staging, context: context, plan: plan, control: control)
+            guard await shouldContinueAfter(outcome: staged, phase: .staging, id: id, index: index,
+                                            expected: .staging, control: control) else { return }
+            guard case .staged = staged else {
+                try failUnexpectedPhase(.staging, id: id, index: index)
+                return
+            }
 
-        // The committing state is the durable pre-effect intent. If either
-        // transition fails, perform(.commit) is never invoked.
-        try transitionItem(id: id, index: index, to: .committing) { managedItem in
-            managedItem.verification = verificationOutcome
+            try transitionItem(id: id, index: index, to: .metadata)
+            try transitionOperation(id: id, to: .metadata)
+            guard await shouldContinuePhase(id: id, state: .metadata, control: control) else { return }
+            let metadata = await performPhase(.metadata, context: context, plan: plan, control: control)
+            guard await shouldContinueAfter(outcome: metadata, phase: .metadata, id: id, index: index,
+                                            expected: .metadata, control: control) else { return }
+            guard case let .metadataApplied(metadataOutcome) = metadata else {
+                try failUnexpectedPhase(.metadata, id: id, index: index)
+                return
+            }
+
+            try transitionItem(id: id, index: index, to: .verifying) { managedItem in
+                managedItem.metadata = metadataOutcome
+            }
+            try transitionOperation(id: id, to: .verifying)
+            guard await shouldContinuePhase(id: id, state: .verifying, control: control) else { return }
+            let verification = await performPhase(
+                .verification, context: context, plan: plan, control: control
+            )
+            guard await shouldContinueAfter(outcome: verification, phase: .verification,
+                                            id: id, index: index, expected: .verifying,
+                                            control: control) else { return }
+            guard case let .verified(verificationOutcome) = verification else {
+                try failUnexpectedPhase(.verification, id: id, index: index)
+                return
+            }
+            guard verificationOutcome.policy == context.verificationPolicy else {
+                controls[id] = nil
+                try failItem(
+                    id: id, itemIndex: index,
+                    failure: FileOperationFailure(
+                        code: .verificationMismatch, operationID: id, itemID: item.id,
+                        phase: .verifying,
+                        diagnostic: "executor verification policy does not match effective policy",
+                        retryable: false
+                    ), ambiguous: false
+                )
+                return
+            }
+
+            // The committing state is the durable pre-effect intent. If either
+            // transition fails, perform(.commit) is never invoked.
+            try transitionItem(id: id, index: index, to: .committing) { managedItem in
+                managedItem.verification = verificationOutcome
+            }
+            try transitionOperation(id: id, to: .committing)
         }
-        try transitionOperation(id: id, to: .committing)
         guard await shouldContinuePhase(id: id, state: .committing, control: control) else { return }
-        let committed = await performPhase(.commit, context: context, plan: plan, control: control)
+        let committed: ExecutionPhaseOutcome
+        if let durableReceipt = plan.durableCommitReceipt {
+            committed = .committed(durableReceipt)
+        } else {
+            committed = await performPhase(.commit, context: context, plan: plan, control: control)
+        }
         guard await shouldContinueAfter(outcome: committed, phase: .commit,
                                         id: id, index: index, expected: .committing, control: control,
                                         cancellationAllowed: false) else { return }
@@ -959,7 +1034,10 @@ private extension FileOperationService {
         // any semantic mismatch. The destination effect is already visible;
         // losing this receipt would turn a diagnosable invariant failure into
         // an unsafe, uninspectable retry.
-        try recordReceipt(id: id, itemIndex: index, receipt: receipt)
+        if operations[id]?.items[index].receipt != receipt ||
+            operations[id]?.committedEffects[item.id] != receipt {
+            try recordReceipt(id: id, itemIndex: index, receipt: receipt)
+        }
         guard receipt.sourceCleanupPending == cleanupRequired else {
             try failItem(
                 id: id, itemIndex: index,
@@ -1115,12 +1193,28 @@ private extension FileOperationService {
         switch outcome {
         case let .failed(failure):
             controls[id] = nil
-            do { try failItem(id: id, itemIndex: index, failure: failure, ambiguous: false) }
+            do {
+                if [.staging, .metadata, .verification].contains(phase) {
+                    try await failPrecommitWithOwnedStaging(
+                        id: id, itemIndex: index, failure: failure
+                    )
+                } else {
+                    try failItem(id: id, itemIndex: index, failure: failure, ambiguous: false)
+                }
+            }
             catch { enterSafeMode(error) }
             return false
         case let .recoveryRequired(failure):
             controls[id] = nil
-            do { try failItem(id: id, itemIndex: index, failure: failure, ambiguous: true) }
+            do {
+                if [.staging, .metadata, .verification].contains(phase) {
+                    try await failPrecommitWithOwnedStaging(
+                        id: id, itemIndex: index, failure: failure
+                    )
+                } else {
+                    try failItem(id: id, itemIndex: index, failure: failure, ambiguous: true)
+                }
+            }
             catch { enterSafeMode(error) }
             return false
         case .cancelled:
@@ -1150,6 +1244,32 @@ private extension FileOperationService {
                 diagnostic: "unexpected ACK for \(phase.rawValue)", retryable: false
             ), ambiguous: ambiguous
         )
+    }
+
+    func failPrecommitWithOwnedStaging(id: OperationID, itemIndex: Int,
+                                       failure: FileOperationFailure) async throws {
+        let itemID = operations[id]!.items[itemIndex].id
+        try commitEvent(id: id, itemID: itemID) { operation, _ in
+            operation.items[itemIndex].failure = failure
+            operation.terminalFailure = failure
+            return .failure(failure)
+        }
+        let action = try issueDiscardStagingAction(id: id, itemIndex: itemIndex)
+        // The operation remains cleanupRequired while the stable recovery
+        // effect is inspected/executed. Ambiguity is represented by the
+        // durable action plus service recovery mode, not by discarding the
+        // only legal cleanupRequired -> failed/cancelled convergence path.
+        try transitionItem(id: id, index: itemIndex, to: .cleanupRequired)
+        try transitionOperation(id: id, to: .cleanupRequired)
+        try transitionOperation(id: id, to: .recoveryRequired)
+        controls[id] = nil
+        activeID = nil
+        markRecoveryRequired(.unexplainedFilesystemEffect(id))
+        do {
+            try await recover(id, action: action)
+        } catch {
+            handleAutomaticRecoveryFailure(error, id: id)
+        }
     }
 
     func recordSourceCleanupCompleted(id: OperationID, itemIndex: Int) throws {
@@ -1485,7 +1605,7 @@ private extension FileOperationService {
         try transitionOperation(id: id, to: partial ? .failedRecoverable : .cancelled)
         if partial { try issuePartialCommitRecoveryActions(id: id, itemIndex: itemIndex) }
         controls[id] = nil
-        activeID = nil
+        if activeID == id { activeID = nil }
         Task { await self.runScheduler() }
     }
 
@@ -1501,7 +1621,6 @@ private extension FileOperationService {
         markRecoveryRequired(.unexplainedFilesystemEffect(id))
         try transitionItem(id: id, index: itemIndex, to: .cleanupRequired)
         try transitionOperation(id: id, to: .cleanupRequired)
-        try transitionItem(id: id, index: itemIndex, to: .recoveryRequired)
         try transitionOperation(id: id, to: .recoveryRequired)
         controls[id] = nil
         activeID = nil
@@ -1546,6 +1665,7 @@ private extension FileOperationService {
             }
             throw failure
         }
+        try restoreDurableCleanupBarrier(id: id, itemIndex: itemIndex, receipt: receipt)
         let retained = OperationReceiptSummary(
             committedIdentityDigest: receipt.committedIdentityDigest,
             backupURL: receipt.backupURL, quarantineURL: receipt.quarantineURL,
@@ -1596,6 +1716,161 @@ private extension FileOperationService {
                 ?? operation.remainingMetadataPolicy ?? operation.request.metadataPolicy,
             verificationPolicy: operation.effectiveVerificationPolicy
         )
+    }
+
+    /// Rebuilds only the durable state projection for an item whose commit
+    /// receipt already exists. No adapter or executor filesystem method is
+    /// called here; replaying staging/metadata effects after a restart would
+    /// violate effect-ledger idempotency and can leak a second staging object.
+    func projectDurableCommitIntent(id: OperationID, itemIndex: Int,
+                                    receipt: OperationReceiptSummary) throws {
+        guard let operation = operations[id], operation.items.indices.contains(itemIndex),
+              operation.items[itemIndex].receipt == receipt,
+              operation.committedEffects[operation.items[itemIndex].id] == receipt,
+              let verification = operation.items[itemIndex].verification,
+              verification.policy == operation.effectiveVerificationPolicy else {
+            throw FileOperationFailure(
+                code: .invariantViolation, operationID: id,
+                itemID: operations[id]?.items[itemIndex].id,
+                diagnostic: "durable receipt projection lacks matching ledger or verification",
+                retryable: false
+            )
+        }
+        func itemRank(_ state: OperationItemState) -> Int? {
+            switch state {
+            case .preflight: return 0
+            case .staging: return 1
+            case .metadata: return 2
+            case .verifying: return 3
+            case .committing: return 4
+            default: return nil
+            }
+        }
+        func operationRank(_ state: OperationState) -> Int? {
+            switch state {
+            case .preflight: return 0
+            case .staging: return 1
+            case .metadata: return 2
+            case .verifying: return 3
+            case .committing: return 4
+            default: return nil
+            }
+        }
+        let itemTargets: [OperationItemState] = [
+            .preflight, .staging, .metadata, .verifying, .committing
+        ]
+        let operationTargets: [OperationState] = [
+            .preflight, .staging, .metadata, .verifying, .committing
+        ]
+        guard var currentItemRank = itemRank(operation.items[itemIndex].state),
+              var currentOperationRank = operationRank(operation.state),
+              currentItemRank == currentOperationRank ||
+                currentItemRank == currentOperationRank + 1 else {
+            throw FileOperationFailure(
+                code: .invariantViolation, operationID: id,
+                itemID: operation.items[itemIndex].id,
+                diagnostic: "durable receipt projection phases are not resumable",
+                retryable: false
+            )
+        }
+        while currentItemRank < 4 || currentOperationRank < 4 {
+            if currentItemRank == currentOperationRank {
+                let next = currentItemRank + 1
+                try transitionItem(id: id, index: itemIndex, to: itemTargets[next])
+                currentItemRank = next
+            } else {
+                let next = currentOperationRank + 1
+                try transitionOperation(id: id, to: operationTargets[next])
+                currentOperationRank = next
+            }
+        }
+    }
+
+    func resumeDurableReceiptProjection(id: OperationID, itemIndex: Int) throws {
+        guard let receipt = operations[id]?.items[itemIndex].receipt,
+              !receipt.sourceCleanupPending else {
+            throw FileOperationFailure(
+                code: .invariantViolation, operationID: id,
+                itemID: operations[id]?.items[itemIndex].id,
+                diagnostic: "automatic projection resume requires a cleanup-free receipt",
+                retryable: false
+            )
+        }
+        let projectionStates: Set<OperationItemState> = [
+            .preflight, .staging, .metadata, .verifying, .committing
+        ]
+        if let state = operations[id]?.items[itemIndex].state,
+           projectionStates.contains(state) {
+            try projectDurableCommitIntent(id: id, itemIndex: itemIndex, receipt: receipt)
+        }
+        if operations[id]?.items[itemIndex].state == .committing {
+            try transitionItem(id: id, index: itemIndex, to: .committed)
+        }
+        if operations[id]?.items[itemIndex].state == .committed {
+            try transitionItem(id: id, index: itemIndex, to: .completed)
+        }
+        guard operations[id]?.items[itemIndex].state == .completed,
+              operations[id]?.state == .committing else {
+            throw FileOperationFailure(
+                code: .invariantViolation, operationID: id,
+                itemID: operations[id]?.items[itemIndex].id,
+                diagnostic: "receipt projection terminal checkpoint is inconsistent",
+                retryable: false
+            )
+        }
+        try finishOrAdvance(id: id)
+    }
+
+    /// Once read-only inspection makes a pending source cleanup unambiguous,
+    /// fold the item back through its receipt-backed commit projection. This
+    /// uses only durable facts and creates no filesystem effect.
+    func restoreDurableCleanupBarrier(id: OperationID, itemIndex: Int,
+                                      receipt: OperationReceiptSummary) throws {
+        guard receipt.sourceCleanupPending,
+              let operation = operations[id], operation.items.indices.contains(itemIndex) else {
+            throw FileOperationFailure(
+                code: .invariantViolation, operationID: id,
+                diagnostic: "cleanup barrier requires a durable pending receipt",
+                retryable: false
+            )
+        }
+        if operation.state == .committedAwaitingCleanup { return }
+        if operation.items[itemIndex].state == .recoveryRequired {
+            try transitionItem(id: id, index: itemIndex, to: .failedRecoverable)
+        } else if operation.items[itemIndex].state == .cleanupRequired {
+            try transitionItem(id: id, index: itemIndex, to: .failedRecoverable)
+        }
+        if operations[id]?.state == .recoveryRequired || operations[id]?.state == .cleanupRequired {
+            try transitionOperation(id: id, to: .failedRecoverable)
+        }
+        if operations[id]?.items[itemIndex].state == .failedRecoverable {
+            try transitionItem(id: id, index: itemIndex, to: .preflight) { $0.failure = nil }
+        }
+        if operations[id]?.state == .failedRecoverable {
+            try transitionOperation(id: id, to: .preflight)
+        }
+        let itemState = operations[id]!.items[itemIndex].state
+        if [.preflight, .staging, .metadata, .verifying, .committing].contains(itemState) {
+            try projectDurableCommitIntent(id: id, itemIndex: itemIndex, receipt: receipt)
+        }
+        if operations[id]?.items[itemIndex].state == .committing {
+            try transitionItem(id: id, index: itemIndex, to: .committed)
+        }
+        if operations[id]?.items[itemIndex].state == .committed {
+            try transitionItem(id: id, index: itemIndex, to: .committedAwaitingCleanup)
+        }
+        if operations[id]?.state == .committing {
+            try transitionOperation(id: id, to: .committedAwaitingCleanup)
+        }
+        guard operations[id]?.items[itemIndex].state == .committedAwaitingCleanup,
+              operations[id]?.state == .committedAwaitingCleanup else {
+            throw FileOperationFailure(
+                code: .invariantViolation, operationID: id,
+                itemID: operations[id]?.items[itemIndex].id,
+                diagnostic: "cleanup barrier projection did not converge",
+                retryable: false
+            )
+        }
     }
 
     func cancelRemainingPending(id: OperationID) throws {
@@ -1666,11 +1941,17 @@ private extension FileOperationService {
             case .sourcePresentMatching:
                 break
             case .sourceAbsent:
+                try restoreDurableCleanupBarrier(
+                    id: id, itemIndex: itemIndex, receipt: receipt
+                )
                 try convergeSourceAlreadyAbsent(id: id, itemIndex: itemIndex)
                 return
             case let .sourceChanged(failure), let .unknown(failure):
                 throw failure
             }
+            try restoreDurableCleanupBarrier(
+                id: id, itemIndex: itemIndex, receipt: receipt
+            )
             try transitionItem(id: id, index: itemIndex, to: .sourceQuarantining)
             try transitionOperation(id: id, to: .sourceQuarantining)
             try transitionItem(id: id, index: itemIndex, to: .cleaningSource)
@@ -1930,7 +2211,10 @@ private extension FileOperationService {
 
     /// Re-inspects only commit-ambiguous items that have no durable effect
     /// receipt. Unknown results remain recoveryRequired and the token is left
-    /// unconsumed; a positive result is journaled before any recovery effect.
+    /// unconsumed. A positive result is journaled before any recovery effect;
+    /// a negative result must first converge an operation-owned staging cleanup
+    /// through the same durable recovery ledger. `notCommitted` proves only
+    /// that the final destination effect is absent, never that staging vanished.
     func inspectUnknownCommits(id: OperationID, actionID: UUID,
                                invocationID: UUID) async throws -> Bool {
         guard let operation = operations[id] else { return false }
@@ -1951,8 +2235,14 @@ private extension FileOperationService {
             case let .committed(receipt):
                 try recordReceipt(id: id, itemIndex: index, receipt: receipt)
             case .notCommitted:
-                try transitionItem(id: id, index: index, to: .failedRecoverable)
-                try transitionOperation(id: id, to: .failedRecoverable)
+                try await performRecoveryEffect(
+                    id: id, itemIndex: index, effect: .cleanupStaging,
+                    actionID: actionID, invocationID: invocationID, receipt: nil
+                )
+                try requireRecoveryLease(
+                    id: id, actionID: actionID, invocationID: invocationID,
+                    itemID: item.id, effect: .cleanupStaging
+                )
             case let .unknown(failure):
                 throw failure
             }
@@ -2052,14 +2342,39 @@ private extension FileOperationService {
 
         switch action {
         case .rollbackCommittedDestination, .restoreBackup:
-            let completed = attempts.values.filter {
-                $0.effect == .rollbackCommittedDestination && $0.result == .completed
+            let committedItemIDs = Set(operation.committedEffects.keys)
+            if committedItemIDs.isEmpty {
+                guard !attempts.isEmpty,
+                      attempts.values.allSatisfy({
+                          $0.effect == .cleanupStaging && $0.result == .completed
+                      }),
+                      operation.items.allSatisfy({
+                          $0.state == .cancelled || $0.state == .skipped
+                      }),
+                      operationIsOneOf([.recoveryRequired, .cleanupRequired]) else { return }
+                operations[id]?.terminalFailure = nil
+                if operation.state == .recoveryRequired {
+                    try transitionOperation(id: id, to: .cleanupRequired)
+                }
+                try transitionOperation(id: id, to: .cancelled)
+                return
             }
-            guard !completed.isEmpty,
-                  completed.count == attempts.count,
-                  operation.committedEffects.isEmpty,
-                  operation.items.allSatisfy({
-                      $0.state == .rolledBack || $0.state == .cancelled
+            guard attempts.count >= committedItemIDs.count,
+                  committedItemIDs.allSatisfy({
+                      completedAttempt($0, effect: .rollbackCommittedDestination)
+                  }),
+                  attempts.allSatisfy({ itemID, attempt in
+                      if committedItemIDs.contains(itemID) {
+                          return attempt.effect == .rollbackCommittedDestination &&
+                              attempt.result == .completed
+                      }
+                      return attempt.effect == .cleanupStaging &&
+                          attempt.result == .completed
+                  }),
+                  operation.items.allSatisfy({ item in
+                      committedItemIDs.contains(item.id)
+                          ? item.state == .rolledBack
+                          : item.state == .cancelled || item.state == .skipped
                   }),
                   operationIsOneOf([.failedRecoverable, .recoveryRequired,
                                     .cleanupRequired]) else { return }
@@ -2069,15 +2384,40 @@ private extension FileOperationService {
 
         case .finalizeKnownCommit:
             let committedItemIDs = Set(operation.committedEffects.keys)
+            if committedItemIDs.isEmpty {
+                guard !attempts.isEmpty,
+                      attempts.values.allSatisfy({
+                          $0.effect == .cleanupStaging && $0.result == .completed
+                      }),
+                      operation.items.allSatisfy({
+                          $0.state == .cancelled || $0.state == .skipped
+                      }),
+                      operationIsOneOf([.recoveryRequired, .cleanupRequired]) else { return }
+                operations[id]?.terminalFailure = nil
+                if operation.state == .recoveryRequired {
+                    try transitionOperation(id: id, to: .cleanupRequired)
+                }
+                try transitionOperation(id: id, to: .cancelled)
+                return
+            }
             guard !committedItemIDs.isEmpty,
-                  attempts.count == committedItemIDs.count,
+                  attempts.count >= committedItemIDs.count,
                   committedItemIDs.allSatisfy({
                       completedAttempt($0, effect: .finalizeKnownCommit)
+                  }),
+                  attempts.allSatisfy({ itemID, attempt in
+                      if committedItemIDs.contains(itemID) {
+                          return attempt.effect == .finalizeKnownCommit &&
+                              attempt.result == .completed
+                      }
+                      return attempt.effect == .cleanupStaging &&
+                          attempt.result == .completed
                   }),
                   operation.items.allSatisfy({
                       $0.state == .completed || $0.state == .skipped
                   }),
-                  operationIsOneOf([.failedRecoverable, .recoveryRequired]) else { return }
+                  operationIsOneOf([.preflight, .failedRecoverable,
+                                    .recoveryRequired]) else { return }
             operations[id]?.terminalFailure = nil
             let terminal: OperationState = operation.items.contains { $0.state == .skipped }
                 ? .completedWithSkips : .completed
@@ -2110,7 +2450,8 @@ private extension FileOperationService {
                   operation.items.allSatisfy({
                       $0.state == .completed || $0.state == .cancelled || $0.state == .skipped
                   }),
-                  operationIsOneOf([.cleanupRequired, .recoveryRequired]) else { return }
+                  operationIsOneOf([.committedAwaitingCleanup, .cleanupRequired,
+                                    .recoveryRequired]) else { return }
             operations[id]?.terminalFailure = nil
             try transitionOperation(id: id, to: .completedWithSourceRetained)
 
@@ -2142,9 +2483,11 @@ private extension FileOperationService {
         guard let operation = operations[id] else { return false }
         switch action {
         case .rollbackCommittedDestination, .restoreBackup:
-            return operation.state == .rolledBack
+            return operation.state == .rolledBack ||
+                (operation.state == .cancelled && operation.committedEffects.isEmpty)
         case .finalizeKnownCommit:
-            return [.completed, .completedWithSkips].contains(operation.state)
+            return [.completed, .completedWithSkips].contains(operation.state) ||
+                (operation.state == .cancelled && operation.committedEffects.isEmpty)
         case .retrySourceCleanup:
             return [.completed, .completedWithSkips,
                     .completedWithSourceRetained].contains(operation.state)
@@ -2161,71 +2504,118 @@ private extension FileOperationService {
     }
 
     func completeRecoveryCommand(id: OperationID, actionID: UUID) throws {
-        guard var candidate = operations[id] else { return }
-        if candidate.completedRecoveryActions.contains(actionID) { return }
-        let completedDiscardForPartialCommit = candidate.availableActions.first.map {
+        guard let current = operations[id],
+              !current.completedRecoveryActions.contains(actionID) else { return }
+        let completedDiscard = current.availableActions.contains {
+            guard $0.command.actionID == actionID else { return false }
             if case .discardKnownStaging = $0 { return true }
             return false
-        } == true && candidate.state == .failedRecoverable && candidate.hasPartialCommit
-        candidate.inProgressRecoveryActions.remove(actionID)
-        candidate.completedRecoveryActions.insert(actionID)
-        // Every capability was issued for the same exact recovery projection.
-        // Once one action converges that projection, every sibling token is stale.
-        if completedDiscardForPartialCommit,
-           let item = candidate.items.first(where: { $0.state == .failedRecoverable }) {
-            let partial = FileOperationFailure(
-                code: .partialCommit, operationID: id, itemID: item.id,
-                phase: candidate.state,
-                diagnostic: "one or more prior items are durably committed",
-                retryable: false
-            )
-            candidate.terminalFailure = partial
-            candidate.availableActions = [
-                .rollbackCommittedDestination(RecoveryCommand(
-                    actionID: dependencies.ids.actionID(),
-                    expectedSequence: candidate.latestDurableSequence
-                )),
-                .finalizeKnownCommit(RecoveryCommand(
-                    actionID: dependencies.ids.actionID(),
-                    expectedSequence: candidate.latestDurableSequence
-                ))
-            ]
-        } else {
-            candidate.availableActions.removeAll()
         }
-        do {
-            // Memory changes only after the command marker is durable. A failed
-            // checkpoint therefore remains resumable in this process and after restart.
-            try dependencies.journal.checkpoint(candidate.journalOperation)
-            operations[id] = candidate
-            recomputeRecoveryModeAfterDurableCheckpoint()
-        } catch {
-            enterSafeMode(error)
-            throw FileOperationFailure(
-                code: .journalFailure, operationID: id,
-                diagnostic: String(describing: error), retryable: false
+        try commitEvent(id: id, itemID: nil) { candidate, sequence in
+            candidate.inProgressRecoveryActions.remove(actionID)
+            candidate.completedRecoveryActions.insert(actionID)
+            // The selected capability and its siblings are stale once this
+            // convergence event is durable. Any successor capability is bound
+            // to the new sequence and can be recovered by replay consumers.
+            if completedDiscard, candidate.state == .failedRecoverable,
+               candidate.hasPartialCommit,
+               let item = candidate.items.first(where: { $0.state == .failedRecoverable }) {
+                let partial = FileOperationFailure(
+                    code: .partialCommit, operationID: id, itemID: item.id,
+                    phase: candidate.state,
+                    diagnostic: "one or more prior items are durably committed",
+                    retryable: false
+                )
+                candidate.terminalFailure = partial
+                candidate.availableActions = [
+                    .rollbackCommittedDestination(RecoveryCommand(
+                        actionID: dependencies.ids.actionID(), expectedSequence: sequence
+                    )),
+                    .finalizeKnownCommit(RecoveryCommand(
+                        actionID: dependencies.ids.actionID(), expectedSequence: sequence
+                    ))
+                ]
+            } else if completedDiscard, candidate.state == .failedRecoverable,
+                      candidate.items.contains(where: {
+                          $0.state == .failedRecoverable && $0.failure != nil
+                      }) {
+                candidate.availableActions = [
+                    .resumeFromVerifiedStage(RecoveryCommand(
+                        actionID: dependencies.ids.actionID(), expectedSequence: sequence
+                    ))
+                ]
+            } else {
+                candidate.availableActions.removeAll()
+            }
+            return .recoveryConverged(
+                completedActionID: actionID,
+                availableActions: candidate.availableActions
             )
         }
+        recomputeRecoveryModeAfterDurableCheckpoint()
     }
 
     func convergeRolledBack(id: OperationID) async throws {
         guard let operation = operations[id] else { return }
+        func completedStagingCleanup(_ itemID: OperationItemID) -> Bool {
+            operation.recoveryEffectAttempts.values.contains { attempts in
+                guard let attempt = attempts[itemID] else { return false }
+                return attempt.effect == .cleanupStaging && attempt.result == .completed
+            }
+        }
         for index in operation.items.indices {
-            let state = operations[id]!.items[index].state
-            if state == .pending {
-                try transitionItem(id: id, index: index, to: .cancelled) { item in
-                    item.receipt = nil
-                    item.failure = nil
+            let item = operations[id]!.items[index]
+            let hadCommittedEffect = operations[id]!.committedEffects[item.id] != nil
+            if hadCommittedEffect {
+                switch item.state {
+                case .completed, .failedRecoverable, .recoveryRequired:
+                    try transitionItem(id: id, index: index, to: .rolledBack) {
+                        $0.failure = nil
+                    }
+                case .rolledBack:
+                    break
+                default:
+                    throw FileOperationFailure(
+                        code: .invariantViolation, operationID: id, itemID: item.id,
+                        phase: operations[id]?.state,
+                        diagnostic: "receipt-backed rollback has incompatible item state",
+                        retryable: false
+                    )
                 }
-            } else if state != .rolledBack && state != .cancelled && state != .skipped {
-                try transitionItem(id: id, index: index, to: .rolledBack) { item in
-                    item.receipt = nil
-                    item.failure = nil
+            } else {
+                switch item.state {
+                case .pending:
+                    try transitionItem(id: id, index: index, to: .cancelled) {
+                        $0.failure = nil
+                    }
+                case .failedRecoverable, .cleanupRequired, .recoveryRequired:
+                    guard completedStagingCleanup(item.id) else {
+                        throw FileOperationFailure(
+                            code: .invariantViolation, operationID: id,
+                            itemID: item.id, phase: operations[id]?.state,
+                            diagnostic: "receipt-free rollback lacks confirmed staging cleanup",
+                            retryable: false
+                        )
+                    }
+                    try transitionItem(id: id, index: index, to: .cancelled) {
+                        $0.failure = nil
+                    }
+                case .cancelled, .skipped:
+                    break
+                default:
+                    throw FileOperationFailure(
+                        code: .invariantViolation, operationID: id, itemID: item.id,
+                        phase: operations[id]?.state,
+                        diagnostic: "receipt-free item cannot claim rollback",
+                        retryable: false
+                    )
                 }
             }
         }
         var cleaned = operations[id]!
-        cleaned.committedEffects.removeAll()
+        // Commit receipts are an append-only audit ledger. A rollback changes
+        // the operation outcome; it must not erase proof that the original
+        // external effect existed and was the target of the rollback action.
         cleaned.terminalFailure = nil
         cleaned.sourceRetained = false
         do {
@@ -2245,30 +2635,138 @@ private extension FileOperationService {
         try transitionOperation(id: id, to: .rolledBack)
     }
 
-    func convergeFinalizedPartialCommit(id: OperationID) async throws {
-        guard let operation = operations[id] else { return }
+    /// Converges an ambiguous operation only after every inspected active item
+    /// has a durable completed staging-cleanup result and no commit receipt
+    /// exists. Pending items never started, so they can be cancelled directly.
+    func convergeConfirmedNoCommit(id: OperationID) async throws {
+        guard let operation = operations[id], operation.committedEffects.isEmpty else {
+            throw FileOperationFailure(
+                code: .invariantViolation, operationID: id,
+                diagnostic: "no-commit convergence conflicts with a durable receipt",
+                retryable: false
+            )
+        }
+        func completedStagingCleanup(_ itemID: OperationItemID) -> Bool {
+            operation.recoveryEffectAttempts.values.contains { attempts in
+                guard let attempt = attempts[itemID] else { return false }
+                return attempt.effect == .cleanupStaging && attempt.result == .completed
+            }
+        }
+        operations[id]?.terminalFailure = nil
+        if operations[id]?.state == .recoveryRequired {
+            try transitionOperation(id: id, to: .cleanupRequired)
+        }
         for index in operation.items.indices {
             let item = operations[id]!.items[index]
             switch item.state {
             case .pending:
-                try transitionItem(id: id, index: index, to: .skipped)
-            case .failedRecoverable:
-                if item.receipt != nil {
-                    try transitionItem(id: id, index: index, to: .completed) { $0.failure = nil }
-                } else {
-                    try transitionItem(id: id, index: index, to: .skipped) { $0.failure = nil }
+                try transitionItem(id: id, index: index, to: .cancelled)
+            case .failedRecoverable, .cleanupRequired, .recoveryRequired:
+                guard completedStagingCleanup(item.id) else {
+                    throw FileOperationFailure(
+                        code: .invariantViolation, operationID: id, itemID: item.id,
+                        phase: operations[id]?.state,
+                        diagnostic: "cancelled projection lacks confirmed staging cleanup",
+                        retryable: false
+                    )
                 }
-            case .recoveryRequired:
-                if item.receipt != nil {
-                    try transitionItem(id: id, index: index, to: .completed) { $0.failure = nil }
-                } else {
+                try transitionItem(id: id, index: index, to: .cancelled) {
+                    $0.failure = nil
+                }
+            case .cancelled, .skipped:
+                break
+            default:
+                throw FileOperationFailure(
+                    code: .invariantViolation, operationID: id, itemID: item.id,
+                    phase: operations[id]?.state,
+                    diagnostic: "no-commit convergence has incompatible item state",
+                    retryable: false
+                )
+            }
+        }
+        await dependencies.failpoints.hit(
+            .recoveryItemProjectionConverged, operationID: id
+        )
+        try Task.checkCancellation()
+        guard operations[id]?.state == .cleanupRequired else {
+            throw FileOperationFailure(
+                code: .invariantViolation, operationID: id,
+                diagnostic: "no-commit convergence lacks cleanup barrier",
+                retryable: false
+            )
+        }
+        try transitionOperation(id: id, to: .cancelled)
+    }
+
+    func convergeFinalizedPartialCommit(id: OperationID) async throws {
+        guard let operation = operations[id] else { return }
+        if operation.state == .recoveryRequired {
+            try transitionOperation(id: id, to: .failedRecoverable)
+        }
+        if operations[id]?.state == .failedRecoverable {
+            try transitionOperation(id: id, to: .preflight)
+        }
+        for index in operation.items.indices {
+            var item = operations[id]!.items[index]
+            if let receipt = item.receipt {
+                guard !receipt.sourceCleanupPending else {
+                    throw FileOperationFailure(
+                        code: .recoveryRequired, operationID: id, itemID: item.id,
+                        diagnostic: "known commit still requires source cleanup",
+                        retryable: false
+                    )
+                }
+                if item.state == .recoveryRequired {
                     try transitionItem(id: id, index: index, to: .failedRecoverable) {
                         $0.failure = nil
                     }
+                }
+                if operations[id]?.items[index].state == .failedRecoverable {
+                    try transitionItem(id: id, index: index, to: .preflight) {
+                        $0.failure = nil
+                    }
+                }
+                item = operations[id]!.items[index]
+                if [.preflight, .staging, .metadata, .verifying, .committing]
+                    .contains(item.state) {
+                    try projectDurableCommitIntent(
+                        id: id, itemIndex: index, receipt: receipt
+                    )
+                }
+                if operations[id]?.items[index].state == .committing {
+                    try transitionItem(id: id, index: index, to: .committed)
+                }
+                if operations[id]?.items[index].state == .committed {
+                    try transitionItem(id: id, index: index, to: .completed)
+                }
+                guard operations[id]?.items[index].state == .completed else {
+                    throw FileOperationFailure(
+                        code: .invariantViolation, operationID: id, itemID: item.id,
+                        diagnostic: "finalize projection did not reach completed",
+                        retryable: false
+                    )
+                }
+            } else {
+                if item.state == .recoveryRequired {
+                    try transitionItem(id: id, index: index, to: .failedRecoverable) {
+                        $0.failure = nil
+                    }
+                }
+                if operations[id]?.items[index].state == .failedRecoverable {
+                    try transitionItem(id: id, index: index, to: .preflight) {
+                        $0.failure = nil
+                    }
+                }
+                if operations[id]?.items[index].state == .pending ||
+                    operations[id]?.items[index].state == .preflight {
                     try transitionItem(id: id, index: index, to: .skipped)
                 }
-            default:
-                continue
+            }
+            let hasRemaining = operations[id]!.items[(index + 1)...].contains {
+                ![.completed, .skipped, .cancelled, .rolledBack].contains($0.state)
+            }
+            if hasRemaining, operations[id]?.state == .committing {
+                try transitionOperation(id: id, to: .preflight)
             }
         }
         operations[id]?.terminalFailure = nil
@@ -2284,13 +2782,13 @@ private extension FileOperationService {
         let partial = operations[id]?.items.contains { item in
             item.id != operations[id]?.items[itemIndex].id && item.receipt != nil
         } == true
-        if operations[id]?.items[itemIndex].state == .recoveryRequired {
-            try transitionItem(id: id, index: itemIndex, to: .cleanupRequired)
+        let failedPrecommit = operations[id]?.items[itemIndex].failure != nil
+        if operations[id]?.state == .recoveryRequired {
             try transitionOperation(id: id, to: .cleanupRequired)
         }
-        if partial {
+        if partial || failedPrecommit {
             try transitionItem(id: id, index: itemIndex, to: .failedRecoverable)
-            try cancelRemainingPending(id: id)
+            if partial { try cancelRemainingPending(id: id) }
             await dependencies.failpoints.hit(
                 .recoveryItemProjectionConverged, operationID: id
             )

@@ -5,7 +5,9 @@ package struct UnavailableOperationJournal: OperationJournal {
     package init() {}
 
     package func loadOperations() throws -> [JournalOperation] { [] }
-    package func admit(_ snapshot: OperationSnapshot) throws -> JournalAdmission { throw unavailable() }
+    package func admit(_ snapshot: OperationSnapshot, at timestamp: Date) throws -> JournalAdmission {
+        throw unavailable()
+    }
     package func reserveSequences(for id: OperationID, count: UInt64) throws -> ClosedRange<EventSequence> { throw unavailable() }
     package func commit(_ operation: JournalOperation, event: OperationEvent) throws { throw unavailable() }
     package func checkpoint(_ operation: JournalOperation) throws { throw unavailable() }

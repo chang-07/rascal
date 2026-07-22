@@ -283,6 +283,7 @@ public struct FileOperationFailure: Error, Codable, Sendable {
 
 public enum EventDurability: String, Codable, Sendable { case durable, transient }
 public enum OperationEventPayload: Codable, Sendable {
+    case admitted(OperationSnapshot)
     case stateChanged(from: OperationState, to: OperationState)
     case itemStateChanged(from: OperationItemState, to: OperationItemState)
     case progress(OperationProgress)
@@ -291,6 +292,7 @@ public enum OperationEventPayload: Codable, Sendable {
     case failure(FileOperationFailure)
     case receiptRecorded(OperationReceiptSummary)
     case recoveryAvailable([RecoveryAction])
+    case recoveryConverged(completedActionID: UUID, availableActions: [RecoveryAction])
     case completed(OperationSnapshot)
 }
 public struct OperationEvent: Codable, Sendable {
@@ -307,6 +309,10 @@ public struct ServiceConfiguration: Sendable {
     public let journalURL: URL
 }
 ```
+
+`admitted`必须与`.planned` snapshot、`submissionOrdinal`和sequence 1在同一journal admission事务中durable persist；它是排队operation在尚未成为active之前的replay发现记录。折叠器以其snapshot初始化projection，并把latest durable sequence设为该事件sequence。`recoveryConverged`必须与completed ActionID、旧capability失效及完整后继`availableActions`在同一durable checkpoint中提交；折叠器移除已完成action并以payload中的完整列表替换可用动作，新动作的`expectedSequence`绑定该事件sequence。两者均不得是transient，也不得通过无sequence的静默snapshot checkpoint表达。
+
+这两项case在M1 Go前纳入冻结的journal envelope schema v1。M1 production仅有`UnavailableOperationJournal`，不存在可迁移的live持久记录；fake/ephemeral evidence随测试销毁。M3 SQLite首次落盘必须原样支持schema v1中的两项case；未来reader遇到未知payload/schema必须进入只读safe mode，不得跳过事件或猜测projection。旧reader读取新schema不属于兼容承诺，任何后续case/字段变更必须提升envelope schema并提供显式migration/拒绝路径。
 
 所有由调用方构造的request/policy/decision都有明确public initializer或public enum case。公开RawRepresentable意味着调用方技术上可构造ID/token raw value；service MUST以journal ownership/token/owner epoch校验，未知或伪造值没有权限。Approval、receipt和recovery command仍只由service正常签发，Codable输入不能因可解码就被信任。
 
@@ -411,6 +417,7 @@ stateDiagram-v2
     failedRecoverable --> preflight: retry
     recoveryRequired --> rolledBack: safe rollback
     recoveryRequired --> failedRecoverable: safe resume
+    recoveryRequired --> cleanupRequired: commit确认未发生，先收敛owned staging
     failedRecoverable --> rolledBack: known committed effect rollback
     cleanupRequired --> sourceQuarantining: retry quarantine
     cleanupRequired --> cleaningSource: retry purge
@@ -439,14 +446,17 @@ stateDiagram-v2
 | committedAwaitingCleanup | completed, sourceQuarantining, failedRecoverable, recoveryRequired | cancel barrier保留source并以item completed收敛；聚合标source-retained |
 | sourceQuarantining | cleaningSource, cleanupRequired, recoveryRequired | quarantine receipt durable后才cleaningSource |
 | cleaningSource | completed, cleanupRequired, recoveryRequired | purge完成才completed |
-| failedRecoverable | preflight, rolledBack, recoveryRequired | retry按ledger回到安全phase；已知committed effect可rollback |
+| failedRecoverable | preflight, cancelled, rolledBack, recoveryRequired | retry按ledger回到安全phase；tokenized operation rollback中，无receipt且staging确认不存在的item收敛cancelled，已知committed effect收敛rolledBack |
 | cleanupRequired | cancelled, failedRecoverable, sourceQuarantining, cleaningSource, recoveryRequired | discard known staging成功且零committed时cancelled；partial仍在时failedRecoverable；source cleanup按receipt恢复 |
-| recoveryRequired | failedRecoverable, rolledBack | 只有tokenized action与identity重新确认后恢复/回滚 |
-| completed, skipped, cancelled, rolledBack | — | item终态，不得重新执行 |
+| recoveryRequired | failedRecoverable, cancelled, rolledBack | 只有tokenized action与identity重新确认后恢复；确认无commit且无staging的item可cancelled，确认并成功补偿committed effect的item可rolledBack |
+| completed | rolledBack | 唯一例外是receipt-backed item的tokenized rollback effect已durable完成；receipt/effect ledger保持append-only |
+| skipped, cancelled, rolledBack | — | item终态，不得重新执行 |
 
 `committedAwaitingCleanup`收到cancel时该item转`completed`并设置source-retained receipt/summary；若这是active item，operation立即停止调度，所有仍为`pending`的items转`cancelled`，聚合为`completedWithSourceRetained`。该聚合的`hasPartialCommit`在存在任何未执行/skip item时为true；单item或此前items均完成且无剩余时可为false，但`sourceRetained`必须为true。
 
-聚合规则固定为：所有required items completed且无source-retained→`completed`；至少一个skipped、其余全部completed且无失败/pending→`completedWithSkips`；零committed且所有staging确认不存在的用户取消→`cancelled`；已知receipt/identity且可安全retry/rollback的partial→`failedRecoverable`；磁盘或journal状态不唯一→`recoveryRequired`；owned staging/quarantine/purge尚未完成→`cleanupRequired`；成功回滚全部已知effects→`rolledBack`。`.stop`发生在已有commit后使用`failedRecoverable`，不得标`cancelled`。Item terminal后执行聚合是规范性operation transition：最后item从preflight被skip，或最后item从committing/cleaningSource完成且之前存在skip时，分别沿状态图中显式的`completedWithSkips`边收敛。
+聚合规则固定为：所有required items completed且无source-retained→`completed`；至少一个skipped、其余全部completed且无失败/pending→`completedWithSkips`；零committed且所有staging确认不存在的用户取消→`cancelled`；已知receipt/identity且可安全retry/rollback的partial→`failedRecoverable`；磁盘或journal状态不唯一→`recoveryRequired`；owned staging/quarantine/purge尚未完成→`cleanupRequired`；成功回滚全部已知effects→`rolledBack`。Operation rollback完成后，每个实际执行并durable记录rollback effect的receipt-backed item必须为`rolledBack`；无receipt且staging确认不存在的未执行item必须为`cancelled`，不得反向标注。原commit receipt与recovery effect ledger保持append-only，但已成功补偿且item为`rolledBack`的receipt不再计入`hasPartialCommit`；terminal `rolledBack` snapshot的该字段必须为false。`.stop`发生在已有commit后使用`failedRecoverable`，不得标`cancelled`。Item terminal后执行聚合是规范性operation transition：最后item从preflight被skip，或最后item从committing/cleaningSource完成且之前存在skip时，分别沿状态图中显式的`completedWithSkips`边收敛。
+
+Commit identity重新检查返回`notCommitted`只证明final effect未发生，不证明operation-owned staging不存在。Service必须先在当前tokenized action下durable记录`cleanupStaging` intent，并在effect result确认completed后，才可把该receipt-free item投影为`cancelled`（rollback）或`skipped`（finalize）；cleanup outcome未知时保持`recoveryRequired`。若零receipt，则所有active staging cleanup完成后经`cleanupRequired`聚合为`cancelled`。该cleanup intent/result与rollback/finalize attempts共享同一action ledger，重启只可检查并续作同一effect ID。
 
 核心不变量：
 
@@ -460,6 +470,8 @@ stateDiagram-v2
 8. 每个durable filesystem effect前先写intent，effect后写result/receipt；每个effect固定intent后/effect前、effect后/receipt前、receipt后/下一effect前三个ACK。二者之间崩溃且无法唯一判断时只进入`recoveryRequired`。
 9. Rollback/quarantine/purge只作用于effect ledger所指且identity仍匹配的对象；无法证明ownership或发现unexpected child时禁止自动删除。
 10. `recoveryRequired`不豁免完整性：final永不partial；Replace始终至少有一个完整old/new副本；Move purge开始后committed destination始终完整。
+
+Receipt已durable但operation/item phase checkpoint落后的重启窗口采用只前推的synthetic projection：从每个合法operation/item phase pair恢复到`completed`，期间不得再次调用executor staging/metadata/commit。Finalize recovery使用同一投影规则；任何receipt、verification或phase组合不一致均fail-closed，不得猜测完成。
 
 ## Native File Semantics
 

@@ -4,6 +4,50 @@ import XCTest
 import RascalFileOperationsTestSupport
 
 final class EventStreamIntegrationTests: XCTestCase {
+    func testRecoveryConvergenceIsDurableReplayableAndBindsSuccessorAction() async throws {
+        let journal = InMemoryOperationJournal()
+        let executor = FakeOperationExecutor(modes: [.copy: .failed(.noSpace)])
+        let harness = try ServiceTestHarness(journal: journal, executor: executor)
+        let id = try await harness.service.submit(copyRequest())
+
+        let settled = try await waitForSnapshot(id: id, service: harness.service) { snapshot in
+            snapshot.availableActions.contains {
+                if case .resumeFromVerifiedStage = $0 { return true }
+                return false
+            }
+        }
+        let restarted = try ServiceTestHarness(journal: journal, executor: executor)
+        let replay = try await withTestDeadline("restarted recovery convergence replay") {
+            let stream = await restarted.service.events()
+            var discardedActionID: UUID?
+            for await event in stream where event.operationID == id {
+                switch event.payload {
+                case let .recoveryAvailable(actions):
+                    if let discard = actions.first(where: {
+                        if case .discardKnownStaging = $0 { return true }
+                        return false
+                    }) {
+                        discardedActionID = discard.command.actionID
+                    }
+                case let .recoveryConverged(completedActionID, actions):
+                    return (event, discardedActionID, completedActionID, actions)
+                default:
+                    break
+                }
+            }
+            throw AsyncTestDeadline.exceeded("event stream ended")
+        }
+        let (event, discardedActionID, completedActionID, actions) = replay
+        XCTAssertEqual(event.durability, .durable)
+        XCTAssertEqual(completedActionID, try XCTUnwrap(discardedActionID))
+        XCTAssertEqual(actions.count, 1)
+        XCTAssertEqual(actions.first?.command.expectedSequence, event.sequence)
+        XCTAssertEqual(actions, settled.availableActions)
+        let snapshot = try await restarted.service.snapshot(id)
+        XCTAssertGreaterThanOrEqual(snapshot.latestSequence, event.sequence)
+        XCTAssertEqual(snapshot.availableActions, actions)
+    }
+
     func testTwoSubscribersReceiveIndependentIdenticalBroadcasts() async throws {
         let harness = try ServiceTestHarness(liveBufferLimit: 128)
         let firstStream = await harness.service.events()
@@ -194,7 +238,10 @@ final class EventStreamIntegrationTests: XCTestCase {
         let harness = try ServiceTestHarness(journal: journal, executor: executor,
                                              idGenerator: ids, liveBufferLimit: 128)
         let id = try await harness.service.submit(copyRequest())
-        let failed = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        _ = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        let failed = try await waitForSnapshot(id: id, service: harness.service) {
+            $0.state == .failedRecoverable && !$0.availableActions.isEmpty
+        }
         let emittedBeforeCrash = failed.latestSequence
         try journal.simulateReservedGap(operationID: id, count: 16)
         let reservedBeforeCrash = try XCTUnwrap(journal.storedSequences(id)?.reserved)
@@ -303,6 +350,7 @@ final class EventStreamIntegrationTests: XCTestCase {
 
     private func tracePayload(_ payload: OperationEventPayload) -> String {
         switch payload {
+        case .admitted: return "admitted"
         case let .stateChanged(from, to): return "state:\(from.rawValue)->\(to.rawValue)"
         case let .itemStateChanged(from, to): return "item:\(from.rawValue)->\(to.rawValue)"
         case let .progress(value): return "progress:\(value.bytesCompleted)"
@@ -312,7 +360,25 @@ final class EventStreamIntegrationTests: XCTestCase {
         case let .receiptRecorded(receipt):
             return "receipt:cleanupPending=\(receipt.sourceCleanupPending)"
         case .recoveryAvailable: return "recoveryAvailable"
+        case let .recoveryConverged(actionID, actions):
+            return "recoveryConverged:\(actionID.uuidString):\(actions.count)"
         case .completed: return "completed"
+        }
+    }
+
+    private func waitForSnapshot(
+        id: OperationID, service: FileOperationService,
+        matching predicate: @escaping @Sendable (OperationSnapshot) -> Bool
+    ) async throws -> OperationSnapshot {
+        try await withTestDeadline("snapshot predicate") {
+            let stream = await service.events()
+            var snapshot = try await service.snapshot(id)
+            if predicate(snapshot) { return snapshot }
+            for await event in stream where event.operationID == id {
+                snapshot = try await service.snapshot(id)
+                if predicate(snapshot) { return snapshot }
+            }
+            throw AsyncTestDeadline.exceeded("event stream ended")
         }
     }
 }

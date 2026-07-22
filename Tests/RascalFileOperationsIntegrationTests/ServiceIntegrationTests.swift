@@ -595,8 +595,10 @@ final class ServiceIntegrationTests: XCTestCase {
             sources: [fileURL("/source/partial-a"), fileURL("/source/partial-b")],
             destination: fileURL("/target"), destinationMode: .container
         ))
-        let failed = try await waitForState(.failedRecoverable, id: id,
-                                            service: harness.service)
+        let failed = try await waitForRecoveryAction(id: id, service: harness.service) {
+            if case .rollbackCommittedDestination = $0 { return true }
+            return false
+        }
         XCTAssertTrue(failed.hasPartialCommit)
         XCTAssertEqual(failed.terminalFailure?.code, .partialCommit)
         XCTAssertEqual(failed.availableActions.count, 2)
@@ -615,7 +617,7 @@ final class ServiceIntegrationTests: XCTestCase {
         try await harness.service.recover(id, action: rollback)
         let rolledBack = try await harness.service.snapshot(id)
         XCTAssertEqual(rolledBack.state, .rolledBack)
-        XCTAssertEqual(rolledBack.items.map(\.state), [.rolledBack, .rolledBack])
+        XCTAssertEqual(rolledBack.items.map(\.state), [.rolledBack, .cancelled])
         let rollbackEffects = await executor.recoveryEffectHistory()
         XCTAssertEqual(rollbackEffects.count, 1)
     }
@@ -751,8 +753,64 @@ final class ServiceIntegrationTests: XCTestCase {
         let secondEffects = await secondExecutor.effectCount(
             operationID: id, itemID: itemID, phase: .commit
         )
-        XCTAssertEqual(firstAttempts.count + secondAttempts.count, 2)
+        XCTAssertEqual(firstAttempts.count + secondAttempts.count, 1)
+        XCTAssertEqual(secondAttempts.count, 0)
         XCTAssertEqual(firstEffects + secondEffects, 1)
+        for phase in [FakeExecutionPhase.staging, .metadata] {
+            let repeatedEffects = await secondExecutor.effectCount(
+                operationID: id, itemID: itemID, phase: phase
+            )
+            XCTAssertEqual(repeatedEffects, 0, "durable receipt replayed \(phase) effect")
+        }
+
+        // Every durable checkpoint gap in the synthetic phase projection must
+        // resume after process reconstruction without re-entering an executor
+        // filesystem phase. Pairs with the item one step ahead model a crash
+        // between the item event and the matching operation event.
+        let interruptedPairs: [(OperationState, OperationItemState)] = [
+            (.preflight, .staging),
+            (.staging, .staging), (.staging, .metadata),
+            (.metadata, .metadata), (.metadata, .verifying),
+            (.verifying, .verifying), (.verifying, .committing),
+            (.committing, .committing), (.committing, .committed),
+            (.committing, .completed)
+        ]
+        for (pairIndex, pair) in interruptedPairs.enumerated() {
+            let replayJournal = InMemoryOperationJournal()
+            let originalExecutor = FakeOperationExecutor()
+            let original = try ServiceTestHarness(
+                journal: replayJournal, executor: originalExecutor
+            )
+            let replayID = try await original.service.submit(copyRequest(
+                source: "/source/replayed-projection-\(pairIndex)"
+            ))
+            let originalSnapshot = try await waitForState(
+                .completed, id: replayID, service: original.service
+            )
+            let replayItemID = try XCTUnwrap(originalSnapshot.items.first?.id)
+            try replayJournal.simulateRecoverableProjection(
+                operationID: replayID,
+                operationState: pair.0,
+                itemState: pair.1
+            )
+
+            let resumedExecutor = FakeOperationExecutor()
+            let resumed = try ServiceTestHarness(
+                journal: replayJournal, executor: resumedExecutor
+            )
+            _ = try await waitForState(
+                .completed, id: replayID, service: resumed.service
+            )
+            for phase in [FakeExecutionPhase.staging, .metadata, .commit] {
+                let replayed = await resumedExecutor.effectCount(
+                    operationID: replayID, itemID: replayItemID, phase: phase
+                )
+                XCTAssertEqual(
+                    replayed, 0,
+                    "checkpoint pair \(pair.0)/\(pair.1) replayed \(phase)"
+                )
+            }
+        }
     }
 
     func testRecoveryActionsAreBoundUniqueAndPersistAcrossRestart() async throws {
@@ -874,7 +932,7 @@ final class ServiceIntegrationTests: XCTestCase {
         await harness.service.pause(known)
         let afterRejectedControl = try await harness.service.snapshot(known)
         XCTAssertEqual(afterRejectedControl.state, .planned)
-        XCTAssertEqual(harness.journal.eventCount(operationID: known), 0)
+        XCTAssertEqual(harness.journal.eventCount(operationID: known), 1)
         await gate.release()
         _ = try await withServiceTestDeadline("safe-mode submit continuation") {
             try await submit.value
@@ -897,6 +955,26 @@ final class ServiceIntegrationTests: XCTestCase {
             throw FileOperationFailure(code: .invariantViolation, operationID: id,
                                        diagnostic: "event stream ended before state \(state)",
                                        retryable: false)
+        }
+    }
+
+    private func waitForRecoveryAction(
+        id: OperationID, service: FileOperationService,
+        matching predicate: @escaping @Sendable (RecoveryAction) -> Bool
+    ) async throws -> OperationSnapshot {
+        try await withServiceTestDeadline("recovery action for \(id.rawValue)") {
+            let stream = await service.events()
+            var snapshot = try await service.snapshot(id)
+            if snapshot.availableActions.contains(where: predicate) { return snapshot }
+            for await event in stream where event.operationID == id {
+                snapshot = try await service.snapshot(id)
+                if snapshot.availableActions.contains(where: predicate) { return snapshot }
+            }
+            throw FileOperationFailure(
+                code: .invariantViolation, operationID: id,
+                diagnostic: "event stream ended before recovery action",
+                retryable: false
+            )
         }
     }
 

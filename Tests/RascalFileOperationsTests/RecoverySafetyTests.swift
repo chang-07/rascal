@@ -4,6 +4,52 @@ import XCTest
 import RascalFileOperationsTestSupport
 
 final class RecoverySafetyTests: XCTestCase {
+    func testQueuedPlannedOperationCanBeCancelledWithoutReleasingActiveSlot() async throws {
+        let gate = ContinuationGate()
+        let fileSystem = FakeFileSystemAdapter()
+        await fileSystem.setPreflightGate(gate)
+        let harness = try ServiceTestHarness(fileSystem: fileSystem)
+        let first = try await harness.service.submit(copyRequest("/source/active"))
+        try await gate.waitUntilEntered()
+        let queued = try await harness.service.submit(copyRequest("/source/queued"))
+
+        await harness.service.cancel(queued)
+        let queuedSnapshot = try await harness.service.snapshot(queued)
+        let firstSnapshot = try await harness.service.snapshot(first)
+        let maximumConcurrency = await fileSystem.maximumPreflightConcurrency()
+        XCTAssertEqual(queuedSnapshot.state, .cancelled)
+        XCTAssertEqual(firstSnapshot.state, .preflight)
+        XCTAssertEqual(maximumConcurrency, 1)
+
+        await gate.release()
+        _ = try await waitForState(.completed, id: first, service: harness.service)
+    }
+
+    func testQueuedAdmissionIsReplayDiscoverableBeforeExecutionStarts() async throws {
+        let gate = ContinuationGate()
+        let fileSystem = FakeFileSystemAdapter()
+        await fileSystem.setPreflightGate(gate)
+        let harness = try ServiceTestHarness(fileSystem: fileSystem)
+        _ = try await harness.service.submit(copyRequest("/source/active-discovery"))
+        try await gate.waitUntilEntered()
+        let queued = try await harness.service.submit(copyRequest("/source/queued-discovery"))
+
+        let discovered = try await withDeadline("queued admission replay") {
+            let stream = await harness.service.events()
+            for await event in stream where event.operationID == queued {
+                if case .admitted = event.payload { return event }
+            }
+            throw TestDeadline.exceeded("event stream ended")
+        }
+        XCTAssertEqual(discovered.sequence, 1)
+        XCTAssertEqual(discovered.durability, .durable)
+        let queuedSnapshot = try await harness.service.snapshot(queued)
+        XCTAssertEqual(queuedSnapshot.state, .planned)
+
+        await harness.service.cancel(queued)
+        await gate.release()
+    }
+
     func testPreflightCancellationKeepsActiveSlotUntilAdapterQuiesces() async throws {
         let gate = ContinuationGate()
         let fileSystem = FakeFileSystemAdapter()
@@ -257,8 +303,20 @@ final class RecoverySafetyTests: XCTestCase {
         await executor.setModeSequence([.failed(.noSpace), .committed], for: .copy)
         let harness = try ServiceTestHarness(journal: journal, executor: executor)
         let id = try await harness.service.submit(copyRequest("/source/resume-action"))
-        let failed = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        _ = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        let failed = try await waitForRecoveryAction(id: id, service: harness.service) {
+            if case .resumeFromVerifiedStage = $0 { return true }
+            return false
+        }
         let itemID = try XCTUnwrap(failed.items.first?.id)
+        let initialStagingEffects = await executor.effectCount(
+            operationID: id, itemID: itemID, phase: .staging
+        )
+        let stagingCleanupEffects = await harness.fileSystem.stagingRecoveryEffectHistory()
+        XCTAssertEqual(initialStagingEffects, 1)
+        XCTAssertEqual(stagingCleanupEffects.count, 1)
+        XCTAssertEqual(stagingCleanupEffects.first?.operationID, id)
+        XCTAssertEqual(stagingCleanupEffects.first?.itemID, itemID)
         let action = try XCTUnwrap(failed.availableActions.first {
             if case .resumeFromVerifiedStage = $0 { return true }
             return false
@@ -282,6 +340,8 @@ final class RecoverySafetyTests: XCTestCase {
             operationID: id, itemID: itemID, phase: .commit
         )
         XCTAssertEqual(effectsAfterRestart, 1)
+        let cleanupEffectsAfterRetry = await harness.fileSystem.stagingRecoveryEffectHistory()
+        XCTAssertEqual(cleanupEffectsAfterRetry.count, 1)
     }
 
     func testMultiItemRollbackResumesFromDurablePerItemLedgerAfterRestart() async throws {
@@ -297,7 +357,11 @@ final class RecoverySafetyTests: XCTestCase {
                       fileURL("/source/rollback-c")],
             destination: fileURL("/target"), destinationMode: .container
         ))
-        let failed = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        _ = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        let failed = try await waitForRecoveryAction(id: id, service: harness.service) {
+            if case .rollbackCommittedDestination = $0 { return true }
+            return false
+        }
         let action = try XCTUnwrap(failed.availableActions.first {
             if case .rollbackCommittedDestination = $0 { return true }
             return false
@@ -318,9 +382,12 @@ final class RecoverySafetyTests: XCTestCase {
         try await restarted.service.recover(id, action: action)
         let rolledBack = try await restarted.service.snapshot(id)
         XCTAssertEqual(rolledBack.state, .rolledBack)
-        XCTAssertTrue(rolledBack.items.allSatisfy { $0.receipt == nil && $0.failure == nil })
+        XCTAssertEqual(rolledBack.items.map(\.state), [.rolledBack, .rolledBack, .cancelled])
+        XCTAssertFalse(rolledBack.hasPartialCommit)
+        XCTAssertTrue(rolledBack.items.allSatisfy { $0.failure == nil })
+        XCTAssertEqual(rolledBack.items.compactMap(\.receipt).count, 2)
         XCTAssertNil(rolledBack.terminalFailure)
-        XCTAssertEqual(journal.durableCommitEffectCount(operationID: id), 0)
+        XCTAssertEqual(journal.durableCommitEffectCount(operationID: id), 2)
         XCTAssertTrue(journal.recoveryActionCompleted(
             operationID: id, actionID: action.command.actionID
         ))
@@ -334,6 +401,68 @@ final class RecoverySafetyTests: XCTestCase {
         XCTAssertEqual(effectsAfterSecondRestart.count, 2)
     }
 
+    func testNotCommittedInspectionDurablyCleansStagingBeforeRollbackCancellation()
+        async throws {
+        let journal = InMemoryOperationJournal()
+        let fileSystem = FakeFileSystemAdapter()
+        await fileSystem.setStagingRecoveryModes([.ambiguousCompleted])
+        let executor = FakeOperationExecutor()
+        await executor.setModeSequence([.committed, .ambiguous], for: .copy)
+        await executor.setCommitInspection(.notCommitted, for: .copy)
+        let first = try ServiceTestHarness(
+            journal: journal, fileSystem: fileSystem, executor: executor
+        )
+        let id = try await first.service.submit(OperationRequest(
+            kind: .copy,
+            sources: [fileURL("/source/not-committed-a"),
+                      fileURL("/source/not-committed-b")],
+            destination: fileURL("/target"), destinationMode: .container
+        ))
+        let recovery = try await waitForRecoveryAction(id: id, service: first.service) {
+            if case .rollbackCommittedDestination = $0 { return true }
+            return false
+        }
+        let action = try XCTUnwrap(recovery.availableActions.first {
+            if case .rollbackCommittedDestination = $0 { return true }
+            return false
+        })
+        let ambiguousItem = try XCTUnwrap(recovery.items.last)
+
+        await assertFailure(.recoveryRequired) {
+            try await first.service.recover(id, action: action)
+        }
+        let durableCleanup = try XCTUnwrap(journal.durableRecoveryAttempt(
+            operationID: id, actionID: action.command.actionID,
+            itemID: ambiguousItem.id
+        ))
+        XCTAssertNil(durableCleanup.1)
+        let cleanupEffectsBeforeRestart = await fileSystem.stagingRecoveryEffectHistory()
+        XCTAssertEqual(cleanupEffectsBeforeRestart.count, 1)
+        XCTAssertEqual(cleanupEffectsBeforeRestart.first?.effectID, durableCleanup.0)
+
+        await fileSystem.setStagingRecoveryInspection(.completed)
+        let restarted = try ServiceTestHarness(
+            journal: journal, fileSystem: fileSystem, executor: executor
+        )
+        try await restarted.service.recover(id, action: action)
+        let rolledBack = try await restarted.service.snapshot(id)
+        XCTAssertEqual(rolledBack.state, .rolledBack)
+        XCTAssertEqual(rolledBack.items.map(\.state), [.rolledBack, .cancelled])
+        XCTAssertFalse(rolledBack.hasPartialCommit)
+
+        let cleanupEffectsAfterRestart = await fileSystem.stagingRecoveryEffectHistory()
+        let cleanupInspections = await fileSystem.stagingRecoveryInspectionHistory()
+        XCTAssertEqual(cleanupEffectsAfterRestart.count, 1)
+        XCTAssertEqual(cleanupInspections.count, 1)
+        XCTAssertEqual(cleanupInspections.first?.effectID, durableCleanup.0)
+        XCTAssertEqual(journal.durableRecoveryAttempt(
+            operationID: id, actionID: action.command.actionID,
+            itemID: ambiguousItem.id
+        )?.1, "completed")
+        let rollbackEffects = await executor.recoveryEffectHistory()
+        XCTAssertEqual(rollbackEffects.map(\.effect), ["rollbackCommittedDestination"])
+    }
+
     func testFinalizeCommittedItemsExecutesOnceAndClearsTerminalFailure() async throws {
         let journal = InMemoryOperationJournal()
         let executor = FakeOperationExecutor()
@@ -344,7 +473,10 @@ final class RecoverySafetyTests: XCTestCase {
             sources: [fileURL("/source/finalize-a"), fileURL("/source/finalize-b")],
             destination: fileURL("/target"), destinationMode: .container
         ))
-        let failed = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        let failed = try await waitForRecoveryAction(id: id, service: harness.service) {
+            if case .rollbackCommittedDestination = $0 { return true }
+            return false
+        }
         let action = try XCTUnwrap(failed.availableActions.first {
             if case .finalizeKnownCommit = $0 { return true }
             return false
@@ -491,7 +623,10 @@ final class RecoverySafetyTests: XCTestCase {
                       fileURL("/source/two-item-fail")],
             destination: fileURL("/target"), destinationMode: .container
         ))
-        let failed = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        let failed = try await waitForRecoveryAction(id: id, service: harness.service) {
+            if case .rollbackCommittedDestination = $0 { return true }
+            return false
+        }
         let committedItems = failed.items.filter { $0.receipt != nil }.map(\.id)
         XCTAssertEqual(committedItems.count, 2)
         let action = try XCTUnwrap(failed.availableActions.first {
@@ -735,7 +870,10 @@ final class RecoverySafetyTests: XCTestCase {
             sources: [fileURL("/source/sibling-a"), fileURL("/source/sibling-b")],
             destination: fileURL("/target"), destinationMode: .container
         ))
-        let failed = try await waitForState(.failedRecoverable, id: id, service: harness.service)
+        let failed = try await waitForRecoveryAction(id: id, service: harness.service) {
+            if case .rollbackCommittedDestination = $0 { return true }
+            return false
+        }
         let rollback = try XCTUnwrap(failed.availableActions.first {
             if case .rollbackCommittedDestination = $0 { return true }
             return false
@@ -806,9 +944,16 @@ final class RecoverySafetyTests: XCTestCase {
         await executor.setModeSequence([.failed(.noSpace), .ambiguous], for: .copy)
         let harness = try ServiceTestHarness(journal: journal, executor: executor)
         let failedID = try await harness.service.submit(copyRequest("/source/control-failed"))
-        let failedBefore = try await waitForState(
-            .failedRecoverable, id: failedID, service: harness.service
-        )
+        // A failed pre-commit attempt first exposes discardKnownStaging, then
+        // durably converges that cleanup into a sequence-bound resume action.
+        // Capture the settled projection so this test isolates the guarded
+        // controls instead of racing the legitimate convergence event.
+        let failedBefore = try await waitForRecoveryAction(
+            id: failedID, service: harness.service
+        ) {
+            if case .resumeFromVerifiedStage = $0 { return true }
+            return false
+        }
         let recoveryID = try await harness.service.submit(copyRequest("/source/control-recovery"))
         let recoveryBefore = try await waitForState(
             .recoveryRequired, id: recoveryID, service: harness.service
@@ -1006,7 +1151,11 @@ final class RecoverySafetyTests: XCTestCase {
                       fileURL("/source/rollback-window-b")],
             destination: fileURL("/target"), destinationMode: .container
         ))
-        let failed = try await waitForState(.failedRecoverable, id: id, service: first.service)
+        _ = try await waitForState(.failedRecoverable, id: id, service: first.service)
+        let failed = try await waitForRecoveryAction(id: id, service: first.service) {
+            if case .rollbackCommittedDestination = $0 { return true }
+            return false
+        }
         let action = try XCTUnwrap(failed.availableActions.first {
             if case .rollbackCommittedDestination = $0 { return true }
             return false
@@ -1019,8 +1168,8 @@ final class RecoverySafetyTests: XCTestCase {
         try await projectionGate.waitUntilEntered()
         let stranded = try await first.service.snapshot(id)
         XCTAssertEqual(stranded.state, .failedRecoverable)
-        XCTAssertTrue(stranded.items.allSatisfy { $0.state == .rolledBack })
-        XCTAssertEqual(journal.durableCommitEffectCount(operationID: id), 0)
+        XCTAssertEqual(stranded.items.map(\.state), [.rolledBack, .cancelled])
+        XCTAssertEqual(journal.durableCommitEffectCount(operationID: id), 1)
 
         journal.injectNextWriteFailure()
         await projectionGate.release()
@@ -1047,7 +1196,11 @@ final class RecoverySafetyTests: XCTestCase {
                       fileURL("/source/finalize-window-b")],
             destination: fileURL("/target"), destinationMode: .container
         ))
-        let failed = try await waitForState(.failedRecoverable, id: id, service: first.service)
+        _ = try await waitForState(.failedRecoverable, id: id, service: first.service)
+        let failed = try await waitForRecoveryAction(id: id, service: first.service) {
+            if case .finalizeKnownCommit = $0 { return true }
+            return false
+        }
         let action = try XCTUnwrap(failed.availableActions.first {
             if case .finalizeKnownCommit = $0 { return true }
             return false
@@ -1059,7 +1212,7 @@ final class RecoverySafetyTests: XCTestCase {
         let recovering = Task { try await first.service.recover(id, action: action) }
         try await projectionGate.waitUntilEntered()
         let stranded = try await first.service.snapshot(id)
-        XCTAssertEqual(stranded.state, .failedRecoverable)
+        XCTAssertEqual(stranded.state, .preflight)
         XCTAssertEqual(stranded.items.map(\.state), [.completed, .skipped])
 
         journal.injectNextWriteFailure()
@@ -1074,6 +1227,52 @@ final class RecoverySafetyTests: XCTestCase {
         let effectsAfterRestart = await executor.recoveryEffectHistory().count
         XCTAssertEqual(repaired.state, .completedWithSkips)
         XCTAssertEqual(effectsAfterRestart, effectsBeforeRestart)
+
+        let interruptedPairs: [(OperationState, OperationItemState)] = [
+            (.preflight, .staging),
+            (.staging, .staging), (.staging, .metadata),
+            (.metadata, .metadata), (.metadata, .verifying),
+            (.verifying, .verifying), (.verifying, .committing),
+            (.committing, .committing), (.committing, .committed),
+            (.committing, .completed)
+        ]
+        for (pairIndex, pair) in interruptedPairs.enumerated() {
+            let replayJournal = InMemoryOperationJournal()
+            let replayExecutor = FakeOperationExecutor(modes: [.copy: .ambiguous])
+            let original = try ServiceTestHarness(
+                journal: replayJournal, executor: replayExecutor
+            )
+            let replayID = try await original.service.submit(copyRequest(
+                "/source/finalize-projection-\(pairIndex)"
+            ))
+            let recovery = try await waitForRecoveryAction(
+                id: replayID, service: original.service
+            ) {
+                if case .finalizeKnownCommit = $0 { return true }
+                return false
+            }
+            let finalize = try XCTUnwrap(recovery.availableActions.first {
+                if case .finalizeKnownCommit = $0 { return true }
+                return false
+            })
+            try replayJournal.simulateFinalizeRecoveryProjection(
+                operationID: replayID,
+                action: finalize,
+                actionID: finalize.command.actionID,
+                operationState: pair.0,
+                itemState: pair.1
+            )
+
+            let resumed = try ServiceTestHarness(
+                journal: replayJournal, executor: replayExecutor
+            )
+            try await resumed.service.recover(replayID, action: finalize)
+            let completed = try await resumed.service.snapshot(replayID)
+            XCTAssertEqual(
+                completed.state, .completed,
+                "finalize checkpoint pair \(pair.0)/\(pair.1)"
+            )
+        }
     }
 
     func testCleanupProjectionRepairsAfterItemTerminalCheckpointFailure() async throws {
@@ -1130,7 +1329,7 @@ final class RecoverySafetyTests: XCTestCase {
         let recovering = Task { try await first.service.recover(id, action: action) }
         try await projectionGate.waitUntilEntered()
         let stranded = try await first.service.snapshot(id)
-        XCTAssertEqual(stranded.state, .cleanupRequired)
+        XCTAssertEqual(stranded.state, .committedAwaitingCleanup)
         XCTAssertEqual(stranded.items.first?.state, .completed)
         XCTAssertEqual(stranded.items.first?.receipt?.sourceCleanupPending, false)
         XCTAssertTrue(stranded.sourceRetained)
@@ -1374,6 +1573,22 @@ final class RecoverySafetyTests: XCTestCase {
                 try Task.checkCancellation()
                 await Task.yield()
             }
+        }
+    }
+
+    private func waitForRecoveryAction(
+        id: OperationID, service: FileOperationService,
+        matching predicate: @escaping @Sendable (RecoveryAction) -> Bool
+    ) async throws -> OperationSnapshot {
+        try await withDeadline("recovery action") {
+            let stream = await service.events()
+            var snapshot = try await service.snapshot(id)
+            if snapshot.availableActions.contains(where: predicate) { return snapshot }
+            for await event in stream where event.operationID == id {
+                snapshot = try await service.snapshot(id)
+                if snapshot.availableActions.contains(where: predicate) { return snapshot }
+            }
+            throw TestDeadline.exceeded("event stream ended")
         }
     }
 

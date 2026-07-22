@@ -341,6 +341,7 @@ public enum EventDurability: String, Codable, Sendable {
 }
 
 public enum OperationEventPayload: Codable, Sendable {
+    case admitted(OperationSnapshot)
     case stateChanged(from: OperationState, to: OperationState)
     case itemStateChanged(from: OperationItemState, to: OperationItemState)
     case progress(OperationProgress)
@@ -349,6 +350,7 @@ public enum OperationEventPayload: Codable, Sendable {
     case failure(FileOperationFailure)
     case receiptRecorded(OperationReceiptSummary)
     case recoveryAvailable([RecoveryAction])
+    case recoveryConverged(completedActionID: UUID, availableActions: [RecoveryAction])
     case completed(OperationSnapshot)
 }
 

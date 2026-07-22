@@ -48,18 +48,26 @@ Service SHALL 生成稳定 `OperationID` 和 `OperationItemID`。每个 `Operati
 - **THEN** 新 sequence 大于该 operation 已持久化的所有 sequence
 
 ### Requirement: Event stream 支持独立订阅与重启发现
-`events()` SHALL为每个subscriber提供独立broadcast stream。Service SHALL在actor内原子捕获durable replay watermark并注册只接收高于watermark的live subscriber，通过pull-based分页按sequence重放unresolved history，再无缝drain注册后暂存的bounded live events；replay本身 MUST NOT预先塞入有界live queue。纯订阅 MUST NOT生成marker event、分配operation sequence或修改history。Durable events MUST持久化；高频progress MAY按item合并，但其sequence MUST从durable-reserved range分配，崩溃后允许gap而不得复用。任何live overflow/yield drop MUST可观察地终止该subscriber stream，要求消费者丢弃整个projection（包括EOF前缓冲尾部）、重新订阅并用snapshot/replay收敛；不得依赖sequence gap判断overflow。
+`events()` SHALL为每个subscriber提供独立broadcast stream。Service SHALL在actor内原子捕获durable replay watermark并注册只接收高于watermark的live subscriber，通过pull-based分页按sequence重放unresolved history，再无缝drain注册后暂存的bounded live events；replay本身 MUST NOT预先塞入有界live queue。纯订阅 MUST NOT生成marker event、分配operation sequence或修改history。每个accepted operation MUST在planned admission事务中写入sequence 1的durable `admitted(snapshot)`，使尚未active的排队operation可被replay发现。Recovery command完成、旧capability失效和完整后继capability列表 MUST通过单一durable `recoveryConverged(completedActionID, availableActions)`事件原子表达，后继动作expected sequence绑定该事件；公开projection不得在相同latest sequence下静默改变。Durable events MUST持久化；高频progress MAY按item合并，但其sequence MUST从durable-reserved range分配，崩溃后允许gap而不得复用。任何live overflow/yield drop MUST可观察地终止该subscriber stream，要求消费者丢弃整个projection（包括EOF前缓冲尾部）、重新订阅并用snapshot/replay收敛；不得依赖sequence gap判断overflow。
 
 #### Scenario: App 重启恢复 UI
 - **WHEN** App 在存在 unresolved operations 时重新订阅 events
 - **THEN** subscriber 可从 replay 发现稳定 IDs、重建状态，并用 snapshot 收敛到 latest sequence
+
+#### Scenario: 排队 operation 尚未启动
+- **WHEN** 前一个 operation 占据active slot，而新的accepted operation仍停留在planned
+- **THEN** 新subscriber或重启后的subscriber可从durable admitted事件发现该ID及planned snapshot
+
+#### Scenario: 恢复动作产生后继 capability
+- **WHEN** 一个tokenized recovery action完成并产生新的resume、rollback或finalize动作
+- **THEN** completed action与完整后继动作列表在同一durable recoveryConverged事件中可replay，且后继expected sequence等于该事件sequence
 
 #### Scenario: 慢 Subscriber 缓冲溢出
 - **WHEN** subscriber 消费速度不足导致 AsyncStream yield 被丢弃
 - **THEN** 该 stream 明确结束，bridge 重新订阅并从 durable watermark/snapshot恢复，而不是继续使用缺事件的投影
 
 ### Requirement: 状态机只允许规范转换
-Operation SHALL 使用 `planned`、`preflight`、`waitingForDecision`、`staging`、`paused`、`metadata`、`verifying`、`committing`、`committedAwaitingCleanup`、`sourceQuarantining`、`cleaningSource`、`completed`、`completedWithSkips`、`completedWithSourceRetained`、`cancelled`、`failedRecoverable`、`recoveryRequired`、`cleanupRequired` 和 `rolledBack` 状态。每个顶层 item SHALL 有独立 `OperationItemState`；operation state只是 active item phase与聚合结果。Item完成后 MUST 显式调度下一 item或聚合终态。任何未在设计状态图或规范性Item转换表中声明的转换 MUST 被拒绝并记录 typed invariant error。`cancelled` 只可用于零 committed item且 staging 已确认不存在；已有 receipt 的 stop/cancel/failure MUST 通过 partial flags、item states与可恢复状态准确表达。`completedWithSkips`、`completedWithSourceRetained`、`failedRecoverable`、`cleanupRequired`与`rolledBack` MUST按design聚合规则唯一决定，不得由UI猜测。
+Operation SHALL 使用 `planned`、`preflight`、`waitingForDecision`、`staging`、`paused`、`metadata`、`verifying`、`committing`、`committedAwaitingCleanup`、`sourceQuarantining`、`cleaningSource`、`completed`、`completedWithSkips`、`completedWithSourceRetained`、`cancelled`、`failedRecoverable`、`recoveryRequired`、`cleanupRequired` 和 `rolledBack` 状态。每个顶层 item SHALL 有独立 `OperationItemState`；operation state只是 active item phase与聚合结果。Item完成后 MUST 显式调度下一 item或聚合终态。任何未在设计状态图或规范性Item转换表中声明的转换 MUST 被拒绝并记录 typed invariant error。`cancelled` 只可用于零 committed item且 staging 已确认不存在；已有 receipt 的 stop/cancel/failure MUST 通过 partial flags、item states与可恢复状态准确表达。Tokenized rollback完成后，实际补偿且有durable receipt/effect result的item MUST为`rolledBack`，无receipt且owned staging确认不存在的item MUST为`cancelled`，原receipt/effect ledger不得删除；已补偿receipt不再计入live `hasPartialCommit`，terminal `rolledBack` snapshot MUST报告false。`completedWithSkips`、`completedWithSourceRetained`、`failedRecoverable`、`cleanupRequired`与`rolledBack` MUST按design聚合规则唯一决定，不得由UI猜测。
 
 #### Scenario: 禁止跳过验证提交
 - **WHEN** 执行器尝试从 `staging` 直接转到 `committing`
@@ -110,6 +118,8 @@ Pause SHALL 只在 staging 数据阶段的安全点生效。Commit 前 cancel MU
 ### Requirement: 重试与恢复操作幂等
 Resume、retry、rollback 及其他 `RecoveryAction` SHALL 以 journal 与 receipt 作为前置条件并保证 filesystem-effect idempotence。带 `ActionID`/expected sequence 的 recover action SHALL command-idempotent；固定签名 `retry(OperationID)` 不承诺跨新 failure epoch 的 at-most-once，但重复/延迟调用 MUST 通过 effect ledger、identity与 receipt避免二次覆盖、二次 source delete、重复 Trash或 sequence回退。UI SHALL 只在最新 failed snapshot提供 retry并在 attempt active时禁用重复提交。
 
+Commit检查返回`notCommitted`时，Service MUST将其解释为“final effect不存在”而非“staging不存在”，并在同一ActionID下先durable记录、执行及确认`cleanupStaging` effect；cleanup未知或失败时不得把item标为`cancelled`/`skipped`。Receipt已durable而phase projection落后的重启 MUST从每个合法checkpoint仅前推状态，不得再次调用executor staging、metadata或commit effect。
+
 #### Scenario: 重复恢复
 - **WHEN** 同一 recover action 因调用方超时被提交两次
 - **THEN** 第二次调用返回同一稳定结果或无副作用的已执行结果
@@ -117,6 +127,14 @@ Resume、retry、rollback 及其他 `RecoveryAction` SHALL 以 journal 与 recei
 #### Scenario: Retry 延迟重复
 - **WHEN** 一个无 token 的 retry 调用在 attempt 已开始或已产生 filesystem effect后延迟到达
 - **THEN** service可开始/合并安全 attempt，但 effect ledger保证不会再次覆盖已提交 item或删除已清理 source
+
+#### Scenario: Commit 未发生但 staging cleanup 在结果前崩溃
+- **WHEN** 多item operation已有先前receipt，当前commit检查为notCommitted，cleanupStaging effect后在result持久化前终止
+- **THEN** 重启检查同一effect ID且不重复cleanup；只有completed result durable后当前item才可cancelled/skipped，并且已提交item的rollback/finalize各自只执行一次
+
+#### Scenario: Durable receipt phase projection中断
+- **WHEN** commit receipt已durable但item或operation仅落在任一合法中间phase checkpoint
+- **THEN** 重启只补齐状态与event projection到terminal，不重放staging、metadata或commit filesystem effect
 
 ### Requirement: 错误模型保留故障语义
 Core SHALL 至少区分 `sourceChanged`、`destinationChanged`、`permissionDenied`、`noSpace`、`volumeDisconnected`、`unsupportedMetadata`、`verificationMismatch`、`partialCommit`、`journalFailure` 和 `recoveryRequired`。错误 MUST 携带 operation/item/phase、底层 errno 或系统错误的可选诊断，以及安全的后续动作；不得只降级为 Bool、beep 或通用 failed。

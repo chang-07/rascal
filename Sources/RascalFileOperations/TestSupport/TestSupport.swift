@@ -164,7 +164,11 @@ public final class InMemoryOperationJournal: @unchecked Sendable, OperationJourn
     /// resumable projection asks the service to execute the item again. This is
     /// intentionally a test-only corruption/fault seam; the receipt ledger must
     /// suppress a second commit effect.
-    public func simulateRecoverableProjection(operationID: OperationID) throws {
+    public func simulateRecoverableProjection(
+        operationID: OperationID,
+        operationState: OperationState = .failedRecoverable,
+        itemState: OperationItemState = .failedRecoverable
+    ) throws {
         try lock.withLock {
             guard var operation = operations[operationID],
                   let index = operation.snapshot.items.firstIndex(where: {
@@ -177,28 +181,90 @@ public final class InMemoryOperationJournal: @unchecked Sendable, OperationJourn
             }
             let old = operation.snapshot
             let oldItem = old.items[index]
-            var items = old.items
-            items[index] = OperationItemSnapshot(
-                id: oldItem.id, source: oldItem.source, destination: oldItem.destination,
-                state: .failedRecoverable, progress: oldItem.progress,
-                metadata: oldItem.metadata, verification: oldItem.verification,
-                receipt: oldItem.receipt,
-                failure: FileOperationFailure(
+            let injectedFailure: FileOperationFailure? =
+                itemState == .failedRecoverable
+                ? FileOperationFailure(
                     code: .destinationChanged, operationID: operationID,
                     itemID: oldItem.id, diagnostic: "injected recoverable projection",
                     retryable: true
                 )
+                : nil
+            var items = old.items
+            items[index] = OperationItemSnapshot(
+                id: oldItem.id, source: oldItem.source, destination: oldItem.destination,
+                state: itemState, progress: oldItem.progress,
+                metadata: oldItem.metadata, verification: oldItem.verification,
+                receipt: oldItem.receipt,
+                failure: injectedFailure
             )
             operation.snapshot = OperationSnapshot(
                 schemaVersion: old.schemaVersion, id: old.id, kind: old.kind,
-                state: .failedRecoverable, latestSequence: old.latestSequence,
+                state: operationState, latestSequence: old.latestSequence,
                 request: old.request,
                 effectiveMetadataPolicy: old.effectiveMetadataPolicy,
                 effectiveVerificationPolicy: old.effectiveVerificationPolicy,
                 progress: old.progress, items: items, pendingDecision: nil,
-                terminalFailure: items[index].failure, availableActions: [],
+                terminalFailure: injectedFailure, availableActions: [],
                 hasPartialCommit: false, sourceRetained: old.sourceRetained
             )
+            operations[operationID] = operation
+        }
+    }
+
+    /// Models a crash after finalizeKnownCommit's external recovery effect is
+    /// durable but while its receipt-backed item projection is between phase
+    /// checkpoints. The original capability remains selected so a rebuilt
+    /// service must finish the projection through `recover`, not scheduler IO.
+    public func simulateFinalizeRecoveryProjection(
+        operationID: OperationID,
+        action: RecoveryAction,
+        actionID: UUID,
+        operationState: OperationState,
+        itemState: OperationItemState
+    ) throws {
+        try lock.withLock {
+            guard case .finalizeKnownCommit = action,
+                  var operation = operations[operationID],
+                  operation.snapshot.items.count == 1,
+                  let oldItem = operation.snapshot.items.first,
+                  oldItem.verification != nil else {
+                throw FileOperationFailure(
+                    code: .invariantViolation, operationID: operationID,
+                    diagnostic: "finalize projection fixture lacks one verified item",
+                    retryable: false
+                )
+            }
+            let receipt = OperationReceiptSummary(
+                committedIdentityDigest: "injected-finalize-commit",
+                backupURL: nil, quarantineURL: nil,
+                sourceCleanupPending: false
+            )
+            let projectedItem = OperationItemSnapshot(
+                id: oldItem.id, source: oldItem.source, destination: oldItem.destination,
+                state: itemState, progress: oldItem.progress,
+                metadata: oldItem.metadata, verification: oldItem.verification,
+                receipt: receipt, failure: nil
+            )
+            let old = operation.snapshot
+            operation.snapshot = OperationSnapshot(
+                schemaVersion: old.schemaVersion, id: old.id, kind: old.kind,
+                state: operationState, latestSequence: old.latestSequence,
+                request: old.request,
+                effectiveMetadataPolicy: old.effectiveMetadataPolicy,
+                effectiveVerificationPolicy: old.effectiveVerificationPolicy,
+                progress: old.progress, items: [projectedItem], pendingDecision: nil,
+                terminalFailure: old.terminalFailure, availableActions: [action],
+                hasPartialCommit: true, sourceRetained: false
+            )
+            operation.committedEffects[oldItem.id] = receipt
+            operation.inProgressRecoveryActions = [actionID]
+            operation.completedRecoveryActions.remove(actionID)
+            operation.recoveryEffectAttempts[actionID] = [
+                oldItem.id: RecoveryEffectAttempt(
+                    effectID: UUID(), effect: .finalizeKnownCommit,
+                    result: .completed
+                )
+            ]
             operations[operationID] = operation
         }
     }
@@ -302,8 +368,10 @@ public final class InMemoryOperationJournal: @unchecked Sendable, OperationJourn
                 sourceRetained: false
             )
         }
-        var stored = try admit(snapshot(sequence: 0)).operation
-        for index in 0..<eventCount {
+        var stored = try admit(
+            snapshot(sequence: 0), at: Date(timeIntervalSince1970: 0)
+        ).operation
+        for index in 1..<eventCount {
             let reservation = try reserveSequences(for: operationID, count: 1)
             let sequence = reservation.lowerBound
             stored.snapshot = snapshot(sequence: sequence)
@@ -328,7 +396,7 @@ public final class InMemoryOperationJournal: @unchecked Sendable, OperationJourn
         lock.withLock { operations.values.sorted { $0.submissionOrdinal < $1.submissionOrdinal } }
     }
 
-    package func admit(_ snapshot: OperationSnapshot) throws -> JournalAdmission {
+    package func admit(_ snapshot: OperationSnapshot, at timestamp: Date) throws -> JournalAdmission {
         try lock.withLock {
             try checkFailure()
             guard operations[snapshot.id] == nil else {
@@ -341,11 +409,32 @@ public final class InMemoryOperationJournal: @unchecked Sendable, OperationJourn
                                            diagnostic: "submission ordinal exhausted", retryable: false)
             }
             ordinal = nextOrdinal
-            let operation = JournalOperation(snapshot: snapshot, submissionOrdinal: ordinal,
-                                             latestDurableSequence: 0, latestEmittedSequence: 0,
-                                             reservedThrough: 0)
+            let sequence: EventSequence = 1
+            let admittedSnapshot = OperationSnapshot(
+                schemaVersion: snapshot.schemaVersion, id: snapshot.id, kind: snapshot.kind,
+                state: snapshot.state, latestSequence: sequence, request: snapshot.request,
+                effectiveMetadataPolicy: snapshot.effectiveMetadataPolicy,
+                effectiveVerificationPolicy: snapshot.effectiveVerificationPolicy,
+                progress: snapshot.progress, items: snapshot.items,
+                pendingDecision: snapshot.pendingDecision,
+                terminalFailure: snapshot.terminalFailure,
+                availableActions: snapshot.availableActions,
+                hasPartialCommit: snapshot.hasPartialCommit,
+                sourceRetained: snapshot.sourceRetained
+            )
+            let operation = JournalOperation(
+                snapshot: admittedSnapshot, submissionOrdinal: ordinal,
+                latestDurableSequence: sequence, latestEmittedSequence: sequence,
+                reservedThrough: sequence
+            )
+            let event = OperationEvent(
+                operationID: snapshot.id, itemID: nil, sequence: sequence,
+                timestamp: timestamp, durability: .durable,
+                payload: .admitted(admittedSnapshot)
+            )
             operations[snapshot.id] = operation
-            return JournalAdmission(operation: operation)
+            events[snapshot.id, default: []].append(event)
+            return JournalAdmission(operation: operation, event: event)
         }
     }
 
@@ -1006,6 +1095,10 @@ public actor FakeOperationExecutor: OperationExecutor {
         let selected = selectedModes[key(context)] ?? .committed
         if phase == .staging, case let .failed(code) = selected {
             selectedModes[key(context)] = nil
+            // Model a real mid-file failure: partial operation-owned staging
+            // exists before ENOSPC/EACCES is reported. The service must route
+            // through its durable cleanup ledger before exposing retry.
+            recordEffect(phase: fakePhase, context: context)
             return .failed(FileOperationFailure(code: code, operationID: context.operationID,
                                                 itemID: context.itemID,
                                                 diagnostic: "fake executor failure", retryable: true))
