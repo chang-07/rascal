@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HEAD_OID="$(git -C "$ROOT" rev-parse HEAD)"
 RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 OUT="${1:-$ROOT/.build/verification/$HEAD_OID/m2-copy-static/$RUN_ID}"
-RELEASE_BINARY="${2:-}"
+RELEASE_TARGET="${2:-}"
 mkdir -p "$OUT"
 
 finish() {
@@ -157,16 +157,40 @@ for row in checks:
 PY
 
 shasum -a 256 "$OUT/report.tsv" > "$OUT/report.sha256"
-if [[ -n "$RELEASE_BINARY" ]]; then
+if [[ -n "$RELEASE_TARGET" ]]; then
+    RELEASE_BINARY="$RELEASE_TARGET"
+    if [[ -d "$RELEASE_TARGET" ]]; then
+        RELEASE_BINARY="$RELEASE_TARGET/Contents/MacOS/FinderTwo"
+    fi
     [[ -x "$RELEASE_BINARY" ]] || {
-        echo "M2-RELEASE-DISABLED-001 FAIL: release binary is not executable: $RELEASE_BINARY" >&2
+        echo "M2-RELEASE-DISABLED-001 FAIL: release executable is unavailable: $RELEASE_BINARY" >&2
         exit 66
     }
-    printf 'RASCAL_ENABLE_M2_NATIVE_COPY=1 FT_M2_RELEASE_PROBE=1 FT_HEADLESS_TESTING=1 %q\n' \
-        "$RELEASE_BINARY" > "$OUT/release-probe.command"
+    if [[ -d "$RELEASE_TARGET" ]]; then
+        codesign --verify --deep --strict --verbose=2 "$RELEASE_TARGET" \
+            > "$OUT/release-codesign.stdout" 2> "$OUT/release-codesign.stderr"
+        printf 'open -n -W -o %q --stderr %q --env FT_M2_RELEASE_PROBE=1 --env FT_HEADLESS_TESTING=1 --env RASCAL_ENABLE_M2_NATIVE_COPY=1 --env RASCAL_ENABLE_LEGACY_WRITES=1 %q\n' \
+            "$OUT/release-probe.stdout" "$OUT/release-probe.stderr" "$RELEASE_TARGET" \
+            > "$OUT/release-probe.command"
+    else
+        printf 'RASCAL_ENABLE_M2_NATIVE_COPY=1 RASCAL_ENABLE_LEGACY_WRITES=1 FT_M2_RELEASE_PROBE=1 FT_HEADLESS_TESTING=1 %q\n' \
+            "$RELEASE_BINARY" > "$OUT/release-probe.command"
+    fi
     set +e
-    RASCAL_ENABLE_M2_NATIVE_COPY=1 FT_M2_RELEASE_PROBE=1 FT_HEADLESS_TESTING=1 \
-        "$RELEASE_BINARY" > "$OUT/release-probe.stdout" 2> "$OUT/release-probe.stderr"
+    if [[ -d "$RELEASE_TARGET" ]]; then
+        open -n -W \
+            -o "$OUT/release-probe.stdout" \
+            --stderr "$OUT/release-probe.stderr" \
+            --env FT_M2_RELEASE_PROBE=1 \
+            --env FT_HEADLESS_TESTING=1 \
+            --env RASCAL_ENABLE_M2_NATIVE_COPY=1 \
+            --env RASCAL_ENABLE_LEGACY_WRITES=1 \
+            "$RELEASE_TARGET"
+    else
+        RASCAL_ENABLE_M2_NATIVE_COPY=1 RASCAL_ENABLE_LEGACY_WRITES=1 \
+            FT_M2_RELEASE_PROBE=1 FT_HEADLESS_TESTING=1 \
+            "$RELEASE_BINARY" > "$OUT/release-probe.stdout" 2> "$OUT/release-probe.stderr"
+    fi
     status=$?
     set -e
     printf '%s\n' "$status" > "$OUT/release-probe.exit"
@@ -181,6 +205,6 @@ if [[ -n "$RELEASE_BINARY" ]]; then
         exit 67
     }
     shasum -a 256 "$RELEASE_BINARY" > "$OUT/release-binary.sha256"
-    echo "M2-RELEASE-DISABLED-001 dynamic PASS binary=$RELEASE_BINARY"
+    echo "M2-RELEASE-DISABLED-001 dynamic PASS target=$RELEASE_TARGET"
 fi
 echo "M2-STATIC PASS evidence=$OUT"
