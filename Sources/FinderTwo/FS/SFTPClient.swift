@@ -29,13 +29,26 @@ enum SFTPClient {
         let size: Int64
     }
 
+    /// Build the `cd` line for a remote path — or none at all.
+    ///
+    /// SFTP has no shell, so `~` is NOT expanded: `cd "~"` fails outright with
+    /// "No such file or directory", which silently produced an empty listing for
+    /// the default connection (whose path is `~`). An sftp session already
+    /// starts in the user's home directory, so:
+    ///   - home (`~`, `~/`, `.`, empty) → no `cd` at all
+    ///   - `~/sub`                      → `cd "sub"` (relative to the home start)
+    ///   - anything else                → `cd "<path>"` as given
+    private static func cdLine(for path: String) -> String {
+        let p = path.trimmingCharacters(in: .whitespaces)
+        if p.isEmpty || p == "~" || p == "~/" || p == "." { return "" }
+        if p.hasPrefix("~/") { return "cd \(escape(String(p.dropFirst(2))))\n" }
+        return "cd \(escape(p))\n"
+    }
+
     /// List entries at `path` on the given connection. Uses `sftp -b -` and
     /// parses the `ls -l`-style output.
     static func list(_ conn: Connection, path: String) -> [Entry] {
-        var batch = ""
-        batch += "cd \(escape(path.isEmpty ? "." : path))\n"
-        batch += "ls -la\n"
-        batch += "bye\n"
+        let batch = cdLine(for: path) + "ls -la\nbye\n"
         let raw = run(conn, stdin: batch) ?? ""
         return parseLs(raw)
     }
@@ -83,7 +96,7 @@ enum SFTPClient {
     /// (append/deleteLastPathComponent) stays consistent. Returns nil if the
     /// connection fails.
     static func realpath(_ conn: Connection, path: String) -> String? {
-        let batch = "cd \(escape(path.isEmpty ? "." : path))\npwd\nbye\n"
+        let batch = cdLine(for: path) + "pwd\nbye\n"
         guard let raw = run(conn, stdin: batch) else { return nil }
         // `sftp` prints: "Remote working directory: /home/user"
         for line in raw.split(separator: "\n") {
@@ -156,6 +169,9 @@ enum SFTPClient {
 
     /// Test hook — exercises the `ls -la` parser without a live connection.
     static func testParseLs(_ raw: String) -> [Entry] { parseLs(raw) }
+
+    /// Test hook — exercises remote-path → `cd` line translation.
+    static func testCdLine(_ path: String) -> String { cdLine(for: path) }
 }
 
 /// Persistent store of saved SFTP connections, surfaced in the sidebar.

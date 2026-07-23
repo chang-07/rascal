@@ -1541,6 +1541,55 @@ final class TestRunner {
                rdir.isHidden && rdir.isDirectory && rdir.size == -1,
                "hidden=\(rdir.isHidden) dir=\(rdir.isDirectory) size=\(rdir.size)")
 
+        // --- T45g: `~` is not shell-expanded by sftp, so it must not be cd'd to ---
+        assert("SFTP omits cd entirely for the home path",
+               SFTPClient.testCdLine("~").isEmpty && SFTPClient.testCdLine("").isEmpty
+               && SFTPClient.testCdLine("~/").isEmpty,
+               "got=[\(SFTPClient.testCdLine("~"))]")
+        assert("SFTP maps ~/sub to a cd relative to the home start dir",
+               SFTPClient.testCdLine("~/Documents") == "cd \"Documents\"\n",
+               "got=[\(SFTPClient.testCdLine("~/Documents"))]")
+        assert("SFTP keeps an absolute path as-is",
+               SFTPClient.testCdLine("/var/www") == "cd \"/var/www\"\n",
+               "got=[\(SFTPClient.testCdLine("/var/www"))]")
+
+        // --- T45h: LIVE SFTP end-to-end (opt in with FT_LIVE_SFTP=user@host) ---
+        if let live = ProcessInfo.processInfo.environment["FT_LIVE_SFTP"] {
+            let bits = live.split(separator: "@", maxSplits: 1).map(String.init)
+            if bits.count == 2 {
+                let conn = SFTPClient.Connection(user: bits[0], host: bits[1], port: 22, remotePath: "~")
+                let abs = SFTPClient.realpath(conn, path: "~")
+                assert("LIVE: realpath resolves the remote home to an absolute path",
+                       abs?.hasPrefix("/") == true, "got=\(abs ?? "nil")")
+                let entries = SFTPClient.list(conn, path: abs ?? "~")
+                assert("LIVE: list returns entries from the remote home",
+                       !entries.isEmpty, "got \(entries.count) entries")
+                assert("LIVE: listing includes at least one directory",
+                       entries.contains { $0.isDirectory }, "no directories parsed")
+                // Full pipeline: sftp:// URL -> DirectoryModel remote branch -> FileItems
+                let liveURL = SFTPLocation.url(conn, path: abs ?? "/")
+                let liveModel = DirectoryModel(url: liveURL)
+                // Synchronous hook: the live load hops ioQueue -> main, and a
+                // main-queue apply can't drain re-entrantly inside this nested
+                // FT_RUN_TESTS run loop (see testApplyComputeSync).
+                let liveCount = liveModel.testLoadRemoteSync()
+                assert("LIVE: DirectoryModel populates items from an sftp:// URL",
+                       liveCount > 0 && !liveModel.items.isEmpty,
+                       "items=\(liveModel.items.count) raw=\(liveModel.rawItems.count) "
+                       + "url=\(liveURL.absoluteString)")
+                assert("LIVE: hidden dotfiles are filtered out of the remote listing",
+                       liveModel.items.allSatisfy { !$0.name.hasPrefix(".") }
+                       && liveModel.rawItems.contains { $0.name.hasPrefix(".") },
+                       "raw=\(liveModel.rawItems.count) shown=\(liveModel.items.count)")
+                assert("LIVE: every remote item carries an sftp:// URL",
+                       liveModel.items.allSatisfy { $0.url.scheme == "sftp" },
+                       "non-sftp URLs present")
+                assert("LIVE: remote child URLs nest under the parent path",
+                       liveModel.items.allSatisfy { $0.url.absoluteString.contains(abs ?? "/") },
+                       "child URL not nested under parent")
+            }
+        }
+
         // --- T46: GitBranchWorkspaces repoRoot + currentBranch ---
         let gitProj = sandbox.appendingPathComponent("git_proj")
         try? FileManager.default.createDirectory(at: gitProj, withIntermediateDirectories: true)

@@ -302,6 +302,24 @@ final class DirectoryModel {
         return items.count
     }
 
+    /// Test hook: load a remote (SFTP) directory synchronously on the calling
+    /// thread and return the resulting item count. The live path hops
+    /// ioQueue → main, and a main-queue apply cannot drain re-entrantly inside
+    /// the FT_RUN_TESTS nested run loop (same constraint `testApplyComputeSync`
+    /// exists for). This exercises the real pipeline — URL parse, sftp listing,
+    /// FileItem mapping, filter/sort — minus that one dispatch hop.
+    @discardableResult
+    func testLoadRemoteSync() -> Int {
+        guard let (conn, path) = SFTPLocation.parse(url) else { return 0 }
+        let entries = SFTPClient.list(conn, path: path)
+        let target = url
+        rawItems = entries.map {
+            FileItem.remote(name: $0.name, isDirectory: $0.isDirectory,
+                            size: $0.size, parent: target)
+        }
+        return testApplyComputeSync()
+    }
+
     private func recompute(forceSync: Bool = false) {
         // Progressive filtering shortcut: if the new filter is just an extension
         // of the previous filter, narrow the prior result set. This avoids the
