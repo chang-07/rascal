@@ -1005,6 +1005,11 @@ if CommandLine.arguments[1] == "classifier" {
 
 let expected = CommandLine.arguments[1] == "allow"
 let sentinel = URL(fileURLWithPath: CommandLine.arguments[2])
+var presentationGate = LegacyWriteDenialPresentationGate()
+guard presentationGate.claim(), !presentationGate.claim(), !presentationGate.claim() else {
+    FileHandle.standardError.write(Data("legacy denial presentation gate is reentrant\n".utf8))
+    exit(64)
+}
 let results = LegacyWriteCapability.allCases.map { capability in
     (capability.rawValue, LegacyWriteGate.allows(capability, reason: "M1 production-source probe"))
 }

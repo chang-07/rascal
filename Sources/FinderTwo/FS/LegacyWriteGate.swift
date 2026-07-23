@@ -26,6 +26,20 @@ final class LegacyWriteDenial: NSObject, @unchecked Sendable {
     }
 }
 
+/// Main-thread presentation latch for the AppDelegate's user-facing denial.
+/// Backend denials are still emitted for every blocked mutation attempt; only
+/// the modal UI is coalesced so key repeat or several guarded layers cannot
+/// queue an alert storm.
+struct LegacyWriteDenialPresentationGate {
+    private var didClaim = false
+
+    mutating func claim() -> Bool {
+        guard !didClaim else { return false }
+        didClaim = true
+        return true
+    }
+}
+
 extension Notification.Name {
     static let legacyWriteDenied = Notification.Name("Rascal.LegacyWriteDenied")
 }

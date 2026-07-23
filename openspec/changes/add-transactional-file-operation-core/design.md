@@ -578,7 +578,7 @@ Unknown-ID的nonthrowing control不得进入`OperationEvent`。Core通过可注�
 - Release 编译结果永久 false并忽略 env；debug 仅值精确为 `1` 时启用。Gate 启动时读取一次，不接受 UserDefaults/UI setter。
 - 未知 volume identity按跨卷、fail closed。Replace/merge在冲突选择和任何 pre-trash前 gate；TransferQueue、FolderSync apply、Batch Rename commit有执行层二次 guard。Legacy same-local move只允许使用经 macOS 13 实测的exclusive、no-replace rename primitive；destination race返回已存在，`EXDEV`/权限错误均保留source与旧destination，禁止fallback到copy/delete。
 - `FT_RUN_TESTS`/`FT_HEADLESS_TESTING` 不赋予 legacy权限；兼容 smoke只能对隔离 fixture显式设置 debug gate。
-- Gate拒绝通过Foundation notification携带capability与明确reason，由AppDelegate单点在主线程反馈；backend自身仍必须在首个mutation前二次guard，不能依赖UI检查。
+- Gate拒绝通过Foundation notification携带capability与明确reason，由AppDelegate单点在主线程反馈；backend自身仍必须在首个mutation前二次guard，不能依赖UI检查。反馈必须非重入并按进程合并：一次运行最多展示一个明确告警，告警显示期间或确认后的重复/异 capability拒绝不得排队形成modal弹窗风暴；合并只影响反馈，不得放宽backend gate。
 - M1三lane采用组合证据绑定真实产物：同一份production `LegacyWriteGate.swift`编译的逐进程debug/release probe验证env矩阵和sentinel before/after；closed static scan证明每个backend在首个mutation前调用同一gate；本次clean build command/log、source/diff manifest、App bundle metadata、Mach-O identity与FinderTwo产物SHA共同证明binary provenance；debug legacy lane再运行该App的605 compatibility smoke。任意可执行文件、独立harness或单独SHA不得冒充FinderTwo App gate pass，任一组成缺失均失败。
 
 605 assertion manifest从真实compatibility smoke输出按运行顺序生成稳定ID `FT-0001`…`FT-0605`。规范化只替换明确的运行测量片段（如`got <N>ms`、`got <N>ns`、`matched <N>`），必须保留阈值、assertion语义文本和action/settings等领域ID；完整原始输出另存evidence。Gate独立硬断言summary精确为`605 passed, 0 failed`，再对规范化`ID<TAB>label` manifest计算并比较冻结SHA；manifest SHA不能替代assertion body的源码语义审查。

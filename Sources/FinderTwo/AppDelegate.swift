@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var permissionsOnboarding: PermissionsOnboardingController?
     private var fileOperationCompositionRoot: FileOperationCompositionRoot?
     private var legacyWriteDenialObserver: NSObjectProtocol?
+    private var legacyWriteDenialPresentationGate = LegacyWriteDenialPresentationGate()
+    private var legacyWriteDenialAlert: NSAlert?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The app owns exactly one service/bridge graph. UI injection begins in M2.
@@ -135,12 +137,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func presentLegacyWriteDenial(_ denial: LegacyWriteDenial) {
+        guard legacyWriteDenialPresentationGate.claim() else {
+            NSLog("Suppressed repeated legacy write denial: %@", denial.reason)
+            return
+        }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "File operation temporarily unavailable"
-        alert.informativeText = denial.reason
+        alert.informativeText = denial.reason +
+            "\n\nFurther blocked legacy operations will not open additional dialogs during this app session."
         alert.addButton(withTitle: "OK")
-        alert.runModal()
+        legacyWriteDenialAlert = alert
+
+        // A sheet does not enter a nested modal event loop, so repeated input
+        // cannot enqueue another alert while this one is being acknowledged.
+        if let window = currentBrowserWC()?.window, window.attachedSheet == nil {
+            alert.beginSheetModal(for: window) { [weak self, weak alert] _ in
+                if self?.legacyWriteDenialAlert === alert {
+                    self?.legacyWriteDenialAlert = nil
+                }
+            }
+        } else {
+            alert.runModal()
+            legacyWriteDenialAlert = nil
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
