@@ -665,7 +665,7 @@ M1 composition root只在AppDelegate构造一次service/bridge skeleton，不向
 - `Sources/RascalFileOperations/Core/**`、`Native/**`、`Copy/**`
 - `Sources/RascalFileOperations/Interfaces/OperationDependencies.swift`、`UnavailableOperationJournal.swift`、`TestSupport/TestSupport.swift`（仅传播M2 preflight OperationID、callback signal与exclusive keep-both最终URL outcome；不得改变M1公共语义）
 - `Tests/RascalFileOperationsTests/Copy/**`、`Tests/RascalFileOperationsIntegrationTests/Copy/**`
-- `Scripts/verification/m2-copy-static-scan.sh`、`m2-apfs-volume-matrix.sh`、`m2-copy-performance.sh`、`metadata-manifest.sh`
+- `Scripts/verification/m2-copy-static-scan.sh`、`m2-apfs-volume-matrix.sh`、`m2-copy-performance.sh`、`m2-deferred-disabled.sh`、`metadata-manifest.sh`
 - `Sources/FinderTwo/Integration/FileOperationBridge.swift`（新增）
 - `Sources/FinderTwo/Integration/FileOperationCompositionRoot.swift`
 - `Sources/FinderTwo/AppDelegate.swift`

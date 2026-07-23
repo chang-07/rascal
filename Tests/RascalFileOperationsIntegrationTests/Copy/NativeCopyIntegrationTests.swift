@@ -198,6 +198,61 @@ final class NativeCopyIntegrationTests: XCTestCase {
         XCTAssertFalse(names.contains { $0.hasPrefix(".rascal-stage-") })
     }
 
+    func testConfiguredDeferredVolumesRemainDisabled() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let caseSensitiveRoot = environment["RASCAL_M2_CASE_SENSITIVE_SOURCE"],
+              let exfatRoot = environment["RASCAL_M2_EXFAT_SOURCE"] else {
+            return
+        }
+
+        for (label, rootPath) in [
+            ("case-sensitive-apfs", caseSensitiveRoot),
+            ("exfat", exfatRoot),
+        ] {
+            let token = UUID().uuidString
+            let source = URL(fileURLWithPath: rootPath, isDirectory: true)
+                .appendingPathComponent("Rascal-M2-Deferred-\(token).txt")
+            let destinationRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent("Rascal-M2-Deferred-Destination-\(token)", isDirectory: true)
+            let final = destinationRoot.appendingPathComponent(source.lastPathComponent)
+            defer {
+                try? FileManager.default.removeItem(at: source)
+                try? FileManager.default.removeItem(at: destinationRoot)
+            }
+            do {
+                try Data(label.utf8).write(to: source)
+                try FileManager.default.createDirectory(
+                    at: destinationRoot, withIntermediateDirectories: false
+                )
+            } catch {
+                XCTFail("\(label) fixture setup failed: \(error)")
+                continue
+            }
+
+            let snapshot: OperationSnapshot
+            do {
+                let service = try FileOperationService.makeVolatileNativeCopy()
+                let id = try await service.submit(OperationRequest(
+                    kind: .copy,
+                    sources: [source],
+                    destination: destinationRoot,
+                    destinationMode: .container,
+                    conflictPolicy: .stop,
+                    verificationPolicy: .structural
+                ))
+                snapshot = try await waitForTerminal(id, service: service)
+            } catch {
+                XCTFail("\(label) service execution failed: \(error)")
+                continue
+            }
+
+            XCTAssertEqual(snapshot.state, .failedRecoverable, label)
+            XCTAssertEqual(snapshot.terminalFailure?.code, .serviceSafeMode, label)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: source.path), label)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: final.path), label)
+        }
+    }
+
     func testConfiguredOneGiBPerformanceProtocol() async throws {
         guard let rootPath = ProcessInfo.processInfo.environment["RASCAL_M2_PERF_ROOT"] else {
             return

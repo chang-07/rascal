@@ -138,6 +138,16 @@ require("M2-NATIVE-PRIMITIVES-001",
         "COPYFILE_NOFOLLOW" in clean_native and "fcopyfile" in clean_native and
         all(primitive in clean_native for primitive in ["openat", "mkdirat", "linkat"]),
         "directory-FD anchored fcopyfile/traversal plus exclusive rename; no forbidden flags")
+require("M2-DEFERRED-DISABLED-001",
+        "volumeSupportsCaseSensitiveNamesKey" in native_text and
+        "case-sensitive APFS remains disabled until its M8 volume lane" in native_text and
+        'sourceFS.type != "apfs" || destinationFS.type != "apfs"' in native_text and
+        "M2 native copy is limited to verified APFS volumes" in native_text and
+        'environment["FT_M2_DEFERRED_PROBE"] != "1"' in composition and
+        'environment["FT_M2_DEFERRED_PROBE"] == "1"' in app and
+        "guard presentsAlerts" in bridge and
+        "TransferQueue" not in bridge,
+        "case-sensitive APFS and non-APFS runtime gates fail closed; the explicit probe suppresses alerts without enabling fallback")
 
 core_text = "\n".join(
     path.read_text() for path in (root / "Sources/RascalFileOperations").rglob("*.swift")

@@ -30,7 +30,8 @@ final class FileOperationCompositionRoot {
         self.service = service
         self.bridge = FileOperationBridge(
             service: service,
-            nativeCopyEnabled: enabled
+            nativeCopyEnabled: enabled,
+            presentsAlerts: ProcessInfo.processInfo.environment["FT_M2_DEFERRED_PROBE"] != "1"
         )
     }
 }

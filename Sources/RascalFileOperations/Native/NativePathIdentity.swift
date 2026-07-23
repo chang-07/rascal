@@ -85,12 +85,16 @@ package enum NativeCapabilityStatus: Sendable, Equatable {
 
 package struct NativeSafetyCapabilities: Sendable, Equatable {
     package let localAPFS: NativeCapabilityStatus
+    package let caseInsensitiveNames: NativeCapabilityStatus
     package let noFollowAncestors: NativeCapabilityStatus
     package let writableDestination: NativeCapabilityStatus
     package let providerIdentity: NativeCapabilityStatus
 
     package var firstBlockingReason: String? {
-        for status in [localAPFS, noFollowAncestors, writableDestination, providerIdentity] {
+        for status in [
+            localAPFS, caseInsensitiveNames, noFollowAncestors,
+            writableDestination, providerIdentity
+        ] {
             switch status {
             case .supported: continue
             case let .unsupported(reason), let .unknown(reason): return reason
@@ -188,6 +192,29 @@ package enum NativePathInspector {
             localAPFS = .unknown("filesystem type or locality could not be proven: \(error)")
         }
 
+        let caseInsensitiveNames: NativeCapabilityStatus
+        do {
+            let sourceValue = try source.resourceValues(forKeys: [
+                .volumeSupportsCaseSensitiveNamesKey
+            ]).volumeSupportsCaseSensitiveNames
+            let destinationValue = try destinationParent.resourceValues(forKeys: [
+                .volumeSupportsCaseSensitiveNamesKey
+            ]).volumeSupportsCaseSensitiveNames
+            if let sourceValue, let destinationValue {
+                caseInsensitiveNames = sourceValue || destinationValue
+                    ? .unsupported("case-sensitive APFS remains disabled until its M8 volume lane")
+                    : .supported
+            } else {
+                caseInsensitiveNames = .unknown(
+                    "volume name-equivalence semantics could not be proven"
+                )
+            }
+        } catch {
+            caseInsensitiveNames = .unknown(
+                "volume name-equivalence semantics could not be proven: \(error)"
+            )
+        }
+
         let ancestors: NativeCapabilityStatus
         do {
             try requireNoSymlinkAncestors(of: source, includeLeaf: false)
@@ -227,6 +254,7 @@ package enum NativePathInspector {
 
         return NativeSafetyCapabilities(
             localAPFS: localAPFS,
+            caseInsensitiveNames: caseInsensitiveNames,
             noFollowAncestors: ancestors,
             writableDestination: writable,
             providerIdentity: provider

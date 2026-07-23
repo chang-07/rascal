@@ -43,6 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async { [weak self] in self?.runM2ReleaseProbe() }
             return
         }
+        if ProcessInfo.processInfo.environment["FT_M2_DEFERRED_PROBE"] == "1" {
+            Task { [weak self] in await self?.runM2DeferredProbe() }
+            return
+        }
         legacyWriteDenialObserver = NotificationCenter.default.addObserver(
             forName: .legacyWriteDenied, object: nil, queue: .main
         ) { [weak self] note in
@@ -227,6 +231,115 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch {
             FileHandle.standardError.write(
                 Data("M2_RELEASE_PROBE FAIL fixture=\(error)\n".utf8)
+            )
+        }
+        NSApp.terminate(nil)
+    }
+
+    /// Exercises every M2 bridge route against the two real mounted-volume
+    /// fixtures that must remain disabled. Alerts are suppressed only for this
+    /// explicit probe so a burst of expected failures cannot block automation.
+    @MainActor
+    private func runM2DeferredProbe() async {
+        guard let bridge = fileOperationCompositionRoot?.bridge,
+              bridge.nativeCopyEnabled,
+              let caseRootPath = ProcessInfo.processInfo.environment["RASCAL_M2_CASE_SENSITIVE_SOURCE"],
+              let exfatRootPath = ProcessInfo.processInfo.environment["RASCAL_M2_EXFAT_SOURCE"] else {
+            FileHandle.standardError.write(Data("M2_DEFERRED_PROBE FAIL configuration\n".utf8))
+            NSApp.terminate(nil)
+            return
+        }
+
+        let token = UUID().uuidString
+        let sourceRoots = [
+            URL(fileURLWithPath: caseRootPath, isDirectory: true)
+                .appendingPathComponent("Rascal-M2-Deferred-\(token)", isDirectory: true),
+            URL(fileURLWithPath: exfatRootPath, isDirectory: true)
+                .appendingPathComponent("Rascal-M2-Deferred-\(token)", isDirectory: true),
+        ]
+        let destinationRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "Rascal-M2-Deferred-Destination-\(token)", isDirectory: true
+        )
+        defer {
+            for root in sourceRoots { try? FileManager.default.removeItem(at: root) }
+            try? FileManager.default.removeItem(at: destinationRoot)
+        }
+
+        do {
+            for root in sourceRoots {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+            }
+            try FileManager.default.createDirectory(
+                at: destinationRoot, withIntermediateDirectories: false
+            )
+            let traceBefore = bridge.submissionTrace.count
+            let legacyBefore = TransferQueue.shared.snapshot.count
+            var sources: [URL] = []
+            var finals: [URL] = []
+
+            for (volumeIndex, sourceRoot) in sourceRoots.enumerated() {
+                for route in NativeCopyRoute.allCases {
+                    let name = "source-\(volumeIndex)-\(route.rawValue).txt"
+                    let source = sourceRoot.appendingPathComponent(name)
+                    let destination = destinationRoot.appendingPathComponent(
+                        "destination-\(volumeIndex)-\(route.rawValue)", isDirectory: true
+                    )
+                    try Data("\(volumeIndex)-\(route.rawValue)".utf8).write(to: source)
+                    try FileManager.default.createDirectory(
+                        at: destination, withIntermediateDirectories: false
+                    )
+                    sources.append(source)
+                    finals.append(destination.appendingPathComponent(name))
+                    if route == .duplicate {
+                        _ = bridge.submitCopy(
+                            sources: [source], destination: destination,
+                            route: route
+                        )
+                    } else {
+                        FileOps.transfer(
+                            [source], into: destination, move: false,
+                            fileOperationBridge: bridge, route: route
+                        )
+                    }
+                }
+            }
+
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(20))
+            var terminalFailures = 0
+            while clock.now < deadline {
+                let trace = Array(bridge.submissionTrace.dropFirst(traceBefore))
+                if trace.count == 12 {
+                    var snapshots: [OperationSnapshot] = []
+                    for entry in trace {
+                        snapshots.append(try await bridge.service.snapshot(entry.operationID))
+                    }
+                    terminalFailures = snapshots.filter {
+                        $0.state == .failedRecoverable && $0.terminalFailure?.code == .serviceSafeMode
+                    }.count
+                    if terminalFailures == 12 { break }
+                }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+
+            let trace = Array(bridge.submissionTrace.dropFirst(traceBefore))
+            let passed = trace.count == 12 &&
+                Set(trace.map(\.operationID)).count == 12 &&
+                NativeCopyRoute.allCases.allSatisfy { route in
+                    trace.filter { $0.route == route }.count == 2
+                } &&
+                terminalFailures == 12 &&
+                TransferQueue.shared.snapshot.count == legacyBefore &&
+                sources.allSatisfy { FileManager.default.fileExists(atPath: $0.path) } &&
+                finals.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) }
+            let result = passed
+                ? "M2_DEFERRED_PROBE PASS volumes=2 routes=12 native=12 legacy=0 finals=0\n"
+                : "M2_DEFERRED_PROBE FAIL routes=\(trace.count) failures=\(terminalFailures) " +
+                    "legacy=\(TransferQueue.shared.snapshot.count - legacyBefore)\n"
+            FileHandle.standardError.write(Data(result.utf8))
+        } catch {
+            FileHandle.standardError.write(
+                Data("M2_DEFERRED_PROBE FAIL fixture=\(error)\n".utf8)
             )
         }
         NSApp.terminate(nil)

@@ -31,17 +31,25 @@ private final class NativeCopySubmissionTraceStore: @unchecked Sendable {
 final class FileOperationBridge {
     let service: FileOperationService
     let nativeCopyEnabled: Bool
+    private let presentsAlerts: Bool
     private var eventTask: Task<Void, Never>?
     private(set) var snapshots: [OperationID: OperationSnapshot] = [:]
     private var refreshHandlers: [OperationID: @MainActor () -> Void] = [:]
     private var resolvedDecisionTokens: Set<DecisionToken> = []
     private var presentedFailures: Set<OperationID> = []
+    private var didPresentFailureAlert = false
+    private var failureAlert: NSAlert?
     private let submissionTraceStore = NativeCopySubmissionTraceStore()
     var submissionTrace: [NativeCopySubmissionTrace] { submissionTraceStore.snapshot() }
 
-    init(service: FileOperationService, nativeCopyEnabled: Bool = false) {
+    init(
+        service: FileOperationService,
+        nativeCopyEnabled: Bool = false,
+        presentsAlerts: Bool = true
+    ) {
         self.service = service
         self.nativeCopyEnabled = nativeCopyEnabled
+        self.presentsAlerts = presentsAlerts
         eventTask = Task { [weak self, service] in
             let clock = ContinuousClock()
             var consecutiveResyncs = 0
@@ -147,6 +155,10 @@ final class FileOperationBridge {
     }
 
     private func present(_ request: DecisionRequest) {
+        guard presentsAlerts else {
+            Task { [service] in try? await service.resolve(request.token, with: .stop) }
+            return
+        }
         if !request.metadataLosses.isEmpty {
             presentMetadataDecision(request)
             return
@@ -210,15 +222,26 @@ final class FileOperationBridge {
     }
 
     private func present(_ failure: FileOperationFailure) {
+        // A burst of independent items can fail on the same unavailable
+        // capability. Present one actionable summary for this app session;
+        // per-operation typed failures remain available in snapshots without
+        // queueing sheets or nested modal loops.
+        guard presentsAlerts, !didPresentFailureAlert else { return }
+        didPresentFailureAlert = true
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "File operation failed"
-        alert.informativeText = failure.diagnostic
+        alert.informativeText = failure.diagnostic +
+            "\n\nFurther file-operation failures will not open additional dialogs during this app session."
         alert.addButton(withTitle: "OK")
+        failureAlert = alert
         if let window = NSApp.keyWindow, window.attachedSheet == nil {
-            alert.beginSheetModal(for: window)
+            alert.beginSheetModal(for: window) { [weak self, weak alert] _ in
+                if self?.failureAlert === alert { self?.failureAlert = nil }
+            }
         } else {
             alert.runModal()
+            failureAlert = nil
         }
     }
 }
