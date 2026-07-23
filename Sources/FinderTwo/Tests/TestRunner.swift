@@ -2068,6 +2068,49 @@ final class TestRunner {
                smbHits.contains { $0.title.localizedCaseInsensitiveContains("Mount Network Volume") },
                "got=\(smbHits.prefix(5).map(\.title))")
 
+        // --- T53b: ⌫ delete shortcuts use backspace (0x08), not forward-delete ---
+        // The physical delete key sends 0x08; menu key-equivalent matching is
+        // exact, so the old 0x7F (NSDeleteCharacter = ⌦) never fired on ⌘⌫.
+        let backspace = String(UnicodeScalar(NSBackspaceCharacter)!)   // 0x08
+        let forwardDelete = String(UnicodeScalar(NSDeleteCharacter)!)  // 0x7F
+        for id in ["file.trash", "file.delete-immediately", "file.empty-trash"] {
+            let key = ActionRegistry.shortcut(for: id)?.key
+            assert("\(id) uses the backspace key, not forward-delete",
+                   key == backspace && key != forwardDelete,
+                   "got key U+\(key.map { String(format: "%04X", $0.unicodeScalars.first!.value) } ?? "nil")")
+        }
+        // And it propagates through the real menu-building path (routed()).
+        func allMenuItems(_ menu: NSMenu?) -> [NSMenuItem] {
+            guard let menu else { return [] }
+            return menu.items.flatMap { [$0] + allMenuItems($0.submenu) }
+        }
+        let trashItem = allMenuItems(NSApp.mainMenu).first { $0.title == "Move to Trash" }
+        if let trashItem {
+            assert("Move to Trash menu item binds ⌘ + backspace",
+                   trashItem.keyEquivalent == backspace
+                   && trashItem.keyEquivalentModifierMask == [.command],
+                   "keyEquiv=U+\(trashItem.keyEquivalent.unicodeScalars.first.map { String(format: "%04X", $0.value) } ?? "none") mask=\(trashItem.keyEquivalentModifierMask.rawValue)")
+            // Synthesizing the real ⌘⌫ event now matches; the old 0x7F did not.
+            let hit = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                       timestamp: 0, windowNumber: 0, context: nil,
+                                       characters: backspace, charactersIgnoringModifiers: backspace,
+                                       isARepeat: false, keyCode: 51)
+            let miss = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                        timestamp: 0, windowNumber: 0, context: nil,
+                                        characters: forwardDelete, charactersIgnoringModifiers: forwardDelete,
+                                        isARepeat: false, keyCode: 51)
+            let probe = NSMenu()
+            let mirror = NSMenuItem(title: "probe", action: nil, keyEquivalent: trashItem.keyEquivalent)
+            mirror.keyEquivalentModifierMask = trashItem.keyEquivalentModifierMask
+            probe.addItem(mirror)
+            assert("⌘⌫ (backspace) matches the trash shortcut; ⌘⌦ does not",
+                   hit.map { probe.performKeyEquivalent(with: $0) } == true
+                   && miss.map { probe.performKeyEquivalent(with: $0) } == false,
+                   "hit=\(hit.map { probe.performKeyEquivalent(with: $0) } ?? false)")
+        } else {
+            assert("Move to Trash menu item exists", false, "not found in main menu")
+        }
+
         // --- T54: SearchSheet fuzzy filter is correct ---
         let fnames = ["alpha_one.txt", "alpha_two.txt", "beta.txt", "gamma.md"]
             .map { sandbox.appendingPathComponent($0) }

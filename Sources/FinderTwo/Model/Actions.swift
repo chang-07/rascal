@@ -167,17 +167,21 @@ enum ActionRegistry {
               category: .file,
               icon: "folder.badge.gearshape",
               defaultShortcut: KeyShortcut("n", [.command, .option])) { $0.newSmartFolder(nil) },
+        // NB: the ⌫ (delete/backspace) key equivalent MUST be NSBackspaceCharacter
+        // (0x08), not NSDeleteCharacter (0x7F). 0x7F is FORWARD delete (⌦); the
+        // physical delete key sends 0x08, and menu key-equivalent matching is
+        // exact, so 0x7F silently never fires — ⌘⌫ did nothing at all.
         .init(id: "file.delete-immediately",
               title: "Delete Immediately…",
               category: .file,
               icon: "trash.slash",
-              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSDeleteCharacter)!)),
+              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSBackspaceCharacter)!)),
                                            [.command, .option])) { $0.deleteImmediately(nil) },
         .init(id: "file.empty-trash",
               title: "Empty Trash…",
               category: .file,
               icon: "trash",
-              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSDeleteCharacter)!)),
+              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSBackspaceCharacter)!)),
                                            [.command, .shift])) { $0.emptyTrash(nil) },
         .init(id: "file.get-info",
               title: "Get Info",
@@ -193,7 +197,7 @@ enum ActionRegistry {
               title: "Move to Trash",
               category: .file,
               icon: "trash",
-              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSDeleteCharacter)!)),
+              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSBackspaceCharacter)!)),
                                            [.command])) { $0.moveToTrash(nil) },
         .init(id: "file.reveal-finder",
               title: "Reveal in Finder",
