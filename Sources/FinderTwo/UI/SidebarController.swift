@@ -245,13 +245,11 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         outline.addTableColumn(col)
         outline.outlineTableColumn = col
         outline.headerView = nil
-        // `.inset` (not `.sourceList`): the source-list style draws its OWN
-        // system vibrancy that ignores our theme tint, so every custom theme
-        // looked identically "system". `.inset` is non-vibrant, so the tint
-        // (clear for System → the visual-effect view shows; opaque theme color
-        // otherwise) governs the sidebar background. Runtime style changes
-        // don't reliably stick, so this is set once and never toggled.
-        outline.style = .inset
+        // `.plain` avoids both source-list vibrancy and the translucent inset
+        // fill that older AppKit releases composite over custom row colors.
+        // Spacing, indentation, and selection pills are all owned explicitly
+        // below, so the table style must not add another background material.
+        outline.style = .plain
         // selectionHighlightStyle = .sourceList is deprecated since macOS 12 because
         // setting the table style to .sourceList already provides the correct highlight.
         outline.indentationPerLevel = 16
