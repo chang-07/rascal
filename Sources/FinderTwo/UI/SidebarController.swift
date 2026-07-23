@@ -382,13 +382,15 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         }
         
         let bg: NSColor = isSystem ? .clear : t.sidebarBackground
-        // Keep all front surfaces transparent. On older hosted macOS releases,
-        // NSClipView can replace its configured background with a system color
-        // during off-screen composition; the explicit tint draw below is stable
-        // and also preserves native vibrancy when the System theme is selected.
-        scrollView.drawsBackground = false
-        scrollView.contentView.drawsBackground = false
-        outline.backgroundColor = .clear
+        // Older AppKit releases synthesize an opaque control background for a
+        // transparent outline/clip during composition. Custom themes therefore
+        // paint every front surface with the same exact color; the System theme
+        // keeps them transparent so the background vibrancy remains visible.
+        scrollView.drawsBackground = !isSystem
+        scrollView.backgroundColor = bg
+        scrollView.contentView.drawsBackground = !isSystem
+        scrollView.contentView.backgroundColor = bg
+        outline.backgroundColor = bg
         tintView.fillColor = bg
         outline.reloadData()
     }
