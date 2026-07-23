@@ -559,6 +559,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         guard let pane = activePane else { return }
         let sel = pane.selectedURLs()
         guard !sel.isEmpty else { return }
+        // Remote deletion is already permanent and confirms for itself.
+        if sel.contains(where: { RemoteFileOps.isRemote($0) }) {
+            if RemoteFileOps.routeDelete(sel) { pane.reload() }
+            return
+        }
         if FileOps.deleteImmediately(sel) { pane.reload() }
     }
     @objc func emptyTrash(_ sender: Any?) { FileOps.emptyTrash() }
@@ -567,7 +572,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         guard let pane = activePane else { return }
         let sel = pane.selectedURLs()
         guard !sel.isEmpty else { NSSound.beep(); return }
-        FileOps.trashWithConfirmation(sel)
+        // Remote has no Trash — routeDelete confirms and deletes permanently,
+        // and we reload because there's no watcher to notice.
+        if RemoteFileOps.routeDelete(sel) { pane.reload() }
     }
 
     @objc func pasteMove(_ sender: Any?) { activePane?.pasteMoveHere() }

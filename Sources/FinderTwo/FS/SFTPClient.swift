@@ -80,6 +80,63 @@ enum SFTPClient {
         return result.status == 0
     }
 
+    // MARK: - Mutating operations
+    //
+    // All of these go through the sftp batch channel, so the remote path is a
+    // protocol field rather than shell text — no injection surface.
+
+    /// Create a remote directory.
+    @discardableResult
+    static func makeDirectory(_ conn: Connection, path: String) -> Bool {
+        runOK(conn, "mkdir \(escape(path))")
+    }
+
+    /// Rename (or move) a remote entry.
+    @discardableResult
+    static func rename(_ conn: Connection, from: String, to: String) -> Bool {
+        runOK(conn, "rename \(escape(from)) \(escape(to))")
+    }
+
+    /// Delete a remote file.
+    @discardableResult
+    static func removeFile(_ conn: Connection, path: String) -> Bool {
+        runOK(conn, "rm \(escape(path))")
+    }
+
+    /// Delete a remote directory and its contents. sftp's `rmdir` only removes
+    /// EMPTY directories, so walk depth-first. A failed listing yields no
+    /// children, in which case the final `rmdir` fails on a non-empty directory
+    /// rather than silently reporting success.
+    @discardableResult
+    static func removeDirectory(_ conn: Connection, path: String) -> Bool {
+        for entry in list(conn, path: path) {
+            let child = (path as NSString).appendingPathComponent(entry.name)
+            let ok = entry.isDirectory ? removeDirectory(conn, path: child)
+                                       : removeFile(conn, path: child)
+            if !ok { return false }
+        }
+        return runOK(conn, "rmdir \(escape(path))")
+    }
+
+    /// Delete a remote entry. NOTE: this is permanent — servers have no Trash.
+    @discardableResult
+    static func remove(_ conn: Connection, path: String, isDirectory: Bool) -> Bool {
+        isDirectory ? removeDirectory(conn, path: path) : removeFile(conn, path: path)
+    }
+
+    /// True when `path` already exists remotely (used to pick a free name).
+    static func exists(_ conn: Connection, path: String) -> Bool {
+        let parent = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        return list(conn, path: parent.isEmpty ? "/" : parent).contains { $0.name == name }
+    }
+
+    /// Run a single sftp command, reporting whether it succeeded.
+    private static func runOK(_ conn: Connection, _ command: String) -> Bool {
+        guard let result = runDetailed(conn, stdin: command + "\nbye\n") else { return false }
+        return result.status == 0
+    }
+
     /// Quickly verify we can connect using existing creds. Returns nil on
     /// success, an error message otherwise.
     static func ping(_ conn: Connection) -> String? {

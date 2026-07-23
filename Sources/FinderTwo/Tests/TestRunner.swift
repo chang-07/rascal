@@ -1601,6 +1601,38 @@ final class TestRunner {
                            "ok=\(ok) bytes=\(bytes) remote=\(remoteFile)")
                     try? FileManager.default.removeItem(at: dst)
                 }
+
+                // --- Remote WRITE round-trip, confined to a scratch dir in /tmp ---
+                let probeRoot = "/tmp/rascal-live-probe"
+                _ = SFTPClient.removeDirectory(conn, path: probeRoot)     // clean slate
+                assert("LIVE: mkdir creates a remote directory",
+                       SFTPClient.makeDirectory(conn, path: probeRoot), "mkdir failed")
+                let probeURL = SFTPLocation.url(conn, path: probeRoot)
+
+                let madeURL = RemoteFileOps.newFolder(in: probeURL)
+                assert("LIVE: newFolder creates a folder on the server",
+                       madeURL != nil, "newFolder returned nil")
+                if let madeURL {
+                    let renamed = RemoteFileOps.rename(madeURL, to: "renamed-probe")
+                    assert("LIVE: rename moves a remote entry",
+                           renamed != nil
+                           && SFTPClient.exists(conn, path: probeRoot + "/renamed-probe"),
+                           "rename failed")
+                }
+
+                let localProbe = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("ft-upload-probe.txt")
+                try? Data("hello from rascal".utf8).write(to: localProbe)
+                assert("LIVE: upload copies a local file to the server",
+                       RemoteFileOps.upload([localProbe], into: probeURL)
+                       && SFTPClient.exists(conn, path: probeRoot + "/ft-upload-probe.txt"),
+                       "upload failed")
+                try? FileManager.default.removeItem(at: localProbe)
+
+                assert("LIVE: recursive delete removes a non-empty remote tree",
+                       SFTPClient.removeDirectory(conn, path: probeRoot)
+                       && !SFTPClient.exists(conn, path: probeRoot),
+                       "recursive delete failed")
             }
         }
 

@@ -757,7 +757,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         icon.onSelectionChange = { [weak self] items in self?.iconSelection = items; self?.updateStatus() }
         icon.onDrop = { [weak self] urls, folder, isCopy in
             guard let self else { return }
-            FileOps.transfer(urls, into: folder?.url ?? self.currentURL, move: !isCopy, from: self.view.window)
+            let dest = folder?.url ?? self.currentURL
+            if RemoteFileOps.routeTransfer(urls, into: dest, move: !isCopy,
+                                           from: self.view.window) { self.reload() }
         }
         pinAlternate(icon.view, in: host)
         iconVC = icon
@@ -806,7 +808,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     /// Create-and-reveal helpers (New Folder / New File): make the item, then
     /// select + inline-rename it once the asynchronous directory reload lands.
     func createNewFolder() {
-        guard let url = FileOps.newFolder(in: currentURL) else { NSSound.beep(); return }
+        let created = SFTPLocation.isRemote(currentURL)
+            ? RemoteFileOps.newFolder(in: currentURL)
+            : FileOps.newFolder(in: currentURL)
+        guard let url = created else { NSSound.beep(); return }
         fileList.queueReveal(url, rename: true); reload()
     }
 
@@ -865,12 +870,26 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func pasteHere() {
         let pb = NSPasteboard.general
         let move = FileOps.consumeCutFlag(for: pb)
+        if pasteRemote(from: pb, move: move) { return }
         FileOps.paste(pb, into: currentURL, move: move, from: view.window)
     }
 
     /// Paste file URLs from pasteboard into current directory (move semantics).
     func pasteMoveHere() {
+        if pasteRemote(from: NSPasteboard.general, move: true) { return }
         FileOps.paste(NSPasteboard.general, into: currentURL, move: true, from: view.window)
+    }
+
+    /// Paste into a remote directory (upload). Returns true when it handled the
+    /// paste, so the local path is skipped. FileOps.paste is FileManager-based
+    /// and can't write to an sftp:// destination.
+    private func pasteRemote(from pb: NSPasteboard, move: Bool) -> Bool {
+        guard SFTPLocation.isRemote(currentURL) else { return false }
+        let urls = (pb.readObjects(forClasses: [NSURL.self]) as? [URL]) ?? []
+        guard !urls.isEmpty else { NSSound.beep(); return true }
+        if RemoteFileOps.routeTransfer(urls, into: currentURL, move: move,
+                                       from: view.window) { reload() }
+        return true
     }
 
     /// Duplicate currently selected files in the current directory (Finder Cmd+D).
