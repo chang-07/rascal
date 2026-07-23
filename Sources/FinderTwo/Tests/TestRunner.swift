@@ -2246,11 +2246,13 @@ final class TestRunner {
                     rep.pixelsWide - Int(ceil((scrollerWidth + 6) * pixelScale))
                 )
                 var matched = 0, opaque = 0
+                var observedColors: [String: Int] = [:]
                 var py = 10
                 while py < rep.pixelsHigh - 10 {
                     if let px = rep.colorAt(x: x, y: py)?.usingColorSpace(.sRGB),
                        px.alphaComponent > 0.5 {
                         opaque += 1
+                        observedColors[px.hexString, default: 0] += 1
                         if abs(px.redComponent - want.redComponent) < 0.06,
                            abs(px.greenComponent - want.greenComponent) < 0.06,
                            abs(px.blueComponent - want.blueComponent) < 0.06 { matched += 1 }
@@ -2262,9 +2264,18 @@ final class TestRunner {
                     // the property assertion above already stands. Not a failure.
                     assert("sidebar pixel-render check (off-screen not composited — property check stands)", true, "")
                 } else {
+                    let palette = observedColors
+                        .sorted { left, right in
+                            left.value == right.value ? left.key < right.key : left.value > right.value
+                        }
+                        .prefix(5)
+                        .map { "\($0.key):\($0.value)" }
+                        .joined(separator: ",")
                     assert("sidebar renders the EXACT theme color in real pixels (no system overlay)",
                            matched * 2 >= opaque,
-                           "only \(matched)/\(opaque) opaque right-edge samples matched nord \(want.hexString)")
+                           "only \(matched)/\(opaque) opaque right-edge samples matched nord " +
+                           "\(want.hexString); x=\(x) bitmap=\(rep.pixelsWide)x\(rep.pixelsHigh) " +
+                           "observed=[\(palette)] \(sbT.testSidebarRenderDiagnostics)")
                 }
             }
             renderWindow.orderOut(nil)

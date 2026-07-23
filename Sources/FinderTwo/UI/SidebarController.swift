@@ -401,6 +401,11 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     /// Full composed surface. Sampling the root proves no scroll/clip/outline
     /// layer has painted a system background over the custom-theme tint.
     var testSidebarRenderedSurface: NSView { view }
+    var testSidebarRenderDiagnostics: String {
+        "root=\(view.bounds) effect=\(effectView.frame) tint=\(tintView.frame) " +
+        "scroll=\(scrollView.frame) clip=\(scrollView.contentView.frame) " +
+        "outline=\(outline.frame)"
+    }
 
     func highlight(url: URL) {
         selectedURL = url
