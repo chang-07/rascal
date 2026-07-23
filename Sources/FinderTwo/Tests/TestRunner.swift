@@ -1587,6 +1587,20 @@ final class TestRunner {
                 assert("LIVE: remote child URLs nest under the parent path",
                        liveModel.items.allSatisfy { $0.url.absoluteString.contains(abs ?? "/") },
                        "child URL not nested under parent")
+                // Real transfer through the app's own download path — this is
+                // what double-clicking a remote file does.
+                if let small = entries.first(where: { !$0.isDirectory && $0.size > 0 && $0.size < 200_000 }) {
+                    let dst = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("ft-live-download.bin")
+                    try? FileManager.default.removeItem(at: dst)
+                    let remoteFile = ((abs ?? "") as NSString).appendingPathComponent(small.name)
+                    let ok = SFTPClient.download(conn, remotePath: remoteFile, to: dst)
+                    let bytes = (try? Data(contentsOf: dst))?.count ?? 0
+                    assert("LIVE: download fetches a real remote file",
+                           ok && bytes > 0,
+                           "ok=\(ok) bytes=\(bytes) remote=\(remoteFile)")
+                    try? FileManager.default.removeItem(at: dst)
+                }
             }
         }
 
