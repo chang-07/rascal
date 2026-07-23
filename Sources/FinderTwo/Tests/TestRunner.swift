@@ -1629,6 +1629,18 @@ final class TestRunner {
                        "upload failed")
                 try? FileManager.default.removeItem(at: localProbe)
 
+                // Exercise the exact function the UI delete actions call.
+                let delFile = probeRoot + "/ft-upload-probe.txt"
+                assert("LIVE: RemoteFileOps.delete removes a remote FILE",
+                       RemoteFileOps.delete([SFTPLocation.url(conn, path: delFile)])
+                       && !SFTPClient.exists(conn, path: delFile),
+                       "file delete failed")
+                let delDir = probeRoot + "/renamed-probe"
+                assert("LIVE: RemoteFileOps.delete removes a remote FOLDER",
+                       RemoteFileOps.delete([SFTPLocation.url(conn, path: delDir)])
+                       && !SFTPClient.exists(conn, path: delDir),
+                       "folder delete failed")
+
                 assert("LIVE: recursive delete removes a non-empty remote tree",
                        SFTPClient.removeDirectory(conn, path: probeRoot)
                        && !SFTPClient.exists(conn, path: probeRoot),
@@ -2043,6 +2055,18 @@ final class TestRunner {
         assert("palette filter finds tab actions",
                filteredPalette.contains { $0.title.localizedCaseInsensitiveContains("tab") },
                "got=\(filteredPalette.map(\.title))")
+        // Hidden keywords: the title says "Connect to Server…", but people look
+        // for it by protocol name.
+        for term in ["sftp", "ssh", "remote"] {
+            let hits = CommandPaletteController.testFilter(entriesAll, query: term)
+            assert("palette finds Connect to Server by “\(term)”",
+                   hits.contains { $0.title.localizedCaseInsensitiveContains("Connect to Server") },
+                   "got=\(hits.prefix(5).map(\.title))")
+        }
+        let smbHits = CommandPaletteController.testFilter(entriesAll, query: "smb")
+        assert("palette finds Mount Network Volume by “smb”",
+               smbHits.contains { $0.title.localizedCaseInsensitiveContains("Mount Network Volume") },
+               "got=\(smbHits.prefix(5).map(\.title))")
 
         // --- T54: SearchSheet fuzzy filter is correct ---
         let fnames = ["alpha_one.txt", "alpha_two.txt", "beta.txt", "gamma.md"]

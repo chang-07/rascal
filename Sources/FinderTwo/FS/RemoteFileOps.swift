@@ -69,7 +69,14 @@ enum RemoteFileOps {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        return delete(urls)
+    }
 
+    /// Delete remote items without prompting. Split out from the confirmation so
+    /// the actual operation is testable (a modal can't run in the test harness).
+    @discardableResult
+    static func delete(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty, let (conn, _) = SFTPLocation.parse(urls[0]) else { return false }
         let paths = urls.compactMap { SFTPLocation.parse($0)?.path }
         let dirFlags = directoryFlags(conn, for: paths)
         var allOK = true
