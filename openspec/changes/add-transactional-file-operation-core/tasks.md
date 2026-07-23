@@ -28,9 +28,12 @@
 - [x] 2.5 建立macOS CI fast lane workflow与本地等价脚本，绑定本次build产物执行default-debug拒绝、隔离debug legacy兼容、release拒绝、Swift tests、boundary scan、605/0 smoke和GUI结构检查；把design中的每个M1 scenario ID映射到真实lane/test evidence并逐项计算PASS/FAIL/NOT-EVALUATED，禁止按`local_required`常量直接写PASS；按`FT-0001`…`FT-0605`运行顺序生成manifest，只规范化明确测量值并保留阈值/语义ID，独立硬断言summary后冻结label/ID manifest SHA。
 - [x] 2.6 主Codex先用独立scratch串行运行M1本地scenario manifest，证据记录HEAD/status-v2/diff与untracked content SHA/build hash；任何mandatory skip、shared cache或未绑定binary均失败。
   - 2026-07-22 本地闭环：`m1-fast/20260722T140006Z-43141` 的 `lane.exit=0`；79个精确Swift测试、21条结构化事件、Core/build、605/0 smoke、GUI 0 failure、debug/default/release gate及全部负控通过。`M1-CI-001`仍按2.7保留为远端未评估。
-- [ ] 2.7 本地门通过后，主Codex向用户单独申请commit/push测试分支以触发GitHub macOS workflow；未授权时M1标记blocked，不把本地结果当M1-CI-001 pass或skip。
-- [ ] 2.8 获得授权后运行并核验真实GitHub macOS workflow、上传可归因evidence；随后停止writer并行完成数据完整性、接口/并发、测试充分性reviewer与verifier，问题由原writer在allowlist内返工。
-- [ ] 2.9 主Codex依据本地+远端真实结果判M1 Go/No-go；触发Core/AppKit耦合或4/6 UI owner结构性重写时新增ADR并停止，其他情况下向用户汇报并等待批准M2。
+- [x] 2.7 本地门通过后，主Codex向用户单独申请commit/push测试分支以触发GitHub macOS workflow；未授权时M1标记blocked，不把本地结果当M1-CI-001 pass或skip。
+  - 2026-07-23 用户明确授权推送到其GitHub；目标固定为`git@github.com:swnb/rascal.git`的`feat/transactional-file-ops-m1`。
+- [x] 2.8 获得授权后运行并核验真实GitHub macOS workflow、上传可归因evidence；随后停止writer并行完成数据完整性、接口/并发、测试充分性reviewer与verifier，问题由原writer在allowlist内返工。
+  - GitHub Actions run `29974780612`（macOS 15）在精确提交`79c21ac7238ac8b72f1eef223aba718be2d2f0a0`通过；artifact `m1-fast-evidence-29974780612` digest=`sha256:1505f1510c5332630ce0e808dd3c0f2c2f841c44f501bd1db625231a6e7d5fb8`。下载核验`head.txt/head-end.txt`一致、`lane.exit=0`、83/83 Swift、22条事件、605/0 smoke、GUI 0 failure和全部scenario PASS。
+- [x] 2.9 主Codex依据本地+远端真实结果判M1 Go/No-go；触发Core/AppKit耦合或4/6 UI owner结构性重写时新增ADR并停止，其他情况下向用户汇报并等待批准M2。
+  - M1判定Go：独立数据完整性、接口/并发、测试充分性reviewer与verifier的P0/P1已关闭，Core边界和UI owner阈值未触发No-go；用户已明确授权自主继续所有后续里程碑，因此直接进入M2。
 
 ## 3. M2 — Native Copy 内核
 
