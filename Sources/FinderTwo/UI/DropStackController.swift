@@ -5,14 +5,14 @@ import UniformTypeIdentifiers
 /// it, or "Add to Drop Stack" from the context menu) and lets you drag them
 /// back out — or copy/move the whole stack into the frontmost window's folder.
 final class DropStackController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, ThemeObserving {
-    static let shared = DropStackController()
-
+    private let fileOperationBridge: FileOperationBridge?
     private let table = NSTableView()
     private let scroll = NSScrollView()
     private let countLabel = NSTextField(labelWithString: "")
     private var items: [URL] = []
 
-    private init() {
+    init(fileOperationBridge: FileOperationBridge? = nil) {
+        self.fileOperationBridge = fileOperationBridge
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 260, height: 360),
                             styleMask: [.titled, .closable, .resizable, .utilityWindow],
                             backing: .buffered, defer: false)
@@ -115,7 +115,15 @@ final class DropStackController: NSWindowController, NSTableViewDataSource, NSTa
         guard FileManager.default.fileExists(atPath: dest.path, isDirectory: &isDir), isDir.boolValue else {
             NSSound.beep(); return
         }
-        FileOps.transfer(items, into: dest, move: move, from: BrowserWindowController.frontmost?.window)
+        FileOps.transfer(
+            items,
+            into: dest,
+            move: move,
+            from: BrowserWindowController.frontmost?.window,
+            fileOperationBridge: fileOperationBridge,
+            route: .dropStack,
+            refresh: { BrowserWindowController.frontmost?.refreshActivePane() }
+        )
         if move { DropStack.clear() }
     }
 

@@ -133,11 +133,28 @@ enum FileOps {
         }
     }
 
-    static func paste(_ pasteboard: NSPasteboard, into destination: URL, move: Bool, from window: NSWindow? = nil) {
+    @MainActor
+    static func paste(
+        _ pasteboard: NSPasteboard,
+        into destination: URL,
+        move: Bool,
+        from window: NSWindow? = nil,
+        fileOperationBridge: FileOperationBridge? = nil,
+        route: NativeCopyRoute = .paste,
+        refresh: (@MainActor () -> Void)? = nil
+    ) {
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] else {
             NSSound.beep(); return
         }
-        transfer(urls, into: destination, move: move, from: window)
+        transfer(
+            urls,
+            into: destination,
+            move: move,
+            from: window,
+            fileOperationBridge: fileOperationBridge,
+            route: route,
+            refresh: refresh
+        )
     }
 
     enum Conflict { case keepBoth, replace, skip, merge }
@@ -164,12 +181,37 @@ enum FileOps {
         return mask.contains(.copy)
     }
 
-    static func transfer(_ allURLs: [URL], into destination: URL, move: Bool, from window: NSWindow? = nil) {
+    @MainActor
+    static func transfer(
+        _ allURLs: [URL],
+        into destination: URL,
+        move: Bool,
+        from window: NSWindow? = nil,
+        fileOperationBridge: FileOperationBridge? = nil,
+        route: NativeCopyRoute = .paste,
+        refresh: (@MainActor () -> Void)? = nil
+    ) {
         let fm = FileManager.default
         // Skip sources that no longer exist (e.g. a stale cut/copy whose file was
         // already moved away); copying a missing source would leave an empty stub.
         let urls = allURLs.filter { fm.fileExists(atPath: $0.path) }
         guard !urls.isEmpty else { return }
+        if !move, let fileOperationBridge {
+            if fileOperationBridge.submitCopy(
+                sources: urls,
+                destination: destination,
+                destinationMode: .container,
+                conflictPolicy: .ask,
+                route: route,
+                refresh: refresh
+            ) { return }
+            // Only the exact debug legacy compatibility lane may proceed. In
+            // default debug and every release build this is a hard denial.
+            guard LegacyWriteGate.allows(
+                .transferCopy,
+                reason: "Native copy is unavailable in this build or app session."
+            ) else { return }
+        }
         if move {
             guard LegacyWriteGate.allows(.transferMove) else { return }
         }

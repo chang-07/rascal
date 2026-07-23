@@ -14,6 +14,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     var currentURL: URL { activeTab.currentURL }
 
     let fileList: FileListController
+    private let fileOperationBridge: FileOperationBridge?
+    private weak var dropStackController: DropStackController?
     private let pathBar = PathBarView()
     private let toolbar = ToolbarView()
     private let statusBar = StatusBarView()
@@ -63,12 +65,22 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     static let toolbarHeight: CGFloat = 36
     static let hotbarHeight: CGFloat = 32
 
-    init(url: URL) {
+    init(
+        url: URL,
+        fileOperationBridge: FileOperationBridge? = nil,
+        dropStackController: DropStackController? = nil
+    ) {
         let initialTab = TabState(url: url)
         // Honor the user's "show hidden by default" preference for new panes.
         initialTab.model.showHidden = Settings.showHiddenByDefault
         self.tabs = [initialTab]
-        self.fileList = FileListController(model: initialTab.model)
+        self.fileOperationBridge = fileOperationBridge
+        self.dropStackController = dropStackController
+        self.fileList = FileListController(
+            model: initialTab.model,
+            fileOperationBridge: fileOperationBridge,
+            dropStackController: dropStackController
+        )
         super.init(nibName: nil, bundle: nil)
         initialTab.model.delegate = self
         self.fileList.delegate = self
@@ -757,7 +769,15 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         icon.onSelectionChange = { [weak self] items in self?.iconSelection = items; self?.updateStatus() }
         icon.onDrop = { [weak self] urls, folder, isCopy in
             guard let self else { return }
-            FileOps.transfer(urls, into: folder?.url ?? self.currentURL, move: !isCopy, from: self.view.window)
+            FileOps.transfer(
+                urls,
+                into: folder?.url ?? self.currentURL,
+                move: !isCopy,
+                from: self.view.window,
+                fileOperationBridge: self.fileOperationBridge,
+                route: .iconDrag,
+                refresh: { [weak self] in self?.reload() }
+            )
         }
         pinAlternate(icon.view, in: host)
         iconVC = icon
@@ -865,18 +885,46 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func pasteHere() {
         let pb = NSPasteboard.general
         let move = FileOps.consumeCutFlag(for: pb)
-        FileOps.paste(pb, into: currentURL, move: move, from: view.window)
+        FileOps.paste(
+            pb,
+            into: currentURL,
+            move: move,
+            from: view.window,
+            fileOperationBridge: fileOperationBridge,
+            refresh: { [weak self] in self?.reload() }
+        )
     }
 
     /// Paste file URLs from pasteboard into current directory (move semantics).
     func pasteMoveHere() {
-        FileOps.paste(NSPasteboard.general, into: currentURL, move: true, from: view.window)
+        FileOps.paste(
+            NSPasteboard.general,
+            into: currentURL,
+            move: true,
+            from: view.window,
+            fileOperationBridge: fileOperationBridge,
+            refresh: { [weak self] in self?.reload() }
+        )
     }
 
     /// Duplicate currently selected files in the current directory (Finder Cmd+D).
     func duplicateSelection() {
         let urls = selectedURLs()
         guard !urls.isEmpty else { NSSound.beep(); return }
+        if let fileOperationBridge {
+            if fileOperationBridge.submitCopy(
+                sources: urls,
+                destination: currentURL,
+                destinationMode: .container,
+                conflictPolicy: .keepBoth,
+                route: .duplicate,
+                refresh: { [weak self] in self?.reload() }
+            ) { return }
+            guard LegacyWriteGate.allows(
+                .transferCopy,
+                reason: "Native duplicate is unavailable in this build or app session."
+            ) else { return }
+        }
         var lastCreated: URL?
         for u in urls {
             let dir = u.deletingLastPathComponent()

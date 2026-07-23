@@ -603,9 +603,10 @@ public actor FakeFileSystemAdapter: FileSystemAdapter {
         stagingRecoveryInspectionResults
     }
 
-    package func preflight(request: OperationRequest, itemIndex: Int,
+    package func preflight(operationID: OperationID, request: OperationRequest, itemIndex: Int,
                            priorDecision: OperationDecision?,
                            controls: ExecutionControls) async throws -> PreflightDisposition {
+        _ = operationID
         preflightCalls += 1
         activePreflights += 1
         maximumActivePreflights = max(maximumActivePreflights, activePreflights)

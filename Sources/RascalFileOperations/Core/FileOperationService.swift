@@ -273,6 +273,25 @@ public actor FileOperationService {
         self.serviceMode = .fatal([.journalUnavailable])
     }
 
+    /// M2 debug-only vertical slice. The journal is intentionally volatile;
+    /// callers must keep this factory behind the exact compile/runtime gate and
+    /// must not describe it as restart- or crash-durable.
+    package static func makeVolatileNativeCopy(
+        faults: NativeCopyFaultController = NativeCopyFaultController()
+    ) throws -> FileOperationService {
+        let registry = NativeCopyWorkspaceRegistry()
+        return try FileOperationService(dependencies: ServiceDependencies(
+            journal: VolatileOperationJournal(),
+            fileSystem: NativeCopyFileSystemAdapter(registry: registry),
+            clock: SystemOperationClock(),
+            ids: RandomOperationIDGenerator(),
+            digest: CommonCryptoDigestProvider(),
+            failpoints: NoopFailpointController(),
+            executor: NativeCopyExecutor(registry: registry, faults: faults),
+            diagnostics: NoopDiagnosticSink()
+        ))
+    }
+
     package init(dependencies: ServiceDependencies) throws {
         self.dependencies = dependencies
         self.serviceMode = .normal
@@ -842,7 +861,7 @@ private extension FileOperationService {
             let disposition: PreflightDisposition
             do {
                 disposition = try await dependencies.fileSystem.preflight(
-                    request: operation.request, itemIndex: index,
+                    operationID: id, request: operation.request, itemIndex: index,
                     priorDecision: operation.priorDecisions[operation.items[index].id]
                         ?? operation.remainingDecision,
                     controls: control
@@ -1023,7 +1042,14 @@ private extension FileOperationService {
         guard await shouldContinueAfter(outcome: committed, phase: .commit,
                                         id: id, index: index, expected: .committing, control: control,
                                         cancellationAllowed: false) else { return }
-        guard case let .committed(receipt) = committed else {
+        let receipt: OperationReceiptSummary
+        switch committed {
+        case let .committed(value):
+            receipt = value
+        case let .committedAt(value, destination):
+            operations[id]?.items[index].destination = destination
+            receipt = value
+        default:
             try failUnexpectedPhase(.commit, id: id, index: index)
             return
         }

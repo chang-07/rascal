@@ -33,9 +33,10 @@ package struct RandomOperationIDGenerator: OperationIDGenerator {
 }
 
 package struct UnavailableFileSystemAdapter: FileSystemAdapter {
-    package func preflight(request: OperationRequest, itemIndex: Int,
+    package func preflight(operationID: OperationID, request: OperationRequest, itemIndex: Int,
                            priorDecision: OperationDecision?,
                            controls: ExecutionControls) async throws -> PreflightDisposition {
+        _ = operationID
         _ = controls
         return .failure(FileOperationFailure(
             code: .serviceSafeMode,

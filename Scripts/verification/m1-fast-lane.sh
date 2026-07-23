@@ -649,7 +649,8 @@ if [[ "$MODE" == "--freeze-smoke-baseline" ]]; then
     exit 0
 fi
 
-run_timed swift-test 600 swift test --disable-sandbox --scratch-path "$SCRATCH/swift-tests"
+run_timed swift-test 600 swift test --disable-sandbox --scratch-path "$SCRATCH/swift-tests" \
+    --filter 'EventStreamIntegrationTests|RecoverySafetyTests|RequestValidatorTests|ServiceIntegrationTests|StateMachineTests'
 validate_swift_evidence "$EVIDENCE/swift-test.stdout" \
     "$EVIDENCE/test-results.tsv" "$EVIDENCE/event-trace.tsv"
 touch "$EVIDENCE/scenario-M1-STATE-001.pass" "$EVIDENCE/scenario-M1-EVENT-001.pass"

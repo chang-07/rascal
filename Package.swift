@@ -14,7 +14,7 @@ let package = Package(
             name: "RascalFileOperations",
             path: "Sources/RascalFileOperations",
             exclude: ["TestSupport"],
-            sources: ["Core", "Interfaces"]
+            sources: ["Core", "Interfaces", "Native", "Copy"]
         ),
         // Test support is deliberately not a product and is never linked by FinderTwo.
         .target(

@@ -175,7 +175,7 @@ package struct PreflightDecision: Sendable {
 /// M1 intentionally exposes no source-delete primitive. Native source cleanup is
 /// introduced behind a separately reviewed M3 interface.
 package protocol FileSystemAdapter: Sendable {
-    func preflight(request: OperationRequest, itemIndex: Int,
+    func preflight(operationID: OperationID, request: OperationRequest, itemIndex: Int,
                    priorDecision: OperationDecision?,
                    controls: ExecutionControls) async throws -> PreflightDisposition
     /// Recovery cleanup is keyed by the same stable effect ID recorded in the
@@ -216,10 +216,39 @@ package enum ExecutionPhaseOutcome: Sendable {
     case metadataApplied(MetadataOutcome?)
     case verified(VerificationOutcome)
     case committed(OperationReceiptSummary)
+    /// A keep-both exclusive commit may advance to a later suffix after a
+    /// last-moment destination race. Core records that proven final URL before
+    /// it records the receipt, keeping snapshots and UI refreshes truthful.
+    case committedAt(OperationReceiptSummary, URL)
     case sourceCleaned
     case cancelled
     case failed(FileOperationFailure)
     case recoveryRequired(FileOperationFailure)
+}
+
+/// Synchronous mirror read by native callbacks that cannot `await` the
+/// ExecutionControls actor (notably copyfile's C callback). The actor remains
+/// authoritative; this object only lets a callback stop at the next safe point.
+package final class ExecutionSignal: @unchecked Sendable {
+    package struct Snapshot: Sendable {
+        package let paused: Bool
+        package let cancelled: Bool
+    }
+
+    private let lock = NSLock()
+    private var paused = false
+    private var cancelled = false
+
+    package func update(paused: Bool? = nil, cancelled: Bool? = nil) {
+        lock.lock(); defer { lock.unlock() }
+        if let paused { self.paused = paused }
+        if let cancelled { self.cancelled = cancelled }
+    }
+
+    package func snapshot() -> Snapshot {
+        lock.lock(); defer { lock.unlock() }
+        return Snapshot(paused: paused, cancelled: cancelled)
+    }
 }
 
 package actor ExecutionControls {
@@ -232,6 +261,9 @@ package actor ExecutionControls {
     private var resumeWaiters: [CheckedContinuation<Void, Never>] = []
     private var pauseWaiters: [CheckedContinuation<PauseResult, Never>] = []
     private var quiesceWaiters: [CheckedContinuation<Void, Never>] = []
+    private let synchronousSignal = ExecutionSignal()
+
+    package func callbackSignal() -> ExecutionSignal { synchronousSignal }
 
     package func beginPhase() {
         phaseActive = true
@@ -253,8 +285,10 @@ package actor ExecutionControls {
     }
     package func requestPauseAndWait() async -> PauseResult {
         paused = true
+        synchronousSignal.update(paused: true)
         guard phaseActive else {
             paused = false
+            synchronousSignal.update(paused: false)
             return .quiescent
         }
         if pauseAcknowledged { return .paused }
@@ -262,6 +296,7 @@ package actor ExecutionControls {
     }
     package func requestResume() {
         paused = false
+        synchronousSignal.update(paused: false)
         pauseAcknowledged = false
         let pending = resumeWaiters
         resumeWaiters.removeAll()
@@ -275,6 +310,7 @@ package actor ExecutionControls {
     package func revoke() {
         cancelled = true
         paused = false
+        synchronousSignal.update(paused: false, cancelled: true)
         pauseAcknowledged = false
         let resumePending = resumeWaiters
         resumeWaiters.removeAll()

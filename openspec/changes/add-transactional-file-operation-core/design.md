@@ -660,8 +660,10 @@ M1 composition root只在AppDelegate构造一次service/bridge skeleton，不向
 ### M2 allowlist
 
 - `Package.swift`（仅把`Native`/`Copy`纳入`RascalFileOperations` sources）
-- `Scripts/verification/mutation-allowlist.json`（仅移除已迁移duplicate mutation owner、补Drop Stack copy入口及M2归因字段）
+- `Scripts/verification/mutation-allowlist.json`（仅把已迁移copy owner收窄为精确debug兼容门、补Drop Stack copy入口及M2归因字段）
+- `Scripts/verification/m1-fast-lane.sh`（仅把冻结的83个M1测试显式过滤出来；M2新增测试进入独立M2 lane，不得修改M1断言数或scenario语义）
 - `Sources/RascalFileOperations/Core/**`、`Native/**`、`Copy/**`
+- `Sources/RascalFileOperations/Interfaces/OperationDependencies.swift`、`UnavailableOperationJournal.swift`、`TestSupport/TestSupport.swift`（仅传播M2 preflight OperationID、callback signal与exclusive keep-both最终URL outcome；不得改变M1公共语义）
 - `Tests/RascalFileOperationsTests/Copy/**`、`Tests/RascalFileOperationsIntegrationTests/Copy/**`
 - `Scripts/verification/m2-copy-static-scan.sh`、`m2-apfs-volume-matrix.sh`、`m2-copy-performance.sh`、`metadata-manifest.sh`
 - `Sources/FinderTwo/Integration/FileOperationBridge.swift`（新增）

@@ -19,13 +19,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Held strongly so the one-time permissions window isn't deallocated while shown.
     private var permissionsOnboarding: PermissionsOnboardingController?
     private var fileOperationCompositionRoot: FileOperationCompositionRoot?
+    var testFileOperationBridge: FileOperationBridge? { fileOperationCompositionRoot?.bridge }
+    private var dropStackController: DropStackController?
     private var legacyWriteDenialObserver: NSObjectProtocol?
     private var legacyWriteDenialPresentationGate = LegacyWriteDenialPresentationGate()
     private var legacyWriteDenialAlert: NSAlert?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The app owns exactly one service/bridge graph. UI injection begins in M2.
-        fileOperationCompositionRoot = try? FileOperationCompositionRoot()
+        do {
+            fileOperationCompositionRoot = try FileOperationCompositionRoot()
+        } catch {
+            // A missing service graph must never turn constructor injection
+            // into an implicit legacy-write escape hatch.
+            assertionFailure("File operation composition failed: \(error)")
+            NSApp.terminate(nil)
+            return
+        }
+        dropStackController = DropStackController(
+            fileOperationBridge: fileOperationCompositionRoot?.bridge
+        )
+        if ProcessInfo.processInfo.environment["FT_M2_RELEASE_PROBE"] == "1" {
+            DispatchQueue.main.async { [weak self] in self?.runM2ReleaseProbe() }
+            return
+        }
         legacyWriteDenialObserver = NotificationCenter.default.addObserver(
             forName: .legacyWriteDenied, object: nil, queue: .main
         ) { [weak self] note in
@@ -137,10 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func presentLegacyWriteDenial(_ denial: LegacyWriteDenial) {
-        guard legacyWriteDenialPresentationGate.claim() else {
-            NSLog("Suppressed repeated legacy write denial: %@", denial.reason)
-            return
-        }
+        // The backend can reject the same gesture at several guarded layers,
+        // and key repeat can generate denials much faster than a person can
+        // dismiss an alert. Treat every denial after the first as expected
+        // control flow: neither queue another dialog nor emit an unbounded log.
+        guard legacyWriteDenialPresentationGate.claim() else { return }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "File operation temporarily unavailable"
@@ -163,6 +181,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Release-binary probe for the M2 fail-closed boundary. It deliberately
+    /// runs before the denial observer is installed so six expected rejections
+    /// cannot display UI in CI.
+    @MainActor
+    private func runM2ReleaseProbe() {
+        guard let bridge = fileOperationCompositionRoot?.bridge else {
+            FileHandle.standardError.write(Data("M2_RELEASE_PROBE FAIL missing bridge\n".utf8))
+            NSApp.terminate(nil)
+            return
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "Rascal-M2-Release-Probe-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+            let traceBefore = bridge.submissionTrace.count
+            let legacyBefore = TransferQueue.shared.snapshot.count
+            var finals: [URL] = []
+            for route in NativeCopyRoute.allCases {
+                let source = root.appendingPathComponent("source-\(route.rawValue).txt")
+                let destination = root.appendingPathComponent(
+                    "destination-\(route.rawValue)", isDirectory: true
+                )
+                try Data(route.rawValue.utf8).write(to: source)
+                try FileManager.default.createDirectory(
+                    at: destination, withIntermediateDirectories: false
+                )
+                finals.append(destination.appendingPathComponent(source.lastPathComponent))
+                FileOps.transfer(
+                    [source], into: destination, move: false,
+                    fileOperationBridge: bridge, route: route
+                )
+            }
+            let passed = !bridge.nativeCopyEnabled &&
+                bridge.submissionTrace.count == traceBefore &&
+                TransferQueue.shared.snapshot.count == legacyBefore &&
+                finals.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) }
+            let result = passed
+                ? "M2_RELEASE_PROBE PASS routes=6 native=0 legacy=0 finals=0\n"
+                : "M2_RELEASE_PROBE FAIL routes=6 native=\(bridge.submissionTrace.count - traceBefore) " +
+                    "legacy=\(TransferQueue.shared.snapshot.count - legacyBefore)\n"
+            FileHandle.standardError.write(Data(result.utf8))
+        } catch {
+            FileHandle.standardError.write(
+                Data("M2_RELEASE_PROBE FAIL fixture=\(error)\n".utf8)
+            )
+        }
+        NSApp.terminate(nil)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     // MARK: - Windows
@@ -174,7 +243,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // name to all of them made each new window restore the first's exact
         // frame and open directly on top of it — which read as "⌘N does nothing".
         let isFirst = windowControllers.isEmpty
-        let wc = BrowserWindowController(rootURL: url, autosaveFrame: isFirst)
+        let wc = BrowserWindowController(
+            rootURL: url,
+            autosaveFrame: isFirst,
+            fileOperationBridge: fileOperationCompositionRoot?.bridge,
+            dropStackController: dropStackController
+        )
         finishOpening(wc)
     }
 

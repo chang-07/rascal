@@ -2,6 +2,7 @@ import Foundation
 import Darwin
 
 enum LegacyWriteCapability: String, CaseIterable, Sendable {
+    case transferCopy
     case transferMove
     case crossVolumeMove
     case replace

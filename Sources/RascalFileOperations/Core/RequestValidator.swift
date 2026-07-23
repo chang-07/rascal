@@ -57,10 +57,20 @@ package enum RequestValidator {
         if case .portable = request.metadataPolicy { throw failure("portable policy requires a decision approval") }
 
         if let destination = request.destination {
-            let dst = normalizedPath(destination)
+            let projected = projectedDestinations(request).compactMap { $0 }.map(normalizedPath)
+            let targetPaths = request.destinationMode == .container
+                ? projected : [normalizedPath(destination)]
             for src in sourcePaths {
-                if src == dst || isAncestor(src, of: dst) || isAncestor(dst, of: src) {
-                    throw failure("source and destination overlap")
+                for target in targetPaths {
+                    // Container copy into the source's current parent initially
+                    // projects to the same path. Conflict preflight must decide
+                    // keep-both/skip/stop before staging; it is not a recursive
+                    // descendant copy and must remain available for Duplicate.
+                    if src == target, request.destinationMode == .container { continue }
+                    if src == target || isAncestor(src, of: target) ||
+                        isAncestor(target, of: src) {
+                        throw failure("source and destination overlap")
+                    }
                 }
             }
         }

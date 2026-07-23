@@ -475,8 +475,8 @@ final class TestRunner {
         if let item = pane.testCurrentItems.first(where: { $0.name == "dup_me.txt" }) {
             pane.testSelectItem(item)
             pane.duplicateSelection()
-            wait(0.1)
             let copy = sandbox.appendingPathComponent("dup_me copy.txt")
+            waitUntil { FileManager.default.fileExists(atPath: copy.path) }
             assert("duplicate created copy",
                    FileManager.default.fileExists(atPath: copy.path), "no \(copy.path)")
             assert("duplicate preserved original",
@@ -2460,7 +2460,66 @@ final class TestRunner {
         // --- T64: Explorer-style sidebar folder tree (lazy, off-screen) ---
         runSidebarFolderTreeTests(sandbox)
 
+        if ProcessInfo.processInfo.environment["RASCAL_ENABLE_M2_NATIVE_COPY"] == "1" {
+            runM2NativeCopyRouteTrace(appDelegate: appDelegate, sandbox: sandbox)
+        }
+
         finish()
+    }
+
+    private func runM2NativeCopyRouteTrace(appDelegate: AppDelegate, sandbox: URL) {
+        guard let bridge = appDelegate.testFileOperationBridge, bridge.nativeCopyEnabled else {
+            assert("M2 route trace bridge enabled", false, "native bridge is unavailable")
+            return
+        }
+        let root = sandbox.appendingPathComponent("m2-route-trace", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let traceStart = bridge.submissionTrace.count
+        let legacyStart = TransferQueue.shared.snapshot.count
+        var expectedDestinations: [URL] = []
+
+        for route in NativeCopyRoute.allCases {
+            let source = root.appendingPathComponent("source-\(route.rawValue).txt")
+            let destination = root.appendingPathComponent("destination-\(route.rawValue)", isDirectory: true)
+            try? Data(route.rawValue.utf8).write(to: source)
+            try? FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+            expectedDestinations.append(destination.appendingPathComponent(source.lastPathComponent))
+            if route == .duplicate {
+                _ = bridge.submitCopy(
+                    sources: [source],
+                    destination: destination,
+                    destinationMode: .container,
+                    conflictPolicy: .keepBoth,
+                    route: route
+                )
+            } else {
+                FileOps.transfer(
+                    [source],
+                    into: destination,
+                    move: false,
+                    fileOperationBridge: bridge,
+                    route: route
+                )
+            }
+        }
+
+        let completed = waitUntil(10) {
+            bridge.submissionTrace.count == traceStart + NativeCopyRoute.allCases.count &&
+                expectedDestinations.allSatisfy {
+                    FileManager.default.fileExists(atPath: $0.path)
+                }
+        }
+        let trace = Array(bridge.submissionTrace.dropFirst(traceStart))
+        assert("M2 six copy routes complete", completed,
+               "trace=\(trace.map { $0.route.rawValue })")
+        assert("M2 one unique OperationID per route",
+               trace.count == NativeCopyRoute.allCases.count &&
+                Set(trace.map(\.operationID)).count == NativeCopyRoute.allCases.count &&
+                Set(trace.map(\.route)) == Set(NativeCopyRoute.allCases),
+               "trace=\(trace.map { "\($0.route.rawValue):\($0.operationID.rawValue)" })")
+        assert("M2 native routes enqueue zero legacy operations",
+               TransferQueue.shared.snapshot.count == legacyStart,
+               "legacy before=\(legacyStart) after=\(TransferQueue.shared.snapshot.count)")
     }
 
     /// Off-screen assertions for the lazily-expanding sidebar folder tree.
@@ -2769,7 +2828,7 @@ final class TestRunner {
         activity.refresh()
 
         // Drop Stack panel builds (no present() → off-screen).
-        let shelf = DropStackController.shared
+        let shelf = DropStackController()
         assert("DropStackController builds", shelf.window?.contentView != nil, "nil")
         shelf.reload()
 
