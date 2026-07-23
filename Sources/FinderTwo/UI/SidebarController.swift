@@ -709,7 +709,9 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         !(item is Section)
     }
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-        ThemedRowView()   // theme-accent selection pill (system theme → native)
+        let row = ThemedRowView()   // theme-accent selection pill (system theme → native)
+        row.backgroundSurface = .sidebar
+        return row
     }
     func outlineViewSelectionDidChange(_ notification: Notification) {
         guard let url = navigableURL(forRow: outline.selectedRow) else { return }

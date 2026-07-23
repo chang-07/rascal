@@ -73,24 +73,21 @@ enum ThemeChrome {
 /// system highlight under the System theme. Used by the file list, sidebar,
 /// and the overlay finders so selection looks the same everywhere.
 final class ThemedRowView: NSTableRowView {
+    enum BackgroundSurface {
+        case content
+        case sidebar
+    }
+
     /// Slight inset + rounding for a modern "pill" look; pass false for a
     /// full-width band (classic list selection).
     var pill: Bool = true
     var alternating: Bool = false
+    /// The owner declares the semantic surface explicitly. Inferring this by
+    /// walking AppKit's private row-view hierarchy is not stable across macOS
+    /// releases and can paint sidebar rows with the content background.
+    var backgroundSurface: BackgroundSurface = .content
 
-    private var isSidebarRow: Bool {
-        var current: NSView? = self
-        while let v = current {
-            if v is NSOutlineView {
-                return true
-            }
-            if let sc = v as? NSScrollView, sc.documentView is NSOutlineView {
-                return true
-            }
-            current = v.superview
-        }
-        return false
-    }
+    private var isSidebarRow: Bool { backgroundSurface == .sidebar }
 
     override func drawBackground(in dirtyRect: NSRect) {
         let t = ThemeManager.shared.current
@@ -270,4 +267,3 @@ final class SeparatorView: NSView, ThemeObserving {
         layer?.backgroundColor = (t.id == "system" ? NSColor.separatorColor : t.rowAlternate).cgColor
     }
 }
-

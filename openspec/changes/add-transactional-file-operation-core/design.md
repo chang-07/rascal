@@ -644,6 +644,7 @@ M1 基线至少登记：FileOps/TransferQueue/FileActionLog、inline/Batch Renam
 - `Sources/FinderTwo/AppDelegate.swift`
 - `Sources/FinderTwo/Tests/TestRunner.swift`（仅冻结605 smoke断言的确定性与M1 bridge/gate测试hook）
 - `Sources/FinderTwo/UI/SidebarController.swift`（仅修复冻结pixel assertion揭示的custom-theme background覆盖；不得结构性重写sidebar）
+- `Sources/FinderTwo/Theme/ThemeChrome.swift`（仅将sidebar row背景角色改为显式声明，消除对AppKit私有层级形状的依赖）
 - `Sources/FinderTwo/Model/DirectoryModel.swift`（仅消除冻结filter性能断言中的重复locale扫描；不得改directory I/O或排序契约）
 - `Sources/FinderTwo/Integration/FileOperationCompositionRoot.swift`（新增）
 - `Sources/FinderTwo/FS/LegacyWriteGate.swift`（新增）
