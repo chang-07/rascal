@@ -2230,6 +2230,13 @@ final class TestRunner {
             sbT.view.layoutSubtreeIfNeeded()
             renderWindow.displayIfNeeded()
             let renderedSurface = sbT.testSidebarRenderedSurface
+            // AppKit's cache rep is tagged with an environment-owned color
+            // space. macOS 15 hosted runners tag the unchanged RGB samples as
+            // Generic RGB (gamma 1.8); converting those samples to sRGB turns
+            // raw #272C36 into #343A46 and creates a false overlay failure.
+            // Compare the cache's RGB sample components directly to the theme's
+            // source components. This still catches any surface that paints a
+            // different color, without applying an environment-specific transform.
             if let rep = renderedSurface.bitmapImageRepForCachingDisplay(
                 in: renderedSurface.bounds
             ),
@@ -2248,10 +2255,16 @@ final class TestRunner {
                 var observedColors: [String: Int] = [:]
                 var py = 10
                 while py < rep.pixelsHigh - 10 {
-                    if let px = rep.colorAt(x: x, y: py)?.usingColorSpace(.sRGB),
+                    if let px = rep.colorAt(x: x, y: py),
                        px.alphaComponent > 0.5 {
                         opaque += 1
-                        observedColors[px.hexString, default: 0] += 1
+                        let rawHex = String(
+                            format: "#%02X%02X%02X",
+                            Int((px.redComponent * 255).rounded()),
+                            Int((px.greenComponent * 255).rounded()),
+                            Int((px.blueComponent * 255).rounded())
+                        )
+                        observedColors[rawHex, default: 0] += 1
                         if abs(px.redComponent - want.redComponent) < 0.06,
                            abs(px.greenComponent - want.greenComponent) < 0.06,
                            abs(px.blueComponent - want.blueComponent) < 0.06 { matched += 1 }
