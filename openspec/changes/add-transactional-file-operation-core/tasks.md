@@ -37,22 +37,27 @@
 
 ## 3. M2 — Native Copy 内核
 
-- [ ] 3.1 在M2 allowlist内实现directory-FD anchored resolution、versioned composite identity、目标case/Unicode名称投影，并把capability拆为不可降级Safety与copy-only可降级Fidelity；Safety unknown时写入禁用。
-- [ ] 3.2 实现显式 tree traversal与错误传播、symlink no-follow、package顶层单元、hard-link identity map和 sparse inventory；禁止把枚举失败当空目录。
-- [ ] 3.3 实现 target-volume exclusive staging、基于 `copyfile` family/fcopyfile 的 data+metadata copy、线程安全 progress/pause/cancel callback与 exclusive rename commit；禁止 COPYFILE_MOVE/UNLINK/SKIP并暂禁 clone shortcut。
-- [ ] 3.4 实现逐字段finder-compatible metadata manifest/apply/verify，覆盖mode、mtime、birth/added time、FinderInfo/tags、xattr、resource fork、ACL、BSD flags、symlink metadata、hardlink/sparse；只有Fidelity缺口可portable decision，move保持不可降级。
-- [ ] 3.5 实现 structural verification及可选 SHA-256/canonical tree manifest，所有 verification mismatch均阻止 commit并登记 staging。
-- [ ] 3.6 实现commit前取消、mid-file/mid-tree pause/cancel和staging cleanup/登记；只有staging确认不存在才cancelled，否则cleanupRequired/recoveryRequired；compile/test证明copy无source mutation接口。
-- [ ] 3.7 建立按path/call/byte注入enumerate/read/write/metadata/commit错误的fault tests，覆盖ENOSPC、EACCES、destination/source race、相同basename、case/Unicode碰撞、keepBoth race和每个safe point。
+- [x] 3.1 在M2 allowlist内实现directory-FD anchored resolution、versioned composite identity、目标case/Unicode名称投影，并把capability拆为不可降级Safety与copy-only可降级Fidelity；Safety unknown时写入禁用。
+- [x] 3.2 实现显式 tree traversal与错误传播、symlink no-follow、package顶层单元、hard-link identity map和 sparse inventory；禁止把枚举失败当空目录。
+- [x] 3.3 实现 target-volume exclusive staging、基于 `copyfile` family/fcopyfile 的 data+metadata copy、线程安全 progress/pause/cancel callback与 exclusive rename commit；禁止 COPYFILE_MOVE/UNLINK/SKIP并暂禁 clone shortcut。
+- [x] 3.4 实现逐字段finder-compatible metadata manifest/apply/verify，覆盖mode、mtime、birth/added time、FinderInfo/tags、xattr、resource fork、ACL、BSD flags、symlink metadata、hardlink/sparse；只有Fidelity缺口可portable decision，move保持不可降级。
+- [x] 3.5 实现 structural verification及可选 SHA-256/canonical tree manifest，所有 verification mismatch均阻止 commit并登记 staging。
+- [x] 3.6 实现commit前取消、mid-file/mid-tree pause/cancel和staging cleanup/登记；只有staging确认不存在才cancelled，否则cleanupRequired/recoveryRequired；compile/test证明copy无source mutation接口。
+- [x] 3.7 建立按path/call/byte注入enumerate/read/write/metadata/commit错误的fault tests，覆盖ENOSPC、EACCES、destination/source race、相同basename、case/Unicode碰撞、keepBoth race和每个safe point。
 
 ## 4. M2 — Copy 入口切换与硬门
 
-- [ ] 4.1 建立两个UUID不同的真实APFS fixture与metadata manifest工具，逐字段覆盖M2-META-001全部metadata及file/tree/package、symlink/hard-link/sparse、同/跨卷、真实ENOSPC。
-- [ ] 4.2 完成`@MainActor` internal-copy bridge的decision/progress/error/resync/refresh流程；新增package-internal `VolatileOperationJournal`只承诺当前进程一致性；唯一composition root以显式constructor injection传播，Core无UI类型、一次submit一个ID、replace/merge unavailable，release UI仍使用unavailable graph。
-- [ ] 4.3 在`#if DEBUG && RASCAL_ENABLE_M2_NATIVE_COPY == 1`精确gate迁移paste-copy、list/icon drag-copy、pane-to-pane、Drop Stack copy与duplicate；`FT_RUN_TESTS`不授权，release同名env仍拒绝；移除`FileManager.copyItem`、旧TransferQueue和silent fallback，不启用release主干。
-- [ ] 4.4 建立正向入口 trace + primitive静态扫描，证明常用 copy入口总数未缩水且每个只进入新 service。
-- [ ] 4.5 按M2-PERF-001固定protocol关闭clone、各1次预热+至少7次交替随机轮次，运行Rascal与`/bin/cp` 1GiB benchmark，记录每次/median/p95/cache限制及idle→peak RSS；median≥70%、RSS≤64MiB。
-- [ ] 4.6 主Codex按stable scenario IDs重跑全部Unit/Fault/Volume/UI/static/performance/build/smoke/GUI，并单独验证M2-RELEASE-DISABLED-001；M2 mandatory不得skip，case-sensitive/ExFAT以deferred-disabled三重证据验收。
+- [x] 4.1 建立两个UUID不同的真实APFS fixture与metadata manifest工具，逐字段覆盖M2-META-001全部metadata及file/tree/package、symlink/hard-link/sparse、同/跨卷、真实ENOSPC。
+- [x] 4.2 完成`@MainActor` internal-copy bridge的decision/progress/error/resync/refresh流程；新增package-internal `VolatileOperationJournal`只承诺当前进程一致性；唯一composition root以显式constructor injection传播，Core无UI类型、一次submit一个ID、replace/merge unavailable，release UI仍使用unavailable graph。
+  - 原生bridge错误反馈与legacy denial一样按应用进程合并为一次；12个预期的deferred-volume失败通过显式probe抑制UI但仍保留typed snapshot，避免错误突发形成sheet/modal弹框队列。
+- [x] 4.3 在`#if DEBUG && RASCAL_ENABLE_M2_NATIVE_COPY == 1`精确gate迁移paste-copy、list/icon drag-copy、pane-to-pane、Drop Stack copy与duplicate；`FT_RUN_TESTS`不授权，release同名env仍拒绝；移除`FileManager.copyItem`、旧TransferQueue和silent fallback，不启用release主干。
+- [x] 4.4 建立正向入口 trace + primitive静态扫描，证明常用 copy入口总数未缩水且每个只进入新 service。
+- [x] 4.5 按M2-PERF-001固定protocol关闭clone、各1次预热+至少7次交替随机轮次，运行Rascal与`/bin/cp` 1GiB benchmark，记录每次/median/p95/cache限制及idle→peak RSS；median≥70%、RSS≤64MiB。
+- [x] 4.6 主Codex按stable scenario IDs重跑全部Unit/Fault/Volume/UI/static/performance/build/smoke/GUI，并单独验证M2-RELEASE-DISABLED-001；M2 mandatory不得skip，case-sensitive/ExFAT以deferred-disabled三重证据验收。
+  - 2026-07-23 精确实现提交`5cdefc887cffb15c5ca9c6a4d7cb1e91f2deb30a`：本地`swift test`为103/103；`m2-ui-smoke/exact-commit`为608/0且六条copy route各一个OperationID、legacy=0；mutation inventory为84 entries/398 matches。
+  - `m2-copy-static/exact-commit-absolute`含release动态禁写PASS；`m2-apfs/exact-commit`含双UUID APFS与真实ENOSPC PASS；`m2-deferred-disabled/exact-commit`含case-sensitive APFS/ExFAT runtime+bridge+no-fallback三重PASS；以上均无mandatory skip。
+  - `m2-performance/exact-commit`按1次预热+7轮交替测量：Rascal median=2.062815s、`/bin/cp` median=2.349145s、throughput ratio=1.1388、idle→peak RSS=114688 bytes，两个阈值均PASS。
+  - GitHub macOS 15 run `29982617683`在同一提交通过；artifact `m1-fast-evidence-29982617683` digest=`sha256:053330df1b58358ca4990612230780cba71e780dba3d5e42b107cbcc7067c653`，下载核验head/head-end一致、lane.exit=0、冻结M1集合83/83、605/0 smoke、GUI 0 failure和全部scenario PASS。
 - [ ] 4.7 停止 writer后并行完成 metadata/数据完整性、接口/并发、测试假阳性 reviewer与独立 verifier，返工仍由原 writer完成。
 - [ ] 4.8 主 Codex按入口旁路、final partial、metadata丢失与 4/6 UI owner规则判 M2 Go/No-go；No-go时新增 ADR重评同仓库扩大重写/新仓库，Go时向用户汇报并等待批准 M3。
 
