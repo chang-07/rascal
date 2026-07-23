@@ -175,6 +175,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             didSet { needsDisplay = true }
         }
 
+        override var allowsVibrancy: Bool { false }
         override var isOpaque: Bool { fillColor.alphaComponent >= 1 }
 
         override func draw(_ dirtyRect: NSRect) {
@@ -186,6 +187,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     /// Themed tint that covers vibrancy for non-System themes. Scroll, clip,
     /// and outline surfaces stay transparent so no system background can sit
     /// in front of this view.
+    private let effectView = NSVisualEffectView()
     private let tintView = SidebarTintView()
     private var scrollTopConstraint: NSLayoutConstraint!
 
@@ -197,13 +199,15 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     var testTopInset: CGFloat { scrollTopConstraint?.constant ?? -1 }
 
     override func loadView() {
-        // Sidebar-style NSVisualEffectView gives the native translucency for the
-        // System theme; a themed tint overlay covers it for custom themes.
-        let v = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 168, height: 400))
-        v.wantsLayer = true
-        v.material = .sidebar
-        v.blendingMode = .behindWindow
-        v.state = .followsWindowActiveState
+        // Keep vibrancy in a dedicated background child. If the root itself is
+        // an NSVisualEffectView, older AppKit releases can color-mix every
+        // descendant — including an otherwise opaque custom-theme tint.
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 168, height: 400))
+        effectView.material = .sidebar
+        effectView.blendingMode = .behindWindow
+        effectView.state = .followsWindowActiveState
+        effectView.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(effectView)
 
         tintView.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(tintView)
@@ -219,6 +223,10 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         v.addSubview(scrollView)
         scrollTopConstraint = scrollView.topAnchor.constraint(equalTo: v.topAnchor)
         NSLayoutConstraint.activate([
+            effectView.topAnchor.constraint(equalTo: v.topAnchor),
+            effectView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+            effectView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+            effectView.bottomAnchor.constraint(equalTo: v.bottomAnchor),
             tintView.topAnchor.constraint(equalTo: v.topAnchor),
             tintView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             tintView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
@@ -367,13 +375,12 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         let t = ThemeManager.shared.current
         let isSystem = t.id == "system"
         
-        let view = self.view as? NSVisualEffectView
         if isSystem {
-            view?.state = .followsWindowActiveState
-            view?.material = .sidebar
+            effectView.state = .followsWindowActiveState
+            effectView.material = .sidebar
         } else {
-            view?.state = .inactive
-            view?.material = .underWindowBackground
+            effectView.state = .inactive
+            effectView.material = .underWindowBackground
         }
         
         let bg: NSColor = isSystem ? .clear : t.sidebarBackground
