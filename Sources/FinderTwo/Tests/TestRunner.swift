@@ -2237,7 +2237,14 @@ final class TestRunner {
                 renderedSurface.cacheDisplay(in: renderedSurface.bounds, to: rep)
                 let pixelScale = CGFloat(rep.pixelsWide) /
                     max(renderedSurface.bounds.width, 1)
-                let x = max(1, rep.pixelsWide - Int(ceil(6 * pixelScale)))
+                let scrollerWidth = max(
+                    NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy),
+                    NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+                )
+                let x = max(
+                    1,
+                    rep.pixelsWide - Int(ceil((scrollerWidth + 6) * pixelScale))
+                )
                 var matched = 0, opaque = 0
                 var py = 10
                 while py < rep.pixelsHigh - 10 {

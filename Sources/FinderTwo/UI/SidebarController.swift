@@ -167,9 +167,26 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     /// Whether a node has already loaded its children (proves laziness).
     static func testIsLoaded(_ node: TreeNode) -> Bool { node.isLoaded }
 
-    /// Themed tint that covers the vibrancy for non-System themes so the
-    /// sidebar background matches the rest of the window.
-    private let tintView = NSView()
+    /// Draws the custom-theme color through AppKit's normal display pass.
+    /// A plain layer background is not consistently included by off-screen
+    /// compositing on every supported macOS release.
+    private final class SidebarTintView: NSView {
+        var fillColor: NSColor = .clear {
+            didSet { needsDisplay = true }
+        }
+
+        override var isOpaque: Bool { fillColor.alphaComponent >= 1 }
+
+        override func draw(_ dirtyRect: NSRect) {
+            fillColor.setFill()
+            dirtyRect.fill()
+        }
+    }
+
+    /// Themed tint that covers vibrancy for non-System themes. Scroll, clip,
+    /// and outline surfaces stay transparent so no system background can sit
+    /// in front of this view.
+    private let tintView = SidebarTintView()
     private var scrollTopConstraint: NSLayoutConstraint!
 
     /// Inset the source-list rows from the top (used to clear the traffic
@@ -188,7 +205,6 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         v.blendingMode = .behindWindow
         v.state = .followsWindowActiveState
 
-        tintView.wantsLayer = true
         tintView.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(tintView)
 
@@ -361,27 +377,23 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         }
         
         let bg: NSColor = isSystem ? .clear : t.sidebarBackground
-        // On custom themes the clip/scroll surfaces must paint the exact same
-        // opaque color as the outline. AppKit can otherwise synthesize a system
-        // background for the empty document/scroller region on headless hosts,
-        // covering the tint despite the outline property being correct. System
-        // theme keeps every layer transparent so native vibrancy still shows.
-        scrollView.drawsBackground = !isSystem
-        scrollView.backgroundColor = bg
-        scrollView.contentView.drawsBackground = !isSystem
-        scrollView.contentView.backgroundColor = bg
-        outline.backgroundColor = bg
-        tintView.layer?.backgroundColor = bg.cgColor
+        // Keep all front surfaces transparent. On older hosted macOS releases,
+        // NSClipView can replace its configured background with a system color
+        // during off-screen composition; the explicit tint draw below is stable
+        // and also preserves native vibrancy when the System theme is selected.
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
+        outline.backgroundColor = .clear
+        tintView.fillColor = bg
         outline.reloadData()
     }
 
     /// Test hook: the surface the sidebar actually renders (the outline's own
     /// background). Clear / zero-alpha = native vibrancy.
-    var testSidebarBackground: NSColor? { outline.backgroundColor }
-    /// Frontmost background-bearing surface. Sampling this clip view catches
-    /// the original z-order regression without depending on headless
-    /// NSVisualEffectView compositor behavior outside an onscreen window.
-    var testSidebarRenderedSurface: NSView { scrollView.contentView }
+    var testSidebarBackground: NSColor? { tintView.fillColor }
+    /// Full composed surface. Sampling the root proves no scroll/clip/outline
+    /// layer has painted a system background over the custom-theme tint.
+    var testSidebarRenderedSurface: NSView { view }
 
     func highlight(url: URL) {
         selectedURL = url
