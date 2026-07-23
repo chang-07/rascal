@@ -401,6 +401,12 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     /// Full composed surface. Sampling the root proves no scroll/clip/outline
     /// layer has painted a system background over the custom-theme tint.
     var testSidebarRenderedSurface: NSView { view }
+    /// A stable column inside the clip's painted content, far enough from the
+    /// legacy/overlay scroller track and its version-dependent shadow.
+    var testSidebarBackgroundSampleX: CGFloat {
+        let clipInRoot = scrollView.contentView.convert(scrollView.contentView.bounds, to: view)
+        return max(clipInRoot.minX + 1, clipInRoot.maxX - 24)
+    }
     var testSidebarRenderDiagnostics: String {
         "root=\(view.bounds) effect=\(effectView.frame) tint=\(tintView.frame) " +
         "scroll=\(scrollView.frame) clip=\(scrollView.contentView.frame) " +

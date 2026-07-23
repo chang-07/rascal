@@ -2237,13 +2237,12 @@ final class TestRunner {
                 renderedSurface.cacheDisplay(in: renderedSurface.bounds, to: rep)
                 let pixelScale = CGFloat(rep.pixelsWide) /
                     max(renderedSurface.bounds.width, 1)
-                let scrollerWidth = max(
-                    NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy),
-                    NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
-                )
                 let x = max(
                     1,
-                    rep.pixelsWide - Int(ceil((scrollerWidth + 6) * pixelScale))
+                    min(
+                        rep.pixelsWide - 1,
+                        Int(floor(sbT.testSidebarBackgroundSampleX * pixelScale))
+                    )
                 )
                 var matched = 0, opaque = 0
                 var observedColors: [String: Int] = [:]
