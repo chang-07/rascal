@@ -28,10 +28,16 @@ final class FileOperationCompositionRoot {
             service = try FileOperationService(configuration: .default)
         }
         self.service = service
+        let environment = ProcessInfo.processInfo.environment
+        let isHeadlessM2Probe = [
+            "FT_M2_RELEASE_PROBE",
+            "FT_M2_ROUTE_PROBE",
+            "FT_M2_DEFERRED_PROBE",
+        ].contains { environment[$0] == "1" }
         self.bridge = FileOperationBridge(
             service: service,
             nativeCopyEnabled: enabled,
-            presentsAlerts: ProcessInfo.processInfo.environment["FT_M2_DEFERRED_PROBE"] != "1"
+            presentsAlerts: !isHeadlessM2Probe
         )
     }
 }

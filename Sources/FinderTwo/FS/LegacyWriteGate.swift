@@ -55,6 +55,51 @@ enum LegacyWriteGate {
         #endif
     }()
 
+    private static let fixtureLock = NSLock()
+    private static var m1CopyFixtureActive = false
+
+    /// Activates the frozen M1 compatibility seam only from TestRunner.runAll.
+    /// Environment variables alone never authorize the normal UI path.
+    static func beginM1CopyCompatibilityFixture() -> LegacyM1CopyCompatibilityLease? {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard processEnabled,
+              environment["FT_M1_LEGACY_COPY_COMPATIBILITY"] == "1",
+              environment["FT_HEADLESS_TESTING"] == "1",
+              environment["FT_RUN_TESTS"] == "1" else {
+            return nil
+        }
+        fixtureLock.withLock { m1CopyFixtureActive = true }
+        return LegacyM1CopyCompatibilityLease()
+        #else
+        return nil
+        #endif
+    }
+
+    fileprivate static func endM1CopyCompatibilityFixture() {
+        fixtureLock.withLock { m1CopyFixtureActive = false }
+    }
+
+    /// Compatibility escape hatch for the frozen M1 smoke only. Normal UI,
+    /// M2 probes, and release builds cannot activate the TestRunner lease.
+    static func allowsM1CopyCompatibility(
+        reason: String? = nil,
+        notifyDenial: Bool = true
+    ) -> Bool {
+        #if DEBUG
+        let allowed = processEnabled && fixtureLock.withLock { m1CopyFixtureActive }
+        #else
+        let allowed = false
+        #endif
+        guard allowed else {
+            if notifyDenial {
+                deny(.transferCopy, reason: reason)
+            }
+            return false
+        }
+        return true
+    }
+
     static func allows(_ capability: LegacyWriteCapability, reason: String? = nil) -> Bool {
         guard processEnabled else {
             deny(capability, reason: reason)
@@ -73,6 +118,11 @@ enum LegacyWriteGate {
         )
         return false
     }
+}
+
+final class LegacyM1CopyCompatibilityLease {
+    fileprivate init() {}
+    deinit { LegacyWriteGate.endM1CopyCompatibilityFixture() }
 }
 
 enum LegacyTransferClassification: String, Sendable {

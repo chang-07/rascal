@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly PYTHON_BIN=/usr/bin/python3
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$ROOT/Scripts/verification/m2-evidence-common.sh"
 HEAD_OID="$(git -C "$ROOT" rev-parse HEAD)"
 RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 OUT="${1:-$ROOT/.build/verification/$HEAD_OID/m2-copy-static/$RUN_ID}"
@@ -12,6 +13,10 @@ mkdir -p "$OUT"
 finish() {
     local status=$?
     trap - EXIT
+    if ! m2_capture_end_and_compare "$ROOT" "$OUT"; then
+        echo "M2 evidence source state changed during static lane" >&2
+        status=1
+    fi
     printf '%s\n' "$status" > "$OUT/lane.exit"
     find "$OUT" -type f -not -name evidence.sha256 -print0 \
         | sort -z | xargs -0 shasum -a 256 > "$OUT/evidence.sha256"
@@ -58,6 +63,7 @@ drop_stack = read("Sources/FinderTwo/UI/DropStackController.swift")
 browser = read("Sources/FinderTwo/Window/BrowserWindowController.swift")
 app = read("Sources/FinderTwo/AppDelegate.swift")
 legacy_gate = read("Sources/FinderTwo/FS/LegacyWriteGate.swift")
+test_runner = read("Sources/FinderTwo/Tests/TestRunner.swift")
 
 checks = []
 def require(label, condition, detail):
@@ -66,7 +72,7 @@ def require(label, condition, detail):
     checks.append((label, "PASS", detail))
 
 clean_composition = uncomment(composition)
-require("M2-RELEASE-DISABLED-001",
+require("M2-RELEASE-GATE-STATIC-001",
         "#if DEBUG" in composition and
         'environment["RASCAL_ENABLE_M2_NATIVE_COPY"] == "1"' in composition and
         re.search(r"#else\s*false\s*#endif", composition) is not None,
@@ -83,46 +89,78 @@ all_finder = "\n".join(
 require("M2-INJECTION-001",
         all(token in app + browser + panes + pane + file_list + drop_stack for token in [
             "fileOperationBridge", "dropStackController"
-        ]) and "DropStackController.shared" not in all_finder,
-        "constructor injection reaches browser/panes/pane/list/drop stack without singleton")
+        ]) and
+        "DropStackController.shared" not in all_finder and
+        "snapshot.latestSequence >= current.latestSequence" in bridge and
+        "Self.isTerminal(current.state)" in bridge and
+        "snapshots.removeAll()" not in bridge,
+        "constructor injection reaches all owners; projection rejects stale or terminal-regressing snapshots")
 
 route_checks = {
-    "paste-copy": "fileOperationBridge: fileOperationBridge" in file_ops,
-    "list-drag-copy": "FileOps.transfer(" in file_list and "fileOperationBridge: fileOperationBridge" in file_list,
-    "icon-drag-copy": "FileOps.transfer(" in pane and "fileOperationBridge: self.fileOperationBridge" in pane,
-    "pane-to-pane-copy": "transferSelectionToOtherPane" in panes and "fileOperationBridge: fileOperationBridge" in panes,
-    "drop-stack-copy": "copyAllHere" in drop_stack and "fileOperationBridge: fileOperationBridge" in drop_stack,
-    "duplicate": "duplicateSelection" in pane and "submitCopy(" in pane,
+    "paste-copy": "func pasteHere()" in pane and "m2ProbeSubmitPasteCopy" in pane,
+    "list-drag-copy": "submitDrop(urls:" in file_list and "m2ProbeSubmitListCopy" in file_list,
+    "icon-drag-copy": "submitIconDrop(urls:" in pane and "m2ProbeSubmitIconCopy" in pane,
+    "pane-to-pane-copy": "submitPaneTransfer(" in panes and "m2ProbeSubmitPaneToPaneCopy" in panes,
+    "drop-stack-copy": "submitStackTransfer(" in drop_stack and "m2ProbeSubmitDropStackCopy" in drop_stack,
+    "duplicate": "submitDuplicate(" in pane and "m2ProbeSubmitDuplicate" in pane,
 }
 require("M2-ROUTE-001", all(route_checks.values()), ",".join(sorted(route_checks)))
 
+debug_probe = re.search(
+    r"private\s+func\s+runM2NativeCopyRouteTrace[\s\S]*?"
+    r"\n\s*private\s+func\s+runM2BridgeProjectionTests",
+    test_runner,
+)
+release_probe = re.search(
+    r"private\s+func\s+runM2ReleaseProbe[\s\S]*?"
+    r"\n\s*private\s+func\s+runM2DeferredProbe",
+    app,
+)
+probe_methods = [
+    "m2ProbeSubmitPasteCopy", "m2ProbeSubmitListCopy",
+    "m2ProbeSubmitIconCopy", "m2ProbeSubmitPaneToPaneCopy",
+    "m2ProbeSubmitDropStackCopy", "m2ProbeSubmitDuplicate",
+]
+require("M2-ROUTE-PROBE-001",
+        debug_probe is not None and release_probe is not None and
+        all(name in debug_probe.group(0) for name in probe_methods) and
+        all(name in release_probe.group(0) for name in probe_methods) and
+        "FileOps.transfer(" not in debug_probe.group(0) and
+        "bridge.submitCopy(" not in debug_probe.group(0) and
+        "FileOps.transfer(" not in release_probe.group(0) and
+        "bridge.submitCopy(" not in release_probe.group(0),
+        "debug and release probes invoke six concrete UI owners without forged route labels")
+
 submit_index = file_ops.find("fileOperationBridge.submitCopy")
 legacy_index = file_ops.find("TransferQueue.shared.enqueue")
-injected_copy = re.search(
-    r"if\s+!move,\s+let\s+fileOperationBridge\s*\{([\s\S]*?)\n\s*\}\n\s*if\s+move",
-    file_ops,
-)
 injected_duplicate = re.search(
-    r"func\s+duplicateSelection\(\)\s*\{([\s\S]*?)\n\s*func\s+showGoToFolderSheet",
+    r"private\s+func\s+submitDuplicate[\s\S]*?"
+    r"\n\s*func\s+showGoToFolderSheet",
     pane,
 )
 require("M2-NO-FALLBACK-001",
         submit_index >= 0 and legacy_index > submit_index and
-        injected_copy is not None and
-        "if fileOperationBridge.submitCopy(" in injected_copy.group(1) and
-        "LegacyWriteGate.allows(" in injected_copy.group(1) and
-        ".transferCopy" in injected_copy.group(1) and
+        "if !move {" in file_ops and
+        "fileOperationBridge.submitCopy(" in file_ops and
+        "LegacyWriteGate.allowsM1CopyCompatibility(" in file_ops and
+        "notifyDenial: false" in file_ops and
+        "fileOperationBridge?.presentCopyUnavailable()" in file_ops and
         injected_duplicate is not None and
-        "if let fileOperationBridge" in injected_duplicate.group(1) and
-        "if fileOperationBridge.submitCopy(" in injected_duplicate.group(1) and
-        "LegacyWriteGate.allows(" in injected_duplicate.group(1) and
-        ".transferCopy" in injected_duplicate.group(1) and
+        "fileOperationBridge.submitCopy(" in injected_duplicate.group(0) and
+        "LegacyWriteGate.allowsM1CopyCompatibility(" in injected_duplicate.group(0) and
+        "notifyDenial: false" in injected_duplicate.group(0) and
+        "fileOperationBridge?.presentCopyUnavailable()" in injected_duplicate.group(0) and
         "case transferCopy" in legacy_gate and
         "#if DEBUG" in legacy_gate and
         'environment["RASCAL_ENABLE_LEGACY_WRITES"] == "1"' in legacy_gate and
+        'environment["FT_M1_LEGACY_COPY_COMPATIBILITY"] == "1"' in legacy_gate and
+        'environment["FT_HEADLESS_TESTING"] == "1"' in legacy_gate and
+        'environment["FT_RUN_TESTS"] == "1"' in legacy_gate and
+        "beginM1CopyCompatibilityFixture()" in test_runner and
+        all_finder.count("beginM1CopyCompatibilityFixture()") == 2 and
         re.search(r"#else\s*false\s*#endif", legacy_gate) is not None and
         "TransferQueue" not in bridge,
-        "native route submits once; only the exact debug legacy compatibility gate may fall through")
+        "normal UI fails closed; only TestRunner can activate the exact M1 fixture lease")
 
 native_text = "\n".join(
     path.read_text()
@@ -134,6 +172,8 @@ forbidden_flags = ["COPYFILE_MOVE", "COPYFILE_UNLINK", "COPYFILE_SKIP"]
 require("M2-NATIVE-PRIMITIVES-001",
         not any(flag in clean_native for flag in forbidden_flags) and
         "FileManager.default.copyItem" not in clean_native and
+        "copyfile(source.path" not in clean_native and
+        re.search(r"(?<!f)setattrlist\(", clean_native) is None and
         "renameatx_np" in clean_native and "RENAME_EXCL" in clean_native and
         "COPYFILE_NOFOLLOW" in clean_native and "fcopyfile" in clean_native and
         all(primitive in clean_native for primitive in ["openat", "mkdirat", "linkat"]),
@@ -143,7 +183,10 @@ require("M2-DEFERRED-DISABLED-001",
         "case-sensitive APFS remains disabled until its M8 volume lane" in native_text and
         'sourceFS.type != "apfs" || destinationFS.type != "apfs"' in native_text and
         "M2 native copy is limited to verified APFS volumes" in native_text and
-        'environment["FT_M2_DEFERRED_PROBE"] != "1"' in composition and
+        '"FT_M2_RELEASE_PROBE"' in composition and
+        '"FT_M2_ROUTE_PROBE"' in composition and
+        '"FT_M2_DEFERRED_PROBE"' in composition and
+        "presentsAlerts: !isHeadlessM2Probe" in composition and
         'environment["FT_M2_DEFERRED_PROBE"] == "1"' in app and
         "guard presentsAlerts" in bridge and
         "TransferQueue" not in bridge,
@@ -179,36 +222,23 @@ if [[ -n "$RELEASE_TARGET" ]]; then
     if [[ -d "$RELEASE_TARGET" ]]; then
         codesign --verify --deep --strict --verbose=2 "$RELEASE_TARGET" \
             > "$OUT/release-codesign.stdout" 2> "$OUT/release-codesign.stderr"
-        printf 'open -n -W -o %q --stderr %q --env FT_M2_RELEASE_PROBE=1 --env FT_HEADLESS_TESTING=1 --env RASCAL_ENABLE_M2_NATIVE_COPY=1 --env RASCAL_ENABLE_LEGACY_WRITES=1 %q\n' \
-            "$OUT/release-probe.stdout" "$OUT/release-probe.stderr" "$RELEASE_TARGET" \
-            > "$OUT/release-probe.command"
-    else
-        printf 'RASCAL_ENABLE_M2_NATIVE_COPY=1 RASCAL_ENABLE_LEGACY_WRITES=1 FT_M2_RELEASE_PROBE=1 FT_HEADLESS_TESTING=1 %q\n' \
-            "$RELEASE_BINARY" > "$OUT/release-probe.command"
     fi
     set +e
-    if [[ -d "$RELEASE_TARGET" ]]; then
-        open -n -W \
-            -o "$OUT/release-probe.stdout" \
-            --stderr "$OUT/release-probe.stderr" \
-            --env FT_M2_RELEASE_PROBE=1 \
-            --env FT_HEADLESS_TESTING=1 \
-            --env RASCAL_ENABLE_M2_NATIVE_COPY=1 \
-            --env RASCAL_ENABLE_LEGACY_WRITES=1 \
-            "$RELEASE_TARGET"
-    else
-        RASCAL_ENABLE_M2_NATIVE_COPY=1 RASCAL_ENABLE_LEGACY_WRITES=1 \
-            FT_M2_RELEASE_PROBE=1 FT_HEADLESS_TESTING=1 \
-            "$RELEASE_BINARY" > "$OUT/release-probe.stdout" 2> "$OUT/release-probe.stderr"
-    fi
+    m2_run_timed "$OUT" release-probe 120 \
+        /usr/bin/env \
+        FT_M2_RELEASE_PROBE=1 \
+        FT_HEADLESS_TESTING=1 \
+        FT_M1_LEGACY_COPY_COMPATIBILITY=1 \
+        RASCAL_ENABLE_M2_NATIVE_COPY=1 \
+        RASCAL_ENABLE_LEGACY_WRITES=1 \
+        "$RELEASE_BINARY"
     status=$?
     set -e
-    printf '%s\n' "$status" > "$OUT/release-probe.exit"
     [[ "$status" == 0 ]] || {
         cat "$OUT/release-probe.stderr" >&2
         exit "$status"
     }
-    grep -Fxq 'M2_RELEASE_PROBE PASS routes=6 native=0 legacy=0 finals=0' \
+    grep -Fxq 'M2_RELEASE_PROBE PASS routes=6 native=0 legacy=0 fixture=unchanged' \
         "$OUT/release-probe.stderr" || {
         cat "$OUT/release-probe.stderr" >&2
         echo "M2-RELEASE-DISABLED-001 FAIL: release probe did not prove zero writes" >&2

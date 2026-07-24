@@ -35,11 +35,15 @@ M1 SHALL 建立 production source mutation inventory，并将用户内容 mutati
 - **THEN** CI/static gate 失败，即使 build 与 smoke 通过
 
 ### Requirement: App 只有一个 composition root 和 MainActor bridge
-App SHALL 在一个 composition root 创建/注入 `FileOperationService`，且 MUST 不新增 service singleton。一个 `@MainActor` bridge SHALL 消费 operation events，驱动 Transfer Activity、decision/recovery UI 和目录刷新；Core 不得反向引用 App 类型。
+App SHALL 在一个 composition root 创建/注入 `FileOperationService`，且 MUST 不新增 service singleton。一个 `@MainActor` bridge SHALL 消费 operation events，驱动 Transfer Activity、decision/recovery UI 和目录刷新；Core 不得反向引用 App 类型。Bridge合并event resync与post-submit snapshot时 MUST按`latestSequence`单调投影；一旦已显示terminal snapshot，旧sequence或non-terminal snapshot不得覆盖它。Native unavailable的normal UI拒绝只能由一个presentation owner显示一次typed failure，不得同时触发legacy denial observer与bridge alert。
 
 #### Scenario: 两个窗口观察同一 operation
 - **WHEN** UI 多处需要显示同一 transfer
 - **THEN** 它们通过 bridge 的稳定 operation snapshot/event 状态更新，而不是各自持有执行器或 closure
+
+#### Scenario: 旧 snapshot 晚于 terminal 返回
+- **WHEN** post-submit读取或event resync取得的旧non-terminal snapshot在较新terminal snapshot之后回到MainActor
+- **THEN** bridge保留terminal sequence/state且one-shot refresh不重复，不得让UI倒退
 
 ### Requirement: 一次用户操作只能进入一个 engine
 M4 切换后，`FileOps` MAY 暂作为 UI facade，但 SHALL 只向新 service 提交。旧 `TransferQueue` MUST 不再执行用户数据写入；新 service 失败时 MUST 暴露错误并保持危险能力禁用，不得 silent fallback 到 legacy engine 或双写。
@@ -66,6 +70,8 @@ M1 Go SHALL 同时满足：`Core/**` domain 只依赖 Foundation/Darwin，native
 M2 Go SHALL要求所有mandatory fault、同卷与真实跨卷APFS、metadata、取消、竞态和性能证据通过，final path无partial，常用copy入口无旁路。M2只授权`#if DEBUG`且`RASCAL_ENABLE_M2_NATIVE_COPY=1`的vertical slice；`FT_RUN_TESTS`不得自动授权，release无论环境变量为何均保持禁用，直到M3 durable journal和M4主干切换通过。M2 volatile journal只证明当前进程一致性，不得宣称restart/crash durability。若窄适配需要结构性重写AppDelegate、BrowserWindow、PanesContainer、Pane、FileList、DirectoryModel中四个以上，或任一入口仍可回退legacy，M2 MUST No-go并重新评估新仓库。
 
 M2 constructor injection SHALL沿唯一composition root显式传播`AppDelegate → BrowserWindowController → PanesContainerController → PaneController/FileListController/DropStackController`，不得新增singleton或在任一UI owner内再次构造service。Paste、list drag、icon drag、pane-to-pane、Drop Stack和duplicate六类copy入口每次用户动作 MUST只产生一个OperationID、一次native engine submission和零legacy enqueue。
+
+为重跑冻结M1 compatibility smoke而保留的legacy copy MAY仅存在于不可由normal UI到达的headless fixture。它必须由`TestRunner.runAll`持有进程内lease，且lease创建还要求同时精确设置`RASCAL_ENABLE_LEGACY_WRITES=1`、`FT_M1_LEGACY_COPY_COMPATIBILITY=1`、`FT_HEADLESS_TESTING=1`与`FT_RUN_TESTS=1`；环境变量本身不得授权。该fixture不属于六类M2入口；任一条件缺失、bridge缺失或native gate关闭时normal UI仍必须fail closed。
 
 #### Scenario: Mandatory volume case 被跳过
 - **WHEN** M2 gate 把真实跨卷 APFS 标为 skipped
@@ -102,6 +108,8 @@ M4 Go SHALL同时证明：旧streamed copy无调用入口、Replace不再预删/
 
 ### Requirement: Mandatory 场景由稳定 ID 清单定义
 Design中的milestone verification manifest SHALL为每个场景分配稳定ID、lane、适用里程碑、mandatory/deferred-disabled状态、环境preflight、预期filesystem/event结果和对应task。Mandatory环境缺失或skip MUST失败；deferred平台必须以runtime/UI/trace三重证据保持禁用，不得算作skip或pass。
+
+M2总门 SHALL冻结每个stable scenario的精确binding全集及其摘要：实际执行且started/passed各一次、failed/skipped为零的XCTest，或经过哈希校验的动态owner marker/字段级artifact。Missing、extra、unknown或重复binding均须使总门失败；每条binding必须独立计算结果后再聚合scenario，Scenario结果不得由常量或总lane退出码直接写成PASS。`M2-CANCEL-001`必须显式绑定mid-file、mid-tree、metadata前、metadata后与commit前取消。`M2-EVIDENCE-001`只可在全部child lane证据hash通过、M2 event trace与volatile journal dump已生成、嵌套M1 evidence manifest摘要被父bundle绑定，且总门HEAD/status/diff/untracked内容首尾一致后生成。父bundle的整包manifest MUST直接包含每个child `evidence.sha256`文件；成功`lane.exit=0`只能在scenario聚合、源码结束态比较、整包manifest生成与立即复验全部成功之后写入。总门被signal中止、子lane未完成或finalization未就绪时，`lane.exit`必须为非零或不生成，绝不可写成0。Release/route/deferred动态probe必须显式关闭bridge alerts，以独立process group和硬超时运行并在wrapper收到INT/TERM时回收全部子进程；任一modal或超时均为gate failure。Release-disabled证据必须以任何枚举错误都会失败的方式比较六个fixture完整树，真实ENOSPC证据必须证明native copy syscall收到kernel `ENOSPC`。
 
 #### Scenario: ExFAT 在 M2 尚未建立 Lane
 - **WHEN** M2 manifest把ExFAT标为M8 deferred-disabled

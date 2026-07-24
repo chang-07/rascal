@@ -784,6 +784,11 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             target = model.url
         }
         let isCopy = FileOps.dropIsCopy(info)
+        submitDrop(urls: urls, target: target, isCopy: isCopy)
+        return true
+    }
+
+    private func submitDrop(urls: [URL], target: URL, isCopy: Bool) {
         FileOps.transfer(
             urls,
             into: target,
@@ -793,7 +798,10 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             route: .listDrag,
             refresh: { [weak self] in self?.model.reload() }
         )
-        return true
+    }
+
+    func m2ProbeSubmitListCopy(_ sources: [URL], into destination: URL) {
+        submitDrop(urls: sources, target: destination, isCopy: true)
     }
 
     // MARK: Cell helpers

@@ -20,6 +20,7 @@ import json
 import os
 import pathlib
 import stat
+import struct
 import subprocess
 import sys
 
@@ -32,6 +33,26 @@ libc.getxattr.argtypes = [
 ]
 libc.getxattr.restype = ctypes.c_ssize_t
 XATTR_NOFOLLOW = 0x0001
+ATTR_BIT_MAP_COUNT = 5
+ATTR_CMN_CRTIME = 0x00000200
+FSOPT_NOFOLLOW = 0x00000001
+
+class AttrList(ctypes.Structure):
+    _fields_ = [
+        ("bitmapcount", ctypes.c_uint16),
+        ("reserved", ctypes.c_uint16),
+        ("commonattr", ctypes.c_uint32),
+        ("volattr", ctypes.c_uint32),
+        ("dirattr", ctypes.c_uint32),
+        ("fileattr", ctypes.c_uint32),
+        ("forkattr", ctypes.c_uint32),
+    ]
+
+libc.getattrlist.argtypes = [
+    ctypes.c_char_p, ctypes.POINTER(AttrList), ctypes.c_void_p,
+    ctypes.c_size_t, ctypes.c_uint32,
+]
+libc.getattrlist.restype = ctypes.c_int
 
 source = pathlib.Path(sys.argv[1]).resolve()
 destination_arg = sys.argv[2]
@@ -114,6 +135,33 @@ def xattrs(path):
         result[name] = hashlib.sha256(value_buffer.raw[:read]).hexdigest()
     return result
 
+def birthtime_ns(path):
+    attributes = AttrList(
+        bitmapcount=ATTR_BIT_MAP_COUNT,
+        reserved=0,
+        commonattr=ATTR_CMN_CRTIME,
+        volattr=0,
+        dirattr=0,
+        fileattr=0,
+        forkattr=0,
+    )
+    # Attribute buffers use 4-byte packing: u32 total length followed by
+    # timespec(tv_sec, tv_nsec). Reading the kernel fields directly avoids the
+    # precision loss of Python's floating-point st_birthtime.
+    buffer = ctypes.create_string_buffer(4 + 16)
+    result = libc.getattrlist(
+        os.fsencode(path), ctypes.byref(attributes), buffer,
+        ctypes.sizeof(buffer), FSOPT_NOFOLLOW,
+    )
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(path))
+    length = struct.unpack_from("=I", buffer.raw, 0)[0]
+    if length != ctypes.sizeof(buffer):
+        raise RuntimeError(f"unexpected creation-time attribute size {length}: {path}")
+    seconds, nanoseconds = struct.unpack_from("=qq", buffer.raw, 4)
+    return seconds * 1_000_000_000 + nanoseconds
+
 def manifest(root):
     pending = [(".", root)]
     nodes = []
@@ -151,7 +199,7 @@ def manifest(root):
             "mode": stat.S_IMODE(info.st_mode),
             "flags": getattr(info, "st_flags", 0),
             "mtimeNs": info.st_mtime_ns,
-            "birthNs": int(getattr(info, "st_birthtime", 0) * 1_000_000_000),
+            "birthNs": birthtime_ns(path),
             "symlinkTarget": os.readlink(path) if kind == "symbolicLink" else None,
             "hardLinkGroup": hardlink,
             "xattrs": xattrs(path),

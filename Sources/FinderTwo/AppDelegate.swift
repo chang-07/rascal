@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import RascalFileOperations
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -45,6 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if ProcessInfo.processInfo.environment["FT_M2_DEFERRED_PROBE"] == "1" {
             Task { [weak self] in await self?.runM2DeferredProbe() }
+            return
+        }
+        if ProcessInfo.processInfo.environment["FT_M2_ROUTE_PROBE"] == "1" {
+            DispatchQueue.main.async {
+                TestRunner().runM2Only(appDelegate: self)
+            }
             return
         }
         legacyWriteDenialObserver = NotificationCenter.default.addObserver(
@@ -203,7 +210,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
             let traceBefore = bridge.submissionTrace.count
             let legacyBefore = TransferQueue.shared.snapshot.count
-            var finals: [URL] = []
+            var fixtures: [(NativeCopyRoute, URL, URL)] = []
+            var owners: [AnyObject] = []
             for route in NativeCopyRoute.allCases {
                 let source = root.appendingPathComponent("source-\(route.rawValue).txt")
                 let destination = root.appendingPathComponent(
@@ -213,20 +221,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 try FileManager.default.createDirectory(
                     at: destination, withIntermediateDirectories: false
                 )
-                finals.append(destination.appendingPathComponent(source.lastPathComponent))
-                FileOps.transfer(
-                    [source], into: destination, move: false,
-                    fileOperationBridge: bridge, route: route
-                )
+                fixtures.append((route, source, destination))
             }
+            let fixtureBefore = try m2ReleaseFixtureSnapshot(root: root)
+            for (route, source, destination) in fixtures {
+                switch route {
+                case .paste:
+                    let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                    owners.append(pane)
+                    pane.m2ProbeSubmitPasteCopy([source])
+                case .listDrag:
+                    let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                    owners.append(pane)
+                    pane.fileList.m2ProbeSubmitListCopy([source], into: destination)
+                case .iconDrag:
+                    let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                    owners.append(pane)
+                    pane.m2ProbeSubmitIconCopy([source], into: destination)
+                case .paneToPane:
+                    let panes = PanesContainerController(
+                        initialURL: destination,
+                        fileOperationBridge: bridge
+                    )
+                    owners.append(panes)
+                    panes.m2ProbeSubmitPaneToPaneCopy([source], into: destination)
+                case .dropStack:
+                    let stack = DropStackController(fileOperationBridge: bridge)
+                    owners.append(stack)
+                    stack.m2ProbeSubmitDropStackCopy([source], into: destination)
+                case .duplicate:
+                    let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                    owners.append(pane)
+                    pane.m2ProbeSubmitDuplicate([source])
+                }
+            }
+            withExtendedLifetime(owners) {}
+            let fixtureAfter = try m2ReleaseFixtureSnapshot(root: root)
             let passed = !bridge.nativeCopyEnabled &&
                 bridge.submissionTrace.count == traceBefore &&
                 TransferQueue.shared.snapshot.count == legacyBefore &&
-                finals.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) }
+                fixtureAfter == fixtureBefore
             let result = passed
-                ? "M2_RELEASE_PROBE PASS routes=6 native=0 legacy=0 finals=0\n"
+                ? "M2_RELEASE_PROBE PASS routes=6 native=0 legacy=0 fixture=unchanged\n"
                 : "M2_RELEASE_PROBE FAIL routes=6 native=\(bridge.submissionTrace.count - traceBefore) " +
-                    "legacy=\(TransferQueue.shared.snapshot.count - legacyBefore)\n"
+                    "legacy=\(TransferQueue.shared.snapshot.count - legacyBefore) " +
+                    "fixtureChanged=\(fixtureAfter != fixtureBefore)\n"
             FileHandle.standardError.write(Data(result.utf8))
         } catch {
             FileHandle.standardError.write(
@@ -234,6 +273,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
         }
         NSApp.terminate(nil)
+    }
+
+    private func m2ReleaseFixtureSnapshot(root: URL) throws -> [String] {
+        let fileManager = FileManager.default
+        var enumerationFailure: Error?
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: [],
+            errorHandler: { _, error in
+                enumerationFailure = error
+                return false
+            }
+        ) else {
+            throw NSError(domain: "Rascal.M2.ReleaseProbe", code: 1)
+        }
+        var result: [String] = []
+        for case let url as URL in enumerator {
+            var info = stat()
+            guard lstat(url.path, &info) == 0 else {
+                throw NSError(
+                    domain: NSPOSIXErrorDomain,
+                    code: Int(errno),
+                    userInfo: [NSFilePathErrorKey: url.path]
+                )
+            }
+            let relative = String(
+                url.standardizedFileURL.path.dropFirst(
+                    root.standardizedFileURL.path.count + 1
+                )
+            )
+            let kind = info.st_mode & S_IFMT
+            let payload: String
+            if kind == S_IFREG {
+                payload = try Data(contentsOf: url).base64EncodedString()
+            } else if kind == S_IFLNK {
+                payload = try fileManager.destinationOfSymbolicLink(atPath: url.path)
+            } else {
+                payload = "-"
+            }
+            result.append([
+                relative,
+                String(info.st_mode),
+                String(info.st_size),
+                String(info.st_mtimespec.tv_sec),
+                String(info.st_mtimespec.tv_nsec),
+                String(info.st_ctimespec.tv_sec),
+                String(info.st_ctimespec.tv_nsec),
+                payload
+            ].joined(separator: "\t"))
+        }
+        if let enumerationFailure { throw enumerationFailure }
+        return result.sorted()
     }
 
     /// Exercises every M2 bridge route against the two real mounted-volume

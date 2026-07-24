@@ -196,8 +196,8 @@ enum FileOps {
         // already moved away); copying a missing source would leave an empty stub.
         let urls = allURLs.filter { fm.fileExists(atPath: $0.path) }
         guard !urls.isEmpty else { return }
-        if !move, let fileOperationBridge {
-            if fileOperationBridge.submitCopy(
+        if !move {
+            if let fileOperationBridge, fileOperationBridge.submitCopy(
                 sources: urls,
                 destination: destination,
                 destinationMode: .container,
@@ -205,12 +205,15 @@ enum FileOps {
                 route: route,
                 refresh: refresh
             ) { return }
-            // Only the exact debug legacy compatibility lane may proceed. In
-            // default debug and every release build this is a hard denial.
-            guard LegacyWriteGate.allows(
-                .transferCopy,
-                reason: "Native copy is unavailable in this build or app session."
-            ) else { return }
+            // Only the exact headless M1 fixture may enter the legacy engine.
+            // A missing or disabled bridge in normal UI fails closed.
+            guard LegacyWriteGate.allowsM1CopyCompatibility(
+                reason: "Native copy is unavailable in this build or app session.",
+                notifyDenial: false
+            ) else {
+                fileOperationBridge?.presentCopyUnavailable()
+                return
+            }
         }
         if move {
             guard LegacyWriteGate.allows(.transferMove) else { return }

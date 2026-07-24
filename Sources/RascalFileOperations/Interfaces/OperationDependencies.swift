@@ -24,6 +24,20 @@ package struct RecoveryEffectAttempt: Sendable, Equatable {
     }
 }
 
+/// A resolved prompt is only valid for the filesystem identity that produced
+/// it. The optional remains for journal schema compatibility, but adapters
+/// must reject `nil` when applying a decision to any concrete item, including
+/// a `remainingItems` policy projected onto the next item.
+package struct ResolvedOperationDecision: Sendable, Equatable {
+    package let decision: OperationDecision
+    package let identityDigest: String?
+
+    package init(decision: OperationDecision, identityDigest: String?) {
+        self.decision = decision
+        self.identityDigest = identityDigest
+    }
+}
+
 package struct JournalOperation: Sendable {
     package var snapshot: OperationSnapshot
     package var submissionOrdinal: UInt64
@@ -33,8 +47,8 @@ package struct JournalOperation: Sendable {
     /// M1 keeps these command ledgers in the journal abstraction so a service
     /// restart cannot forget a consumed decision or re-run a completed
     /// recovery command. M3 maps the same fields to normalized SQLite tables.
-    package var priorDecisions: [OperationItemID: OperationDecision]
-    package var remainingDecision: OperationDecision?
+    package var priorDecisions: [OperationItemID: ResolvedOperationDecision]
+    package var remainingDecision: ResolvedOperationDecision?
     package var itemMetadataPolicies: [OperationItemID: MetadataPolicy]
     package var remainingMetadataPolicy: MetadataPolicy?
     package var completedRecoveryActions: Set<UUID>
@@ -49,8 +63,8 @@ package struct JournalOperation: Sendable {
     package init(snapshot: OperationSnapshot, submissionOrdinal: UInt64,
                  latestDurableSequence: EventSequence, latestEmittedSequence: EventSequence,
                  reservedThrough: EventSequence,
-                 priorDecisions: [OperationItemID: OperationDecision] = [:],
-                 remainingDecision: OperationDecision? = nil,
+                 priorDecisions: [OperationItemID: ResolvedOperationDecision] = [:],
+                 remainingDecision: ResolvedOperationDecision? = nil,
                  itemMetadataPolicies: [OperationItemID: MetadataPolicy] = [:],
                  remainingMetadataPolicy: MetadataPolicy? = nil,
                  completedRecoveryActions: Set<UUID> = [],
@@ -116,6 +130,7 @@ package protocol DigestProvider: Sendable {
 package enum Failpoint: String, Sendable {
     case plannedPersisted
     case decisionResolved
+    case preflightReadyBeforePlan
     case stagingStarted
     case committedAwaitingCleanup
     case recoveryRequired
@@ -175,8 +190,9 @@ package struct PreflightDecision: Sendable {
 /// M1 intentionally exposes no source-delete primitive. Native source cleanup is
 /// introduced behind a separately reviewed M3 interface.
 package protocol FileSystemAdapter: Sendable {
-    func preflight(operationID: OperationID, request: OperationRequest, itemIndex: Int,
-                   priorDecision: OperationDecision?,
+    func preflight(operationID: OperationID, itemID: OperationItemID,
+                   request: OperationRequest, itemIndex: Int,
+                   priorDecision: ResolvedOperationDecision?,
                    controls: ExecutionControls) async throws -> PreflightDisposition
     /// Recovery cleanup is keyed by the same stable effect ID recorded in the
     /// journal. Implementations must bind that ID to operation and item

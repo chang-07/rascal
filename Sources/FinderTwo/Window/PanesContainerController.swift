@@ -151,15 +151,30 @@ final class PanesContainerController: NSSplitViewController {
         let other = panes[(activeIndex + 1) % panes.count]
         let sel = active.selectedURLs()
         guard !sel.isEmpty else { return }
+        submitPaneTransfer(sel, into: other.currentURL, move: move) {
+            [weak other] in other?.reload()
+        }
+    }
+
+    private func submitPaneTransfer(
+        _ sources: [URL],
+        into destination: URL,
+        move: Bool,
+        refresh: (@MainActor () -> Void)? = nil
+    ) {
         FileOps.transfer(
-            sel,
-            into: other.currentURL,
+            sources,
+            into: destination,
             move: move,
             from: view.window,
             fileOperationBridge: fileOperationBridge,
             route: .paneToPane,
-            refresh: { [weak other] in other?.reload() }
+            refresh: refresh
         )
+    }
+
+    func m2ProbeSubmitPaneToPaneCopy(_ sources: [URL], into destination: URL) {
+        submitPaneTransfer(sources, into: destination, move: false)
     }
 
     /// Toggle synchronized browsing; re-baseline each pane's last URL so the

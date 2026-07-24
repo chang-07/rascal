@@ -46,6 +46,12 @@ package struct NativeTreeManifest: Sendable, Equatable {
         var pending: [(relative: String, url: URL, info: stat)] = []
         try collect(root: root, url: root, relative: ".", into: &pending)
 
+        let hardLinkCounts = pending.reduce(into: [String: Int]()) { counts, node in
+            guard (node.info.st_mode & S_IFMT) == S_IFREG, node.info.st_nlink > 1 else {
+                return
+            }
+            counts["\(node.info.st_dev):\(node.info.st_ino)", default: 0] += 1
+        }
         var hardLinkLeaders: [String: String] = [:]
         var entries: [NativeManifestEntry] = []
         entries.reserveCapacity(pending.count)
@@ -71,7 +77,13 @@ package struct NativeTreeManifest: Sendable, Equatable {
             let hardLinkGroup: String?
             if kind == .regular, node.info.st_nlink > 1 {
                 let key = "\(node.info.st_dev):\(node.info.st_ino)"
-                if let leader = hardLinkLeaders[key] {
+                if hardLinkCounts[key, default: 0] < 2 {
+                    // Links outside the selected tree are not part of the
+                    // copy's observable topology. Treat the selected node as
+                    // an ordinary file instead of requiring the staged inode
+                    // to retain an external link count.
+                    hardLinkGroup = nil
+                } else if let leader = hardLinkLeaders[key] {
                     hardLinkGroup = leader
                 } else {
                     hardLinkLeaders[key] = node.relative
@@ -150,6 +162,10 @@ package struct NativeTreeManifest: Sendable, Equatable {
             guard source.aclText == target.aclText else { return "ACL differs at \(source.relativePath)" }
             guard source.sparseDataRanges == target.sparseDataRanges else {
                 return "sparse topology differs at \(source.relativePath)"
+            }
+            if source.isSparse || target.isSparse,
+               source.allocatedBytes != target.allocatedBytes {
+                return "allocated blocks differ at \(source.relativePath)"
             }
             if policy == .sha256, source.contentSHA256 != target.contentSHA256 {
                 return "SHA-256 differs at \(source.relativePath)"
@@ -279,6 +295,82 @@ package struct NativeTreeManifest: Sendable, Equatable {
             cursor = holeStart
         }
         return ranges
+    }
+}
+
+package struct NativeTreeIdentityEntry: Codable, Sendable, Equatable {
+    package let relativePath: String
+    package let stableIdentity: NativeStableObjectIdentity
+    package let mode: UInt32
+    package let linkCount: UInt64
+    package let size: Int64
+    package let modificationSeconds: Int64
+    package let modificationNanoseconds: Int64
+    package let changeSeconds: Int64
+    package let changeNanoseconds: Int64
+    package let birthSeconds: Int64
+    package let birthNanoseconds: Int64
+}
+
+/// A same-tree identity receipt. Unlike `NativeTreeManifest`, inode and ctime
+/// are intentionally included because this snapshot is compared with the same
+/// source or staging tree at a later authorization point, never across the
+/// source/stage boundary.
+package struct NativeTreeIdentitySnapshot: Sendable, Equatable {
+    package let entries: [NativeTreeIdentityEntry]
+
+    package static func capture(root: URL) throws -> NativeTreeIdentitySnapshot {
+        let volumeUUID = try NativePathInspector.volumeUUIDString(for: root)
+        var entries: [NativeTreeIdentityEntry] = []
+        try collect(root: root, relative: ".", volumeUUID: volumeUUID, into: &entries)
+        return NativeTreeIdentitySnapshot(entries: entries)
+    }
+
+    package var stableEntries: [String: NativeStableObjectIdentity] {
+        Dictionary(uniqueKeysWithValues: entries.map { ($0.relativePath, $0.stableIdentity) })
+    }
+
+    private static func collect(
+        root: URL,
+        relative: String,
+        volumeUUID: String,
+        into entries: inout [NativeTreeIdentityEntry]
+    ) throws {
+        var info = stat()
+        guard lstat(root.path, &info) == 0 else {
+            throw NativeFileError.fromErrno(
+                errno, path: root.path, operation: "tree identity lstat"
+            )
+        }
+        entries.append(NativeTreeIdentityEntry(
+            relativePath: relative,
+            stableIdentity: NativeStableObjectIdentity(
+                volumeUUID: volumeUUID,
+                device: UInt64(info.st_dev),
+                inode: UInt64(info.st_ino),
+                nodeType: UInt32(info.st_mode & S_IFMT)
+            ),
+            mode: UInt32(info.st_mode),
+            linkCount: UInt64(info.st_nlink),
+            size: info.st_size,
+            modificationSeconds: Int64(info.st_mtimespec.tv_sec),
+            modificationNanoseconds: Int64(info.st_mtimespec.tv_nsec),
+            changeSeconds: Int64(info.st_ctimespec.tv_sec),
+            changeNanoseconds: Int64(info.st_ctimespec.tv_nsec),
+            birthSeconds: Int64(info.st_birthtimespec.tv_sec),
+            birthNanoseconds: Int64(info.st_birthtimespec.tv_nsec)
+        ))
+        guard (info.st_mode & S_IFMT) == S_IFDIR else { return }
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.path)
+            .sorted { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }
+        for name in names {
+            try collect(
+                root: root.appendingPathComponent(name),
+                relative: relative == "." ? name : relative + "/" + name,
+                volumeUUID: volumeUUID,
+                into: &entries
+            )
+        }
     }
 }
 

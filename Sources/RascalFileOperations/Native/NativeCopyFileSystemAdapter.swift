@@ -11,13 +11,28 @@ package final class NativeCopyWorkspaceRegistry: @unchecked Sendable {
         package let source: URL
         package var destination: URL
         package let staging: URL
+        package let stagingParentIdentity: NativeStableObjectIdentity
         package var stagingIdentity: NativeCompositeIdentity?
+        package var ownedNodes: [String: NativeStableObjectIdentity]
+        package var verifiedStagingManifest: NativeTreeManifest?
+        package var verifiedStagingTreeIdentity: NativeTreeIdentitySnapshot?
         package var committedIdentity: NativeCompositeIdentity?
         package var commitKnownNotPerformed: Bool
     }
 
+    package struct PreflightReceipt: Sendable, Equatable {
+        package let source: URL
+        package let destination: URL
+        package let sourceIdentity: NativeCompositeIdentity
+        package let sourceTreeIdentity: NativeTreeIdentitySnapshot
+        package let destinationParentIdentity: NativeStableObjectIdentity
+        package let safety: NativeSafetyCapabilities
+        package let fidelityLosses: Set<MetadataField>
+    }
+
     private let lock = NSLock()
     private var records: [Key: Record] = [:]
+    private var preflightReceipts: [Key: PreflightReceipt] = [:]
     private var destinationPlans: [OperationID: [URL?]] = [:]
 
     package init() {}
@@ -40,10 +55,75 @@ package final class NativeCopyWorkspaceRegistry: @unchecked Sendable {
         return records[key]
     }
 
+    package func storePreflightReceipt(_ receipt: PreflightReceipt, for key: Key) throws {
+        try lock.withLock {
+            if let existing = preflightReceipts[key], existing != receipt {
+                throw NativeFileError(
+                    code: .sourceChanged,
+                    systemCode: nil,
+                    message: "preflight receipt was rebound to different filesystem objects"
+                )
+            }
+            preflightReceipts[key] = receipt
+        }
+    }
+
+    package func preflightReceipt(for key: Key) -> PreflightReceipt? {
+        lock.lock(); defer { lock.unlock() }
+        return preflightReceipts[key]
+    }
+
     package func updateStageIdentity(_ identity: NativeCompositeIdentity?, for key: Key) {
         lock.lock(); defer { lock.unlock() }
         guard var record = records[key] else { return }
         record.stagingIdentity = identity
+        records[key] = record
+    }
+
+    package func recordOwnedNode(
+        relativePath: String,
+        identity: NativeStableObjectIdentity,
+        for key: Key
+    ) throws {
+        try lock.withLock {
+            guard var record = records[key] else {
+                throw NativeFileError(
+                    code: .invariantViolation,
+                    systemCode: nil,
+                    message: "staging ownership record is unavailable"
+                )
+            }
+            if let existing = record.ownedNodes[relativePath], existing != identity {
+                throw NativeFileError(
+                    code: .recoveryRequired,
+                    systemCode: nil,
+                    message: "staging node identity changed while recording ownership"
+                )
+            }
+            record.ownedNodes[relativePath] = identity
+            records[key] = record
+        }
+    }
+
+    package func recordVerifiedStaging(
+        manifest: NativeTreeManifest,
+        treeIdentity: NativeTreeIdentitySnapshot,
+        for key: Key
+    ) {
+        lock.lock(); defer { lock.unlock() }
+        guard var record = records[key] else { return }
+        record.verifiedStagingManifest = manifest
+        record.verifiedStagingTreeIdentity = treeIdentity
+        records[key] = record
+    }
+
+    package func resetStagingOwnership(for key: Key) {
+        lock.lock(); defer { lock.unlock() }
+        guard var record = records[key] else { return }
+        record.stagingIdentity = nil
+        record.ownedNodes = [:]
+        record.verifiedStagingManifest = nil
+        record.verifiedStagingTreeIdentity = nil
         records[key] = record
     }
 
@@ -90,6 +170,270 @@ package final class NativeCopyWorkspaceRegistry: @unchecked Sendable {
     }
 }
 
+/// Deletes only nodes whose identities are present in the process-local
+/// ownership record. All lookup and mutation operations are anchored to
+/// directory descriptors; a path-based recursive remove is intentionally not
+/// used because it can cross an identity check/delete race.
+package enum NativeOwnedStageCleanup {
+    @discardableResult
+    package static func remove(
+        record: NativeCopyWorkspaceRegistry.Record,
+        requireCompositeRootIdentity: Bool,
+        beforeDeletion: () throws -> Void = {},
+        beforeNodeUnlink: (String, URL) throws -> Void = { _, _ in }
+    ) throws -> Bool {
+        if record.commitKnownNotPerformed, record.ownedNodes.isEmpty {
+            return false
+        }
+        let stageName = record.staging.lastPathComponent
+        let parentURL = record.staging.deletingLastPathComponent()
+        let parent: NativeDirectoryHandle
+        do {
+            parent = try NativeDirectoryHandle.openAnchored(parentURL)
+        } catch let native as NativeFileError
+            where native.systemCode == ENOENT || native.systemCode == ENOTDIR {
+            throw NativeFileError(
+                code: .recoveryRequired,
+                systemCode: native.systemCode,
+                message: "authorized staging parent is no longer reachable"
+            )
+        }
+        let actualParent = try NativePathInspector.stableIdentity(
+            fileDescriptor: parent.fileDescriptor,
+            volumeUUID: record.stagingParentIdentity.volumeUUID,
+            diagnosticPath: parentURL.path
+        )
+        guard actualParent == record.stagingParentIdentity else {
+            throw NativeFileError(
+                code: .recoveryRequired,
+                systemCode: nil,
+                message: "staging parent identity changed before cleanup"
+            )
+        }
+
+        var rootInfo = stat()
+        guard fstatat(
+            parent.fileDescriptor, stageName, &rootInfo, AT_SYMLINK_NOFOLLOW
+        ) == 0 else {
+            if errno == ENOENT { return false }
+            throw NativeFileError.fromErrno(
+                errno, path: record.staging.path, operation: "inspect anchored staging root"
+            )
+        }
+        guard let expectedRoot = record.ownedNodes["."] else {
+            throw NativeFileError(
+                code: .recoveryRequired,
+                systemCode: nil,
+                message: "staging exists without an owned root identity"
+            )
+        }
+        let anchoredRoot = record.staging
+        let actualRoot = try NativePathInspector.stableIdentity(
+            parentFileDescriptor: parent.fileDescriptor,
+            name: stageName,
+            volumeUUID: expectedRoot.volumeUUID,
+            diagnosticPath: anchoredRoot.path
+        )
+        guard actualRoot == expectedRoot else {
+            throw NativeFileError(
+                code: .recoveryRequired,
+                systemCode: nil,
+                message: "staging root identity changed before cleanup"
+            )
+        }
+        if requireCompositeRootIdentity {
+            guard let expectedComposite = record.stagingIdentity else {
+                throw NativeFileError(
+                    code: .recoveryRequired,
+                    systemCode: nil,
+                    message: "staging exists without a captured composite identity"
+                )
+            }
+            let actualComposite = try NativePathInspector.identity(
+                parentFileDescriptor: parent.fileDescriptor,
+                name: stageName,
+                volumeUUID: expectedComposite.volumeUUID,
+                diagnosticPath: anchoredRoot.path
+            )
+            guard actualComposite == expectedComposite else {
+                throw NativeFileError(
+                    code: .recoveryRequired,
+                    systemCode: nil,
+                    message: "staging composite identity changed before cleanup"
+                )
+            }
+        }
+
+        let currentTree = try NativeTreeIdentitySnapshot.capture(root: anchoredRoot)
+        guard currentTree.stableEntries == record.ownedNodes else {
+            throw NativeFileError(
+                code: .recoveryRequired,
+                systemCode: nil,
+                message: "staging contains an unowned, missing, or replaced node"
+            )
+        }
+        if let verifiedIdentity = record.verifiedStagingTreeIdentity,
+           currentTree != verifiedIdentity {
+            throw NativeFileError(
+                code: .recoveryRequired,
+                systemCode: nil,
+                message: "verified staging tree identity changed before cleanup"
+            )
+        }
+        if let verifiedManifest = record.verifiedStagingManifest {
+            let includeDigests = verifiedManifest.entries.contains {
+                $0.contentSHA256 != nil
+            }
+            let currentManifest = try NativeTreeManifest.capture(
+                root: anchoredRoot,
+                includeContentDigests: includeDigests
+            )
+            guard currentManifest == verifiedManifest else {
+                throw NativeFileError(
+                    code: .recoveryRequired,
+                    systemCode: nil,
+                    message: "verified staging manifest changed before cleanup"
+                )
+            }
+        }
+        try beforeDeletion()
+        let pathParent = try NativeDirectoryHandle.openAnchored(parentURL)
+        let pathParentIdentity = try NativePathInspector.stableIdentity(
+            fileDescriptor: pathParent.fileDescriptor,
+            volumeUUID: record.stagingParentIdentity.volumeUUID,
+            diagnosticPath: parentURL.path
+        )
+        guard pathParentIdentity == record.stagingParentIdentity else {
+            throw NativeFileError(
+                code: .recoveryRequired,
+                systemCode: nil,
+                message: "staging parent path moved before cleanup mutation"
+            )
+        }
+
+        let rootDirectory: NativeDirectoryHandle?
+        if expectedRoot.nodeType == UInt32(S_IFDIR) {
+            rootDirectory = try parent.openChildDirectory(
+                named: stageName,
+                diagnosticPath: anchoredRoot.path
+            )
+            let openedRoot = try NativePathInspector.stableIdentity(
+                fileDescriptor: rootDirectory!.fileDescriptor,
+                volumeUUID: expectedRoot.volumeUUID,
+                diagnosticPath: anchoredRoot.path
+            )
+            guard openedRoot == expectedRoot else {
+                throw NativeFileError(
+                    code: .recoveryRequired,
+                    systemCode: nil,
+                    message: "staging root changed while opening cleanup descriptor"
+                )
+            }
+        } else {
+            rootDirectory = nil
+        }
+
+        let orderedPaths = record.ownedNodes.keys.sorted {
+            let leftDepth = $0 == "." ? 0 : $0.split(separator: "/").count
+            let rightDepth = $1 == "." ? 0 : $1.split(separator: "/").count
+            if leftDepth != rightDepth { return leftDepth > rightDepth }
+            return $0 > $1
+        }
+        for relativePath in orderedPaths {
+            guard let expected = record.ownedNodes[relativePath] else { continue }
+            let deletionParent: NativeDirectoryHandle
+            let name: String
+            let diagnosticPath: String
+            if relativePath == "." {
+                deletionParent = parent
+                name = stageName
+                diagnosticPath = anchoredRoot.path
+            } else {
+                guard let rootDirectory else {
+                    throw NativeFileError(
+                        code: .recoveryRequired,
+                        systemCode: nil,
+                        message: "non-directory staging root owns descendant nodes"
+                    )
+                }
+                let components = relativePath.split(separator: "/").map(String.init)
+                name = components.last!
+                var current = try rootDirectory.duplicate()
+                var traversed: [String] = []
+                for component in components.dropLast() {
+                    traversed.append(component)
+                    let nextPath = traversed.joined(separator: "/")
+                    guard let expectedDirectory = record.ownedNodes[nextPath] else {
+                        throw NativeFileError(
+                            code: .recoveryRequired,
+                            systemCode: nil,
+                            message: "cleanup parent is absent from the ownership record"
+                        )
+                    }
+                    current = try current.openChildDirectory(
+                        named: component,
+                        diagnosticPath: anchoredRoot
+                            .appendingPathComponent(nextPath).path
+                    )
+                    let actualDirectory = try NativePathInspector.stableIdentity(
+                        fileDescriptor: current.fileDescriptor,
+                        volumeUUID: expectedDirectory.volumeUUID,
+                        diagnosticPath: anchoredRoot
+                            .appendingPathComponent(nextPath).path
+                    )
+                    guard actualDirectory == expectedDirectory else {
+                        throw NativeFileError(
+                            code: .recoveryRequired,
+                            systemCode: nil,
+                            message: "cleanup parent identity changed"
+                        )
+                    }
+                }
+                deletionParent = current
+                diagnosticPath = anchoredRoot.appendingPathComponent(relativePath).path
+            }
+
+            // Faults and cancellation may run only before this checkpoint.
+            // The final identity read and unlink remain adjacent and resolve
+            // the same name through the same already-validated parent FD.
+            try beforeNodeUnlink(
+                relativePath,
+                URL(fileURLWithPath: diagnosticPath)
+            )
+            let actual = try NativePathInspector.stableIdentity(
+                parentFileDescriptor: deletionParent.fileDescriptor,
+                name: name,
+                volumeUUID: expected.volumeUUID,
+                diagnosticPath: diagnosticPath
+            )
+            guard actual == expected else {
+                throw NativeFileError(
+                    code: .recoveryRequired,
+                    systemCode: nil,
+                    message: "owned staging node changed immediately before cleanup"
+                )
+            }
+            let flags = expected.nodeType == UInt32(S_IFDIR) ? AT_REMOVEDIR : 0
+            guard unlinkat(deletionParent.fileDescriptor, name, flags) == 0 else {
+                throw NativeFileError.fromErrno(
+                    errno, path: diagnosticPath, operation: "anchored staging cleanup"
+                )
+            }
+            var remaining = stat()
+            if fstatat(
+                deletionParent.fileDescriptor, name, &remaining, AT_SYMLINK_NOFOLLOW
+            ) == 0 || errno != ENOENT {
+                throw NativeFileError(
+                    code: .recoveryRequired,
+                    systemCode: errno,
+                    message: "staging name was recreated or remained after cleanup"
+                )
+            }
+        }
+        return true
+    }
+}
+
 package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
     package let registry: NativeCopyWorkspaceRegistry
 
@@ -99,9 +443,10 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
 
     package func preflight(
         operationID: OperationID,
+        itemID: OperationItemID,
         request: OperationRequest,
         itemIndex: Int,
-        priorDecision: OperationDecision?,
+        priorDecision: ResolvedOperationDecision?,
         controls: ExecutionControls
     ) async throws -> PreflightDisposition {
         guard request.kind == .copy else {
@@ -116,6 +461,13 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
                 code: .validation,
                 diagnostic: "copy item index is out of range",
                 retryable: false
+            ))
+        }
+        if priorDecision != nil, priorDecision?.identityDigest == nil {
+            return .failure(FileOperationFailure(
+                code: .decisionExpired,
+                diagnostic: "resolved decision lacks its item identity digest",
+                retryable: true
             ))
         }
         await controls.checkpoint()
@@ -153,7 +505,17 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
             )
             let fidelityLosses = fidelity.unavailableFields
             if !fidelityLosses.isEmpty {
-                switch priorDecision {
+                let identityDigest = sourceIdentity.digest + "|fidelity|" +
+                    fidelityLosses.map(\.rawValue).sorted().joined(separator: ",")
+                if let resolvedDigest = priorDecision?.identityDigest,
+                   resolvedDigest != identityDigest {
+                    return .failure(FileOperationFailure(
+                        code: .decisionExpired,
+                        diagnostic: "metadata decision identity changed while waiting",
+                        retryable: true
+                    ))
+                }
+                switch priorDecision?.decision {
                 case let .approvePortable(losses, scope)
                     where losses == fidelityLosses &&
                         (scope == .item || scope == .remainingItems):
@@ -174,14 +536,17 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
                             .cancel
                         ],
                         metadataLosses: fidelityLosses,
-                        identityDigest: sourceIdentity.digest + "|fidelity|" +
-                            fidelityLosses.map(\.rawValue).sorted().joined(separator: ",")
+                        identityDigest: identityDigest
                     ))
                 default:
-                    return .failure(FileOperationFailure(
-                        code: .decisionExpired,
-                        diagnostic: "metadata decision does not match current fidelity losses",
-                        retryable: false
+                    return .decision(PreflightDecision(
+                        allowed: [
+                            .approvePortable(losses: fidelityLosses, scope: .item),
+                            .stop,
+                            .cancel
+                        ],
+                        metadataLosses: fidelityLosses,
+                        identityDigest: identityDigest
                     ))
                 }
             }
@@ -189,6 +554,7 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
                 root: source,
                 includeContentDigests: false
             )
+            let sourceTreeIdentity = try NativeTreeIdentitySnapshot.capture(root: source)
             let requiredAllocation = sourceManifest.entries.reduce(Int64(0)) {
                 $0 + max(0, $1.allocatedBytes)
             }
@@ -228,7 +594,17 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
 
             let destinationExists = lstatExists(destination)
             if destinationExists {
-                let decision = priorDecision ?? policyDecision(request.conflictPolicy)
+                let destinationIdentity = try NativePathInspector.identity(at: destination)
+                let identityDigest = sourceIdentity.digest + "|" + destinationIdentity.digest
+                if let resolvedDigest = priorDecision?.identityDigest,
+                   resolvedDigest != identityDigest {
+                    return .failure(FileOperationFailure(
+                        code: .decisionExpired,
+                        diagnostic: "conflict decision identity changed while waiting",
+                        retryable: true
+                    ))
+                }
+                let decision = priorDecision?.decision ?? policyDecision(request.conflictPolicy)
                 switch decision {
                 case let .skip(scope) where scope == .item || scope == .remainingItems:
                     return .skip
@@ -246,12 +622,9 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
                         diagnostic: "replace and merge decisions remain disabled until M3/M4",
                         retryable: false
                     ))
-                case .approvePortable:
-                    break
                 case .cancel:
                     return .skip
-                case nil:
-                    let destinationIdentity = try NativePathInspector.identity(at: destination)
+                case .approvePortable, nil:
                     return .decision(PreflightDecision(
                         allowed: [
                             .skip(scope: .item),
@@ -259,7 +632,7 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
                             .stop,
                             .cancel
                         ],
-                        identityDigest: sourceIdentity.digest + "|" + destinationIdentity.digest
+                        identityDigest: identityDigest
                     ))
                 default:
                     return .failure(FileOperationFailure(
@@ -272,6 +645,21 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
 
             await controls.checkpoint()
             if await controls.isCancelled() { return .skip }
+            let key = NativeCopyWorkspaceRegistry.Key(
+                operationID: operationID,
+                itemID: itemID
+            )
+            try registry.storePreflightReceipt(.init(
+                source: source,
+                destination: destination,
+                sourceIdentity: sourceIdentity,
+                sourceTreeIdentity: sourceTreeIdentity,
+                destinationParentIdentity: try NativePathInspector.stableIdentity(
+                    at: destination.deletingLastPathComponent()
+                ),
+                safety: safety,
+                fidelityLosses: fidelityLosses
+            ), for: key)
             return .ready(
                 destinations: replaceProjection(projections, at: itemIndex, with: destination),
                 moveTopology: .sameVolume
@@ -305,38 +693,18 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
                 retryable: false
             ))
         }
-        guard lstatExists(record.staging) else { return .completed }
         do {
-            guard let expected = record.stagingIdentity else {
-                return .ambiguous(FileOperationFailure(
-                    code: .recoveryRequired,
-                    operationID: operationID,
-                    itemID: itemID,
-                    diagnostic: "staging exists without a captured ownership identity",
-                    retryable: false
-                ))
-            }
-            let actual = try NativePathInspector.identity(at: record.staging)
-            guard actual == expected else {
-                return .ambiguous(FileOperationFailure(
-                    code: .sourceChanged,
-                    operationID: operationID,
-                    itemID: itemID,
-                    diagnostic: "staging identity changed before cleanup",
-                    retryable: false
-                ))
-            }
-            try FileManager.default.removeItem(at: record.staging)
-            guard !lstatExists(record.staging) else {
-                return .ambiguous(FileOperationFailure(
-                    code: .recoveryRequired,
-                    operationID: operationID,
-                    itemID: itemID,
-                    diagnostic: "staging still exists after cleanup",
-                    retryable: false
-                ))
+            let removed = try NativeOwnedStageCleanup.remove(
+                record: record,
+                requireCompositeRootIdentity: true
+            )
+            if !removed {
+                registry.resetStagingOwnership(for: key)
+                registry.markCommitNotPerformed(for: key)
+                return .completed
             }
             registry.updateStageIdentity(nil, for: key)
+            registry.resetStagingOwnership(for: key)
             return .completed
         } catch let native as NativeFileError {
             return .ambiguous(native.failure(operationID: operationID, itemID: itemID))
@@ -367,10 +735,26 @@ package struct NativeCopyFileSystemAdapter: FileSystemAdapter {
                 retryable: false
             ))
         }
-        guard lstatExists(record.staging) else { return .completed }
         do {
+            guard lstatExists(record.staging) else {
+                guard try NativePathInspector.isAnchoredEntryAbsent(
+                    record.staging,
+                    expectedParent: record.stagingParentIdentity
+                ) else {
+                    return .unknown(FileOperationFailure(
+                        code: .recoveryRequired,
+                        operationID: operationID,
+                        itemID: itemID,
+                        diagnostic: "staging appeared during its anchored absence check",
+                        retryable: false
+                    ))
+                }
+                return .completed
+            }
             guard let expected = record.stagingIdentity,
-                  try NativePathInspector.identity(at: record.staging) == expected else {
+                  try NativePathInspector.identity(at: record.staging) == expected,
+                  try NativeTreeIdentitySnapshot.capture(root: record.staging).stableEntries ==
+                    record.ownedNodes else {
                 return .unknown(FileOperationFailure(
                     code: .sourceChanged,
                     operationID: operationID,

@@ -31,6 +31,15 @@ public final class InMemoryOperationJournal: @unchecked Sendable, OperationJourn
     public func eventCount(operationID: OperationID) -> Int {
         lock.withLock { events[operationID, default: []].count }
     }
+    public func admittedSnapshot(operationID: OperationID) -> OperationSnapshot? {
+        lock.withLock {
+            guard let first = events[operationID]?.first,
+                  case let .admitted(snapshot) = first.payload else {
+                return nil
+            }
+            return snapshot
+        }
+    }
     public func storedOperation(_ id: OperationID) -> OperationSnapshot? {
         lock.withLock { operations[id]?.snapshot }
     }
@@ -284,8 +293,16 @@ public final class InMemoryOperationJournal: @unchecked Sendable, OperationJourn
         }
         let reservation = try reserveSequences(for: operationID, count: 1)
         let sequence = reservation.lowerBound
-        stored.priorDecisions[request.itemID] = decision
-        if decision.scope == .remainingItems { stored.remainingDecision = decision }
+        stored.priorDecisions[request.itemID] = ResolvedOperationDecision(
+            decision: decision,
+            identityDigest: request.identityDigest
+        )
+        if decision.scope == .remainingItems {
+            stored.remainingDecision = ResolvedOperationDecision(
+                decision: decision,
+                identityDigest: request.identityDigest
+            )
+        }
         let old = stored.snapshot
         stored.latestDurableSequence = sequence
         stored.latestEmittedSequence = sequence
@@ -603,10 +620,12 @@ public actor FakeFileSystemAdapter: FileSystemAdapter {
         stagingRecoveryInspectionResults
     }
 
-    package func preflight(operationID: OperationID, request: OperationRequest, itemIndex: Int,
-                           priorDecision: OperationDecision?,
+    package func preflight(operationID: OperationID, itemID: OperationItemID,
+                           request: OperationRequest, itemIndex: Int,
+                           priorDecision: ResolvedOperationDecision?,
                            controls: ExecutionControls) async throws -> PreflightDisposition {
         _ = operationID
+        _ = itemID
         preflightCalls += 1
         activePreflights += 1
         maximumActivePreflights = max(maximumActivePreflights, activePreflights)
@@ -641,7 +660,7 @@ public actor FakeFileSystemAdapter: FileSystemAdapter {
                 ))
             }
         }
-        if let priorDecision {
+        if let priorDecision = priorDecision?.decision {
             switch priorDecision {
             case .skip: return .skip
             case .stop: return .failure(FileOperationFailure(
@@ -953,7 +972,9 @@ public actor FakeOperationExecutor: OperationExecutor {
     private var sourceInspectionCalls = 0
     private var remainingSourceCleanupFailures = 0
     private var progressSteps: [Int64] = [1]
+    private var progressEvents: [OperationProgress]?
     private var progressGates: [Int: ContinuationGate] = [:]
+    private var lateProgress: (delayNanoseconds: UInt64, bytesCompleted: Int64)?
     private var starts: [OperationID] = []
     private var planStarts: [OperationID] = []
     private var activeExecutions = 0
@@ -987,8 +1008,14 @@ public actor FakeOperationExecutor: OperationExecutor {
         remainingSourceCleanupFailures = max(0, count)
     }
     public func setProgressSteps(_ steps: [Int64]) { progressSteps = steps }
+    public func setProgressEvents(_ events: [OperationProgress]) {
+        progressEvents = events
+    }
     public func setProgressGate(_ gate: ContinuationGate?, afterStep index: Int) {
         progressGates[index] = gate
+    }
+    public func setLateProgress(delayNanoseconds: UInt64, bytesCompleted: Int64) {
+        lateProgress = (delayNanoseconds, bytesCompleted)
     }
     public func effectCount(operationID: OperationID, itemID: OperationItemID) -> Int {
         effects.filter {
@@ -1078,12 +1105,18 @@ public actor FakeOperationExecutor: OperationExecutor {
             return .cancelled
         }
         if phase == .staging {
-            for (index, step) in progressSteps.enumerated() {
+            let emittedProgress = progressEvents ?? progressSteps.map { step in
+                OperationProgress(
+                    bytesCompleted: step,
+                    bytesTotal: progressSteps.last,
+                    itemsCompleted: context.itemIndex,
+                    itemsTotal: context.request.sources.count
+                )
+            }
+            for (index, event) in emittedProgress.enumerated() {
                 await controls.checkpoint()
                 if await controls.isCancelled() { return .cancelled }
-                await progress(OperationProgress(bytesCompleted: step, bytesTotal: progressSteps.last,
-                                                 itemsCompleted: context.itemIndex,
-                                                 itemsTotal: context.request.sources.count))
+                await progress(event)
                 await controls.checkpoint()
                 if await controls.isCancelled() { return .cancelled }
                 if let gate = progressGates[index] {
@@ -1110,6 +1143,18 @@ public actor FakeOperationExecutor: OperationExecutor {
             recordEffect(phase: fakePhase, context: context)
             guard await waitAfterEffect(fakePhase, controls: controls) else {
                 return .cancelled
+            }
+            if let lateProgress {
+                let total = progressSteps.last
+                Task.detached {
+                    try? await Task.sleep(nanoseconds: lateProgress.delayNanoseconds)
+                    await progress(OperationProgress(
+                        bytesCompleted: lateProgress.bytesCompleted,
+                        bytesTotal: total,
+                        itemsCompleted: context.itemIndex,
+                        itemsTotal: context.request.sources.count
+                    ))
+                }
             }
             return .staged
         case .metadata:

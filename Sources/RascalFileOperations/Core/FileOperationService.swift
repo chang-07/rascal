@@ -42,8 +42,8 @@ private struct ManagedOperation {
     var effectiveVerificationPolicy: VerificationPolicy
     var items: [ManagedItem]
     var pendingDecision: DecisionRequest?
-    var priorDecisions: [OperationItemID: OperationDecision] = [:]
-    var remainingDecision: OperationDecision?
+    var priorDecisions: [OperationItemID: ResolvedOperationDecision] = [:]
+    var remainingDecision: ResolvedOperationDecision?
     var itemMetadataPolicies: [OperationItemID: MetadataPolicy] = [:]
     var remainingMetadataPolicy: MetadataPolicy?
     var terminalFailure: FileOperationFailure?
@@ -277,7 +277,8 @@ public actor FileOperationService {
     /// callers must keep this factory behind the exact compile/runtime gate and
     /// must not describe it as restart- or crash-durable.
     package static func makeVolatileNativeCopy(
-        faults: NativeCopyFaultController = NativeCopyFaultController()
+        faults: NativeCopyFaultController = NativeCopyFaultController(),
+        serviceFailpoints: any FailpointController = NoopFailpointController()
     ) throws -> FileOperationService {
         let registry = NativeCopyWorkspaceRegistry()
         return try FileOperationService(dependencies: ServiceDependencies(
@@ -286,7 +287,7 @@ public actor FileOperationService {
             clock: SystemOperationClock(),
             ids: RandomOperationIDGenerator(),
             digest: CommonCryptoDigestProvider(),
-            failpoints: NoopFailpointController(),
+            failpoints: serviceFailpoints,
             executor: NativeCopyExecutor(registry: registry, faults: faults),
             diagnostics: NoopDiagnosticSink()
         ))
@@ -450,9 +451,15 @@ public actor FileOperationService {
         }
         try commitEvent(id: id, itemID: request.itemID) { operation, _ in
             operation.pendingDecision = nil
-            operation.priorDecisions[request.itemID] = decision
+            operation.priorDecisions[request.itemID] = ResolvedOperationDecision(
+                decision: decision,
+                identityDigest: request.identityDigest
+            )
             if decision.scope == .remainingItems {
-                operation.remainingDecision = decision
+                operation.remainingDecision = ResolvedOperationDecision(
+                    decision: decision,
+                    identityDigest: request.identityDigest
+                )
             }
             if case let .approvePortable(losses, scope) = decision {
                 let policy = MetadataPolicy.portable(
@@ -861,7 +868,8 @@ private extension FileOperationService {
             let disposition: PreflightDisposition
             do {
                 disposition = try await dependencies.fileSystem.preflight(
-                    operationID: id, request: operation.request, itemIndex: index,
+                    operationID: id, itemID: operation.items[index].id,
+                    request: operation.request, itemIndex: index,
                     priorDecision: operation.priorDecisions[operation.items[index].id]
                         ?? operation.remainingDecision,
                     controls: control
@@ -885,6 +893,10 @@ private extension FileOperationService {
                     operations[id]?.items[index].destination = destinations[index]
                 }
                 try checkpointMoveVerificationPolicy(id: id, topology: moveTopology)
+                await dependencies.failpoints.hit(.preflightReadyBeforePlan, operationID: id)
+                guard normalWritesAllowed, activeID == id, controls[id] === control,
+                      operations[id]?.state == .preflight,
+                      !(await control.isCancelled()) else { return }
                 try await executeItem(id: id, index: index, control: control)
             case let .decision(spec):
                 controls[id] = nil
@@ -1461,7 +1473,24 @@ private extension FileOperationService {
 
     func recordProgress(id: OperationID, itemID: OperationItemID, progress: OperationProgress) async {
         guard normalWritesAllowed, var operation = operations[id],
-              let index = operation.items.firstIndex(where: { $0.id == itemID }) else { return }
+              operation.state == .staging,
+              let index = operation.items.firstIndex(where: { $0.id == itemID }),
+              operation.items[index].state == .staging else {
+            return
+        }
+        let previous = operation.items[index].progress
+        guard progress.bytesCompleted >= previous.bytesCompleted,
+              progress.bytesCompleted >= 0,
+              progress.itemsCompleted >= previous.itemsCompleted,
+              progress.itemsCompleted >= 0,
+              progress.itemsTotal >= previous.itemsTotal,
+              progress.itemsTotal >= progress.itemsCompleted,
+              progress.bytesTotal.map({ $0 >= progress.bytesCompleted }) ?? true,
+              previous.bytesTotal.map({ previousTotal in
+                  progress.bytesTotal.map { $0 >= previousTotal } ?? false
+              }) ?? true else {
+            return
+        }
         do {
             if operation.nextProgressSequence <= operation.latestEmittedSequence ||
                 operation.nextProgressSequence > operation.reservedThrough {

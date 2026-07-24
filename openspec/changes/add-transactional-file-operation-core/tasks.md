@@ -58,8 +58,26 @@
   - `m2-copy-static/exact-commit-absolute`含release动态禁写PASS；`m2-apfs/exact-commit`含双UUID APFS与真实ENOSPC PASS；`m2-deferred-disabled/exact-commit`含case-sensitive APFS/ExFAT runtime+bridge+no-fallback三重PASS；以上均无mandatory skip。
   - `m2-performance/exact-commit`按1次预热+7轮交替测量：Rascal median=2.062815s、`/bin/cp` median=2.349145s、throughput ratio=1.1388、idle→peak RSS=114688 bytes，两个阈值均PASS。
   - GitHub macOS 15 run `29982617683`在同一提交通过；artifact `m1-fast-evidence-29982617683` digest=`sha256:053330df1b58358ca4990612230780cba71e780dba3d5e42b107cbcc7067c653`，下载核验head/head-end一致、lane.exit=0、冻结M1集合83/83、605/0 smoke、GUI 0 failure和全部scenario PASS。
-- [ ] 4.7 停止 writer后并行完成 metadata/数据完整性、接口/并发、测试假阳性 reviewer与独立 verifier，返工仍由原 writer完成。
-- [ ] 4.8 主 Codex按入口旁路、final partial、metadata丢失与 4/6 UI owner规则判 M2 Go/No-go；No-go时新增 ADR重评同仓库扩大重写/新仓库，Go时向用户汇报并等待批准 M3。
+- [x] 4.7 停止 writer后并行完成 metadata/数据完整性、接口/并发、测试假阳性 reviewer与独立 verifier，返工仍由原 writer完成。
+  - 2026-07-23 四个独立只读 pass 已完成首轮审查：metadata/数据完整性 reviewer 判 1 个 P0、4 个 P1；接口/并发 reviewer 判 4 个 P1；测试 reviewer 判 7 组 P1；verifier 在独立 scratch 重跑 103/103 Swift tests 与当前 HEAD static scan，并校验既有 APFS/deferred/performance/release/remote artifacts 哈希。现有测试与证据本身通过，但门定义存在漏测，M2 暂定 No-go；本项保留未完成直到下列返工关闭并复审。
+  - 返工复审发现总门/真实owner probe/共享证据脚本及M2 progress回归超出原M2 allowlist；主Codex已先修订design纳入这四个精确路径与用途约束，未以测试通过代替scope gate。
+- [x] 4.7a 关闭数据完整性 P0/P1：verification后、exclusive commit前重新核对operation-owned staging identity+manifest、source composite identity/tree manifest与destination parent/volume；拒绝stage替换/子节点篡改；cleanup按已验证manifest拒绝unexpected child；补目录child ctime/identity、symlink leaf volume、单选外部hard-link与sparse allocated-block语义。
+  - 第三轮只读复审新增 syscall-adjacent P1：receipt parent必须贯穿plan→stage→verify→commit；commit authorization与rename绑定同一parent FD；ownership登记使用创建FD/同一parent FD identity；cleanup逐节点anchored recheck+`unlinkat`，parent URL缺失返回`recoveryRequired`。补plan→stage parent替换、commit同名恶意stage与cleanup替换回归。
+  - 最终复审继续定位两个更窄窗口：directory/symlink metadata与creation time不得在anchored parent校验后退回path mutation；commit/cleanup最后可注入checkpoint必须位于紧邻`renameatx_np`/`unlinkat`的`fstatat`之前。主Codex已改为descriptor-only metadata/symlink mutation、补最终stage替换与root/descendant逐node cleanup替换回归，并以同尺寸staging digest篡改证明SHA-256差异由verification返回`verificationMismatch`。
+- [x] 4.7b 关闭接口/路由 P1：DecisionToken持久化并重验identity snapshot；修复fast-terminal refresh注册竞态与partial-commit refresh；normal UI的nil/disabled bridge fail closed，legacy copy兼容只允许不可由正常UI到达的双环境隔离M1 fixture；保证terminal后无迟到/倒退progress。
+  - 最终复审发现event consumer与post-submit resync可能把旧snapshot晚到回写terminal UI；已按`latestSequence`与terminal dominance合并snapshot，resync保留既有sequence基线，并补旧waiting snapshot在completed后重放、late refresh只执行一次的真实service回归。Normal UI legacy兼容拒绝改为不广播denial，由bridge单一presentation owner显示一次typed unavailable，避免双alert。
+- [x] 4.7c 关闭测试/证据 P1：六条真实UI owner入口逐条动态trace；post-verification/pre-rename cancel/source/stage race；按path/call/byte且断言命中的完整fault matrix；same/cross APFS字段级metadata工具；修复perf单次duration/RSS失败语义；所有M2 lane强制release target（适用时）、HEAD/status/diff结束态一致、stable scenario manifest与mandatory skip清单。
+  - 第三轮只读复审要求冻结精确binding全集与摘要并逐binding聚合，补metadata前cancel selector；生成M2 event trace/volatile journal dump；父bundle绑定嵌套M1 evidence manifest摘要；signal中止或未finalize时不得写成功`lane.exit`。
+  - 主总门实跑暴露release probe在预期unavailable failure上进入`NSAlert.runModal`且无超时；已将release/route/deferred三类headless probe统一禁用bridge alerts，改为独立process group硬超时并直接执行签名bundle binary。失效RUN_ID未生成成功`lane.exit`或scenario结果，显式中止负控生成`lane.exit=130`；修复后release六入口与route-owner探针分别定向通过。
+  - 最终复审补充：取消合同缺少metadata后/verification前独立binding；父manifest未直接绑定child manifests；成功lane早于整包hash；wrapper外部signal回收、birth time纳秒与release枚举错误仍不够严格。现已补第五取消selector，且mid-file/mid-tree用被阻塞的真实progress/node callback与命中计数证明取消时点；补父子manifest闭合、hash复验后最后写lane、INT/TERM process-group回收自测、`getattrlist`纳秒birth time和枚举错误fail-closed。
+  - 当前工作树独立总门进一步证明M1 mutation hard gate会精确拒绝新增测试写点：M2 fast/partial/stale/unavailable projection fixtures增加5个受控`TestRunner` mutation anchors，已把`MUT-0052`从215校准为220并保持`test-demo`、test-trigger-only与M8 owner边界；不得以跳过M1 gate收口。
+  - 后续全量Swift门暴露planned admission测试读取可继续推进的current snapshot而产生`.planned`/`.preflight`时序竞态；已改为读取append-only首个durable admitted event中的snapshot并断言state=`planned`、sequence=1，不再把“提交前已持久化”误写成“当前状态必须停留”。
+- [x] 4.7d 原 reviewers 对全部 P0/P1做只读复审，独立 verifier 使用新scratch运行定义好的M2总门；只有findings关闭、当前HEAD归因完整且无mandatory skip才完成4.7。
+  - 最终只读review：数据完整性、接口/并发与测试/证据三路均为P0/P1/P2=0；数据完整性独立43/43，路由独立7/7，证据双信号与mutation基线定向复验均通过。
+  - 独立verifier RUN_ID `20260723T-independent-final3-r12` 从零运行总门：root/5个child/M1 manifests全部自校验并互相绑定；12/12 mandatory、0 skip、2/2 deferred-disabled、43/43 exact bindings、Swift 127/127、route 7/7、APFS双UUID+真实ENOSPC+六组metadata、perf ratio=0.960867且RSS=131072 bytes、M1 smoke 605/0、GUI 0、selected Swift 84/84、mutation inventory 84 entries/409 matches/MUT-0052=220；HEAD/status/diff/untracked首尾一致。
+  - 残余非阻断风险：同一冻结协议曾出现perf ratio 0.6088失败，后续为0.7834/1.1717/3.4238/0.9609通过，说明七轮median仍受系统I/O调度显著影响；失败证据保留，后续release gate应增强benchmark稳定性，不得删除阈值。
+- [x] 4.8 主 Codex按入口旁路、final partial、metadata丢失与 4/6 UI owner规则判 M2 Go/No-go；No-go时新增 ADR重评同仓库扩大重写/新仓库，Go时向用户汇报并等待批准 M3。
+  - M2判定Go：六个入口无legacy旁路或silent fallback，fault/race/cancel证据未出现final partial，Finder metadata字段级同/跨卷证据无静默丢失；constructor injection保持六个UI owner的窄适配，未触发结构性重写4/6阈值。主Codex在本项后停止，不启动M3，等待用户单独批准。
 
 ## 5. M3 — SQLite Journal 与恢复基础
 

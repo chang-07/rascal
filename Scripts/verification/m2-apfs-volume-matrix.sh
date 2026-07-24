@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly PYTHON_BIN=/usr/bin/python3
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$ROOT/Scripts/verification/m2-evidence-common.sh"
 HEAD_OID="$(git -C "$ROOT" rev-parse HEAD)"
 RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 OUT="${1:-$ROOT/.build/verification/$HEAD_OID/m2-apfs/$RUN_ID}"
@@ -22,6 +23,10 @@ cleanup() {
         hdiutil detach "$SOURCE_MOUNT" -force >/dev/null 2>&1 || true
     fi
     rm -rf "$TEMP_ROOT"
+    if ! m2_capture_end_and_compare "$ROOT" "$OUT"; then
+        echo "M2 evidence source state changed during APFS lane" >&2
+        status=1
+    fi
     printf '%s\n' "$status" > "$OUT/lane.exit"
     find "$OUT" -type f -not -name evidence.sha256 -print0 \
         | sort -z | xargs -0 shasum -a 256 > "$OUT/evidence.sha256"
@@ -103,6 +108,7 @@ PY
 cd "$ROOT"
 RASCAL_M2_APFS_SOURCE="$SOURCE_MOUNT" \
 RASCAL_M2_APFS_DESTINATION="$DESTINATION_MOUNT" \
+RASCAL_M2_METADATA_EVIDENCE_DIR="$OUT" \
 swift test --disable-sandbox --scratch-path "$SCRATCH" \
     --filter NativeCopyIntegrationTests/testConfiguredDistinctAPFSVolumeMatrix \
     > "$OUT/swift-test.stdout" 2> "$OUT/swift-test.stderr"
@@ -112,6 +118,27 @@ if grep -F "skipped" "$OUT/swift-test.stdout" >/dev/null; then
     echo "APFS matrix test reported a skip" >&2
     exit 1
 fi
+
+[[ -s "$OUT/metadata-paths.tsv" ]] || {
+    echo "APFS matrix did not emit metadata proof paths" >&2
+    exit 1
+}
+metadata_count=0
+while IFS=$'\t' read -r label source_path destination_path; do
+    [[ -n "$label" && -n "$source_path" && -n "$destination_path" ]] || {
+        echo "invalid metadata proof row" >&2
+        exit 1
+    }
+    bash "$ROOT/Scripts/verification/metadata-manifest.sh" \
+        "$source_path" "$destination_path" "$OUT/metadata-$label" \
+        > "$OUT/metadata-$label.stdout" 2> "$OUT/metadata-$label.stderr"
+    grep -Fxq 'M2-META-001 PASS' "$OUT/metadata-$label/comparison.txt"
+    ((metadata_count += 1))
+done < "$OUT/metadata-paths.tsv"
+[[ "$metadata_count" == 6 ]] || {
+    echo "expected six independent metadata comparisons, got $metadata_count" >&2
+    exit 1
+}
 
 RASCAL_M2_APFS_SOURCE="$SOURCE_MOUNT" \
 RASCAL_M2_APFS_DESTINATION="$DESTINATION_MOUNT" \

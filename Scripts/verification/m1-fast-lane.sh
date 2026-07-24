@@ -352,6 +352,14 @@ M1-SERVICE-023	RascalFileOperationsIntegrationTests.ServiceIntegrationTests/test
 M1-SERVICE-024	RascalFileOperationsIntegrationTests.ServiceIntegrationTests/testUnknownControlIsDiagnosticOnlyAndKnownRejectionFailureEntersSafeMode
 M1-SERVICE-025	RascalFileOperationsIntegrationTests.ServiceIntegrationTests/testWaitingCancellationDurablyClearsDecisionToken
 EOF
+    # The lane's XCTest filter intentionally selects whole M1-owned suites. A
+    # later milestone may add a test to one of those suites; enumerate such
+    # tests separately so the frozen M1 manifest remains exact without treating
+    # arbitrary future tests as acceptable.
+    cat > "$EVIDENCE/adjacent-test-manifest.tsv" <<'EOF'
+stable_id	test_name
+M2-REFRESH-T001	RascalFileOperationsIntegrationTests.ServiceIntegrationTests/testDescendingAndPostTerminalProgressAreIgnored
+EOF
     cat > "$EVIDENCE/scenario-manifest.tsv" <<'EOF'
 stable_id	lane	milestone_mandatory	local_required	description
 M1-CORE-001	local-static	true	true	Core dependency and product boundary
@@ -364,7 +372,8 @@ M1-BUILD-001	local-build	true	true	Clean ad-hoc signing fallback build and prove
 M1-COMPAT-001	local-compat	true	true	Exact 605 smoke assertions and zero GUI failures
 M1-CI-001	remote-github	true	false	GitHub macOS fast lane on attributable commit
 EOF
-    shasum -a 256 "$EVIDENCE/test-manifest.tsv" "$EVIDENCE/scenario-manifest.tsv" \
+    shasum -a 256 "$EVIDENCE/test-manifest.tsv" \
+        "$EVIDENCE/adjacent-test-manifest.tsv" "$EVIDENCE/scenario-manifest.tsv" \
         > "$EVIDENCE/stable-manifests.sha256"
 }
 
@@ -413,22 +422,40 @@ PY
 }
 
 validate_swift_evidence() {
-    local stdout_path="$1" result_path="$2" trace_path="$3"
-    "$PYTHON_BIN" - "$EVIDENCE/test-manifest.tsv" "$stdout_path" \
-        "$result_path" "$trace_path" <<'PY'
+    local stdout_path="$1" result_path="$2" trace_path="$3" adjacent_result_path="$4"
+    "$PYTHON_BIN" - "$EVIDENCE/test-manifest.tsv" \
+        "$EVIDENCE/adjacent-test-manifest.tsv" "$stdout_path" \
+        "$result_path" "$trace_path" "$adjacent_result_path" <<'PY'
 import csv
 import pathlib
 import re
 import sys
 
-manifest_path, stdout_path, result_path, trace_path = map(pathlib.Path, sys.argv[1:])
-with manifest_path.open(newline="") as handle:
-    rows = list(csv.DictReader(handle, delimiter="\t"))
-if not rows or set(rows[0]) != {"stable_id", "test_name"}:
-    raise SystemExit("invalid embedded M1 test manifest header")
+(
+    manifest_path,
+    adjacent_manifest_path,
+    stdout_path,
+    result_path,
+    trace_path,
+    adjacent_result_path,
+) = map(pathlib.Path, sys.argv[1:])
+
+def read_manifest(path, description):
+    with path.open(newline="") as handle:
+        manifest_rows = list(csv.DictReader(handle, delimiter="\t"))
+    if not manifest_rows or set(manifest_rows[0]) != {"stable_id", "test_name"}:
+        raise SystemExit(f"invalid embedded {description} test manifest header")
+    return manifest_rows
+
+rows = read_manifest(manifest_path, "M1")
+adjacent_rows = read_manifest(adjacent_manifest_path, "adjacent milestone")
 ids = [row["stable_id"] for row in rows]
 names = [row["test_name"] for row in rows]
-if len(ids) != len(set(ids)) or len(names) != len(set(names)):
+adjacent_ids = [row["stable_id"] for row in adjacent_rows]
+adjacent_names = [row["test_name"] for row in adjacent_rows]
+all_ids = ids + adjacent_ids
+all_names = names + adjacent_names
+if len(all_ids) != len(set(all_ids)) or len(all_names) != len(set(all_names)):
     raise SystemExit("duplicate stable ID or test name in M1 test manifest")
 
 text = stdout_path.read_text(errors="replace")
@@ -438,7 +465,7 @@ case_pattern = re.compile(
 observed = {state: [] for state in ("started", "passed", "failed", "skipped")}
 for owner, method, state in case_pattern.findall(text):
     observed[state].append(f"{owner}/{method}")
-expected = set(names)
+expected = set(all_names)
 for state, values in observed.items():
     duplicates = sorted(name for name in set(values) if values.count(name) != 1)
     if duplicates:
@@ -455,6 +482,16 @@ name_to_id = {row["test_name"]: row["stable_id"] for row in rows}
 result_path.write_text(
     "stable_id\ttest_name\tstatus\n" +
     "".join(f"{name_to_id[name]}\t{name}\tPASS\n" for name in names)
+)
+adjacent_name_to_id = {
+    row["test_name"]: row["stable_id"] for row in adjacent_rows
+}
+adjacent_result_path.write_text(
+    "stable_id\ttest_name\tstatus\n" +
+    "".join(
+        f"{adjacent_name_to_id[name]}\t{name}\tPASS\n"
+        for name in adjacent_names
+    )
 )
 
 trace_lines = [line for line in text.splitlines()
@@ -635,7 +672,8 @@ if [[ "$MODE" == "--freeze-smoke-baseline" ]]; then
     BIN="$ROOT/build/Rascal.app/Contents/MacOS/FinderTwo"
     [[ -x "$BIN" ]] || { echo "baseline requires an existing debug FinderTwo binary" >&2; exit 1; }
     shasum -a 256 "$BIN" > "$EVIDENCE/finder-two-debug-before-smoke.sha256"
-    run smoke-baseline env RASCAL_ENABLE_LEGACY_WRITES=1 bash ./smoketest.sh
+    run smoke-baseline env RASCAL_ENABLE_LEGACY_WRITES=1 \
+        FT_M1_LEGACY_COPY_COMPATIBILITY=1 FT_HEADLESS_TESTING=1 bash ./smoketest.sh
     [[ "$(grep -Ec '^=== 605 passed, 0 failed ===$' "$EVIDENCE/smoke-baseline.stdout")" == "1" ]] || {
         echo "baseline smoke summary is not exactly 605 passed, 0 failed" >&2
         exit 1
@@ -652,7 +690,8 @@ fi
 run_timed swift-test 600 swift test --disable-sandbox --scratch-path "$SCRATCH/swift-tests" \
     --filter 'EventStreamIntegrationTests|RecoverySafetyTests|RequestValidatorTests|ServiceIntegrationTests|StateMachineTests'
 validate_swift_evidence "$EVIDENCE/swift-test.stdout" \
-    "$EVIDENCE/test-results.tsv" "$EVIDENCE/event-trace.tsv"
+    "$EVIDENCE/test-results.tsv" "$EVIDENCE/event-trace.tsv" \
+    "$EVIDENCE/adjacent-test-results.tsv"
 touch "$EVIDENCE/scenario-M1-STATE-001.pass" "$EVIDENCE/scenario-M1-EVENT-001.pass"
 
 run core-boundary bash Scripts/verification/m1-core-boundary-scan.sh "$EVIDENCE/core-boundary"
@@ -774,7 +813,8 @@ PROVENANCE_PAYLOAD_NEGATIVE="$PROVENANCE_NEGATIVE_STATUS"
 run_provenance_negative provenance-linkedit-vmsize linkedit-vmsize
 PROVENANCE_LINKEDIT_NEGATIVE="$PROVENANCE_NEGATIVE_STATUS"
 
-run_timed smoke 300 env RASCAL_ENABLE_LEGACY_WRITES=1 bash ./smoketest.sh
+run_timed smoke 300 env RASCAL_ENABLE_LEGACY_WRITES=1 \
+    FT_M1_LEGACY_COPY_COMPATIBILITY=1 FT_HEADLESS_TESTING=1 bash ./smoketest.sh
 [[ "$(grep -Ec '^=== 605 passed, 0 failed ===$' "$EVIDENCE/smoke.stdout")" == "1" ]] || {
     echo "compatibility summary is not exactly 605 passed, 0 failed" >&2
     exit 1
@@ -854,6 +894,7 @@ expect_swift_rejection() {
     set +e
     validate_swift_evidence "$input" \
         "$NEGATIVE_DIR/$name-test-results.tsv" "$NEGATIVE_DIR/$name-trace.tsv" \
+        "$NEGATIVE_DIR/$name-adjacent-test-results.tsv" \
         > "$EVIDENCE/negative-$name.stdout" 2> "$EVIDENCE/negative-$name.stderr"
     local status=$?
     set -e

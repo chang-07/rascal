@@ -768,16 +768,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         icon.onOpen = { [weak self] item in self?.fileListOpenItem(item) }
         icon.onSelectionChange = { [weak self] items in self?.iconSelection = items; self?.updateStatus() }
         icon.onDrop = { [weak self] urls, folder, isCopy in
-            guard let self else { return }
-            FileOps.transfer(
-                urls,
-                into: folder?.url ?? self.currentURL,
-                move: !isCopy,
-                from: self.view.window,
-                fileOperationBridge: self.fileOperationBridge,
-                route: .iconDrag,
-                refresh: { [weak self] in self?.reload() }
-            )
+            self?.submitIconDrop(urls: urls, target: folder?.url, isCopy: isCopy)
         }
         pinAlternate(icon.view, in: host)
         iconVC = icon
@@ -895,6 +886,18 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         )
     }
 
+    private func submitIconDrop(urls: [URL], target: URL?, isCopy: Bool) {
+        FileOps.transfer(
+            urls,
+            into: target ?? currentURL,
+            move: !isCopy,
+            from: view.window,
+            fileOperationBridge: fileOperationBridge,
+            route: .iconDrag,
+            refresh: { [weak self] in self?.reload() }
+        )
+    }
+
     /// Paste file URLs from pasteboard into current directory (move semantics).
     func pasteMoveHere() {
         FileOps.paste(
@@ -911,8 +914,11 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func duplicateSelection() {
         let urls = selectedURLs()
         guard !urls.isEmpty else { NSSound.beep(); return }
-        if let fileOperationBridge {
-            if fileOperationBridge.submitCopy(
+        submitDuplicate(urls)
+    }
+
+    private func submitDuplicate(_ urls: [URL]) {
+        if let fileOperationBridge, fileOperationBridge.submitCopy(
                 sources: urls,
                 destination: currentURL,
                 destinationMode: .container,
@@ -920,10 +926,12 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
                 route: .duplicate,
                 refresh: { [weak self] in self?.reload() }
             ) { return }
-            guard LegacyWriteGate.allows(
-                .transferCopy,
-                reason: "Native duplicate is unavailable in this build or app session."
-            ) else { return }
+        guard LegacyWriteGate.allowsM1CopyCompatibility(
+            reason: "Native duplicate is unavailable in this build or app session.",
+            notifyDenial: false
+        ) else {
+            fileOperationBridge?.presentCopyUnavailable()
+            return
         }
         var lastCreated: URL?
         for u in urls {
@@ -956,6 +964,23 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         // Select the duplicate once it lands (Finder selects the copy). No rename
         // (Cmd+D leaves the name as-is), and reveal the last one for a multi-select.
         if let created = lastCreated { fileList.queueReveal(created, rename: false); reload() }
+    }
+
+    /// Route probes enter the same owner-private funnels as real UI actions
+    /// and cannot forge a `NativeCopyRoute` label.
+    func m2ProbeSubmitPasteCopy(_ sources: [URL]) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects(sources.map { $0 as NSURL })
+        pasteHere()
+    }
+
+    func m2ProbeSubmitIconCopy(_ sources: [URL], into destination: URL) {
+        submitIconDrop(urls: sources, target: destination, isCopy: true)
+    }
+
+    func m2ProbeSubmitDuplicate(_ sources: [URL]) {
+        submitDuplicate(sources)
     }
 
     func showGoToFolderSheet() {

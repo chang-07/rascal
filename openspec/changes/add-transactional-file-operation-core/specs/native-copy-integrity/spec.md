@@ -61,12 +61,42 @@ Copy 默认 SHALL 使用 `.structural` 验证，至少验证字节数、对象�
 ### Requirement: 关键阶段重验证文件身份
 Core SHALL 在 preflight、commit 前以及适用时的 source cleanup 前重新核对 source/destination volume identity、opaque file identity、对象类型、size、mtime 与 ctime。任何影响语义的变化 MUST 停止并返回 `sourceChanged` 或 `destinationChanged`。
 
+Preflight完成全部source/tree、destination parent、safety与fidelity检查后，adapter MUST签发按operation/item绑定的进程内receipt；executor在创建staging前 MUST消费并逐字段重验该receipt。Preflight与executor plan之间替换source或destination parent不得沿用旧能力结论。Receipt中的destination parent stable identity MUST作为plan、staging、verification与commit的同一授权基线，verification不得重新采纳当前路径对象。Staging root的创建必须先打开并`fstat` parent FD，证明其仍匹配receipt；创建对象的ownership identity必须来自创建所用FD或同一anchored parent FD的`fstatat`，不得在创建后重新按URL采纳另一个对象。
+
+Commit MUST先打开并`fstat`授权parent FD，再通过该同一FD核对staging root identity，最后使用同一FD执行exclusive rename；不得在path authorization与打开rename parent FD之间留下可提交同名替换对象的窗口。最后一个可注入fault/cancel checkpoint MUST位于最终`fstatat`之前，最终identity read与`renameatx_np`之间不得再有await、callback或path重新解析。Staging ownership MUST同时记录创建时的destination parent stable identity；只有directory-FD anchored检查证明原parent identity/volume未变且原parent下stage entry确实不存在时，才可清除ownership登记。自动cleanup必须通过匹配已登记parent/node identity的anchored FD逐节点删除，并在每个`unlinkat`前使用同一parent FD作最后一次`fstatat`；每个node的最后fault checkpoint必须发生在该`fstatat`之前，二者之间不得再有callback或path解析；不得在完成校验后转用`FileManager`路径递归删除。Parent被rename/recreate、旧parent URL不存在或stage随parent移动时 MUST保留登记并返回`recoveryRequired`，不得把旧URL的`ENOENT`解释为cleanup完成。
+
 #### Scenario: 复制期间 source 被替换
 - **WHEN** source path 在 staging 后指向不同文件身份
 - **THEN** Core 不提交 destination，并返回 `sourceChanged`
 
+#### Scenario: Preflight 后 destination parent 被替换
+- **WHEN** preflight receipt签发后、executor plan前destination parent被rename并由新目录占据旧路径
+- **THEN** executor拒绝旧receipt，不创建或提交final，并返回typed destination变化
+
+#### Scenario: Plan 后 destination parent 被替换
+- **WHEN** executor plan已消费receipt、但staging root尚未创建时destination parent被rename并由新目录占据旧路径
+- **THEN** staging创建所用parent FD不匹配receipt，operation返回`destinationChanged`且不得在新旧parent提交final
+
+#### Scenario: Commit authorization 后 parent 被替换
+- **WHEN** commit准备期间destination parent路径被替换，且替换parent包含同名staging entry
+- **THEN** authorization只接受同一已打开parent FD中的已验证staging identity；不得提交替换parent中的同名对象
+
+#### Scenario: 最终 rename checkpoint 的 staging 被替换
+- **WHEN** commit完成manifest authorization后、最终exclusive rename前的最后可注入checkpoint替换同一parent下的staging entry
+- **THEN** 紧邻rename的anchored identity read拒绝替换对象，final path保持不存在且替换对象不得被当作operation-owned自动删除
+
+#### Scenario: Staging 随 parent 被移动
+- **WHEN** operation-owned staging已创建后destination parent连同staging被rename，旧URL随后不存在
+- **THEN** cleanup不得清除ownership登记；snapshot保持明确pending recovery且不得删除新parent中的无关对象
+
+#### Scenario: Cleanup 最后检查后 staging 被替换
+- **WHEN** cleanup即将删除某个已登记staging node时该目录项被替换
+- **THEN** anchored identity recheck失败并进入`recoveryRequired`；实现不得递归删除替换对象
+
 ### Requirement: Native adapter 使用公开系统能力并保守处理未知
-普通文件 adapter SHALL 使用系统 `copyfile` family 的 data/metadata、no-follow、sparse与进度/退出回调能力，并以 directory-FD anchored resolution、exclusive staging open和capability-verified exclusive rename编排竞态边界；目录遍历、hard-link map和commit SHALL由 Core显式编排。Capability MUST拆为不可降级的 safety（operation-owned staging、no-follow resolution、race-free commit、identity recheck、journal ownership）与可降级的 fidelity（metadata、hard-link/sparse preservation）。Safety unknown/unsupported时 copy与move都阻止；只有 fidelity缺口可由 copy portable decision批准。实现 MUST NOT使用 `COPYFILE_MOVE`、`COPYFILE_UNLINK`，也不得把 callback `COPYFILE_SKIP`当作成功取消。Clone shortcut在进度/取消语义单独验证前 MUST保持禁用。
+普通文件 adapter SHALL 使用系统 `copyfile` family 的 data/metadata、no-follow、sparse与进度/退出回调能力，并以 directory-FD anchored resolution、exclusive staging open和capability-verified exclusive rename编排竞态边界；目录遍历、hard-link map和commit SHALL由 Core显式编排。所有staging mutation（包括directory/symlink metadata、symlink创建与creation-time写入）MUST解析到已验证的parent/object FD；不得在验证anchored FD后退回destination URL执行`copyfile`或`setattrlist`。Capability MUST拆为不可降级的 safety（operation-owned staging、no-follow resolution、race-free commit、identity recheck、journal ownership）与可降级的 fidelity（metadata、hard-link/sparse preservation）。Safety unknown/unsupported时 copy与move都阻止；只有 fidelity缺口可由 copy portable decision批准。实现 MUST NOT使用 `COPYFILE_MOVE`、`COPYFILE_UNLINK`，也不得把 callback `COPYFILE_SKIP`当作成功取消。Clone shortcut在进度/取消语义单独验证前 MUST保持禁用。
+
+Copyfile callback收到`COPYFILE_ERR` stage时 MUST终止该syscall，不得返回continue形成错误重试；终止前 MUST保存callback线程看到的原始errno。若QUIT使外层`fcopyfile`返回`ECANCELED`，executor MUST优先使用已保存errno映射typed failure并记录native evidence。
 
 #### Scenario: 未验证的目标文件系统
 - **WHEN** adapter 无法可靠判断目标是否支持 race-free exclusive commit或identity recheck
@@ -76,8 +106,14 @@ Core SHALL 在 preflight、commit 前以及适用时的 source cleanup 前重新
 - **WHEN** 系统复制保留字节内容但 destination allocated blocks 表明 sparse holes 已展开
 - **THEN** operation 不得将 sparse 标为 preserved，而应按 metadata/capability policy 处理降级
 
+#### Scenario: APFS 数据写入真实耗尽
+- **WHEN** preflight已通过后目标APFS可用块被并发耗尽，production `fcopyfile`进入error callback且原始errno为`ENOSPC`
+- **THEN** callback终止而不重试，operation返回`failedRecoverable/noSpace`、记录原始`ENOSPC`并清理或登记staging，final path保持不变
+
 ### Requirement: Native copy 垂直切片覆盖所有常用 copy 入口
 M2精确debug gate启用后，paste-copy、list drag-copy、icon drag-copy、pane-to-pane copy、Drop Stack copy和duplicate SHALL只进入新 service；这些入口 MUST NOT调用 `FileManager.copyItem`、旧 streamed copy或silent legacy fallback。Gate固定为`#if DEBUG`且`RASCAL_ENABLE_M2_NATIVE_COPY=1`，`FT_RUN_TESTS`不自动授权；release始终禁用。M2 volatile journal不提供restart/crash声明，在真实SQLite journal和启动恢复尚未通过前 MUST NOT启用正式 release UI；release主干切换只在M4进行。M2遇到任何 destination冲突 MUST只提供 skip/keepBoth/stop；replace/merge option保持 featureDisabled直到M3 replacement crash matrix通过。
+
+冻结M1 compatibility smoke若仍需执行legacy copy，MAY使用不可由normal UI到达的headless fixture，但必须由`TestRunner.runAll`持有进程内compatibility lease，且创建lease时同时精确设置`RASCAL_ENABLE_LEGACY_WRITES=1`、`FT_M1_LEGACY_COPY_COMPATIBILITY=1`、`FT_HEADLESS_TESTING=1`与`FT_RUN_TESTS=1`。环境变量本身不得授权；缺少任一条件、normal UI、M2 route probe及release均 MUST fail closed；该fixture不得被计为M2入口或能力。
 
 #### Scenario: 新 Core copy 失败
 - **WHEN** 已迁移入口提交的新 Core copy 失败

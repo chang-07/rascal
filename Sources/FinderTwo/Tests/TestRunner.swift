@@ -1,4 +1,6 @@
 import AppKit
+import Darwin
+import RascalFileOperations
 
 /// In-process test harness. Runs after applicationDidFinishLaunching when
 /// FT_RUN_TESTS=1. Drives the controller layer directly (no UI events) and
@@ -13,8 +15,22 @@ final class TestRunner {
     private var failures: [String] = []
     private var passed: [String] = []
 
+    func runM2Only(appDelegate: AppDelegate) {
+        Task { @MainActor in
+            print("=== Rascal M2 route/projection tests ===")
+            let sandbox = makeSandbox()
+            defer { try? FileManager.default.removeItem(at: sandbox) }
+            runM2NativeCopyRouteTrace(appDelegate: appDelegate, sandbox: sandbox)
+            await runM2BridgeProjectionTests(sandbox: sandbox)
+            finish()
+        }
+    }
+
     func runAll(appDelegate: AppDelegate) {
         print("=== Rascal in-process tests ===")
+        let m1CopyCompatibilityLease =
+            LegacyWriteGate.beginM1CopyCompatibilityFixture()
+        defer { withExtendedLifetime(m1CopyCompatibilityLease) {} }
 
         // Sandbox for filesystem mutations
         let sandbox = makeSandbox()
@@ -2477,6 +2493,7 @@ final class TestRunner {
         let traceStart = bridge.submissionTrace.count
         let legacyStart = TransferQueue.shared.snapshot.count
         var expectedDestinations: [URL] = []
+        var owners: [AnyObject] = []
 
         for route in NativeCopyRoute.allCases {
             let source = root.appendingPathComponent("source-\(route.rawValue).txt")
@@ -2484,22 +2501,34 @@ final class TestRunner {
             try? Data(route.rawValue.utf8).write(to: source)
             try? FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
             expectedDestinations.append(destination.appendingPathComponent(source.lastPathComponent))
-            if route == .duplicate {
-                _ = bridge.submitCopy(
-                    sources: [source],
-                    destination: destination,
-                    destinationMode: .container,
-                    conflictPolicy: .keepBoth,
-                    route: route
+            switch route {
+            case .paste:
+                let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                owners.append(pane)
+                pane.m2ProbeSubmitPasteCopy([source])
+            case .listDrag:
+                let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                owners.append(pane)
+                pane.fileList.m2ProbeSubmitListCopy([source], into: destination)
+            case .iconDrag:
+                let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                owners.append(pane)
+                pane.m2ProbeSubmitIconCopy([source], into: destination)
+            case .paneToPane:
+                let panes = PanesContainerController(
+                    initialURL: destination,
+                    fileOperationBridge: bridge
                 )
-            } else {
-                FileOps.transfer(
-                    [source],
-                    into: destination,
-                    move: false,
-                    fileOperationBridge: bridge,
-                    route: route
-                )
+                owners.append(panes)
+                panes.m2ProbeSubmitPaneToPaneCopy([source], into: destination)
+            case .dropStack:
+                let stack = DropStackController(fileOperationBridge: bridge)
+                owners.append(stack)
+                stack.m2ProbeSubmitDropStackCopy([source], into: destination)
+            case .duplicate:
+                let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                owners.append(pane)
+                pane.m2ProbeSubmitDuplicate([source])
             }
         }
 
@@ -2520,6 +2549,232 @@ final class TestRunner {
         assert("M2 native routes enqueue zero legacy operations",
                TransferQueue.shared.snapshot.count == legacyStart,
                "legacy before=\(legacyStart) after=\(TransferQueue.shared.snapshot.count)")
+        withExtendedLifetime(owners) {}
+    }
+
+    private func runM2BridgeProjectionTests(sandbox: URL) async {
+        let fastRoot = sandbox.appendingPathComponent("m2-fast-refresh", isDirectory: true)
+        let fastDestination = fastRoot.appendingPathComponent("destination", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: fastDestination, withIntermediateDirectories: true
+        )
+        let fastSource = fastRoot.appendingPathComponent("source.txt")
+        try? Data("fast".utf8).write(to: fastSource)
+        var fastRefreshCount = 0
+        if let service = try? FileOperationService.makeVolatileNativeCopy() {
+            let bridge = FileOperationBridge(
+                service: service,
+                nativeCopyEnabled: true,
+                presentsAlerts: false,
+                submissionRegistrationDelayNanoseconds: 300_000_000
+            )
+            let submitted = bridge.submitCopy(
+                sources: [fastSource],
+                destination: fastDestination,
+                route: .paste,
+                refresh: { fastRefreshCount += 1 }
+            )
+            let converged = submitted
+                ? await waitUntilAsync(5) {
+                    FileManager.default.fileExists(
+                        atPath: fastDestination.appendingPathComponent("source.txt").path
+                    ) && fastRefreshCount == 1
+                }
+                : false
+            assert(
+                "M2 fast terminal registers then converges one refresh",
+                converged && fastRefreshCount == 1,
+                "submitted=\(submitted) refreshes=\(fastRefreshCount)"
+            )
+            withExtendedLifetime(bridge) {}
+        } else {
+            assert("M2 fast terminal service constructed", false, "service unavailable")
+        }
+
+        let partialRoot = sandbox.appendingPathComponent("m2-partial-refresh", isDirectory: true)
+        let partialDestination = partialRoot.appendingPathComponent(
+            "destination", isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: partialDestination, withIntermediateDirectories: true
+        )
+        let first = partialRoot.appendingPathComponent("first.txt")
+        let second = partialRoot.appendingPathComponent("second.txt")
+        try? Data("first".utf8).write(to: first)
+        try? Data("second".utf8).write(to: second)
+        let faults = NativeCopyFaultController(rules: [
+            NativeCopyFaultRule(
+                point: .copyData,
+                pathSuffix: "second.txt",
+                call: 1,
+                code: .permissionDenied,
+                systemCode: EACCES
+            )
+        ])
+        var partialRefreshCount = 0
+        if let service = try? FileOperationService.makeVolatileNativeCopy(faults: faults) {
+            let bridge = FileOperationBridge(
+                service: service,
+                nativeCopyEnabled: true,
+                presentsAlerts: false
+            )
+            let submitted = bridge.submitCopy(
+                sources: [first, second],
+                destination: partialDestination,
+                route: .listDrag,
+                refresh: { partialRefreshCount += 1 }
+            )
+            let converged = submitted
+                ? await waitUntilAsync(5) {
+                    guard let id = bridge.submissionTrace.last?.operationID,
+                          let snapshot = bridge.snapshots[id] else {
+                        return false
+                    }
+                    return snapshot.state == .failedRecoverable &&
+                        snapshot.hasPartialCommit &&
+                        partialRefreshCount == 1
+                }
+                : false
+            assert(
+                "M2 partial commit failure refreshes exactly once",
+                converged &&
+                    FileManager.default.fileExists(
+                        atPath: partialDestination.appendingPathComponent("first.txt").path
+                    ) &&
+                    !FileManager.default.fileExists(
+                        atPath: partialDestination.appendingPathComponent("second.txt").path
+                    ) &&
+                    partialRefreshCount == 1 &&
+                    faults.hitCount(ruleIndex: 0) > 0,
+                "submitted=\(submitted) refreshes=\(partialRefreshCount) " +
+                    "faultHits=\(faults.hitCount(ruleIndex: 0))"
+            )
+            withExtendedLifetime(bridge) {}
+        } else {
+            assert("M2 partial refresh service constructed", false, "service unavailable")
+        }
+
+        let orderingRoot = sandbox.appendingPathComponent(
+            "m2-snapshot-ordering", isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: orderingRoot, withIntermediateDirectories: true
+        )
+        let orderingSource = orderingRoot.appendingPathComponent("source.txt")
+        let orderingDestination = orderingRoot.appendingPathComponent("destination.txt")
+        try? Data("trusted".utf8).write(to: orderingSource)
+        try? Data("conflict".utf8).write(to: orderingDestination)
+        if let service = try? FileOperationService.makeVolatileNativeCopy(),
+           let id = try? await service.submit(OperationRequest(
+                kind: .copy,
+                sources: [orderingSource],
+                destination: orderingDestination,
+                destinationMode: .exact,
+                conflictPolicy: .ask,
+                verificationPolicy: .structural
+           )) {
+            var stale: OperationSnapshot?
+            let decisionDeadline = Date(timeIntervalSinceNow: 5)
+            while Date() < decisionDeadline {
+                if let snapshot = try? await service.snapshot(id),
+                   snapshot.state == .waitingForDecision,
+                   snapshot.pendingDecision != nil {
+                    stale = snapshot
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            if let token = stale?.pendingDecision?.token {
+                try? await service.resolve(token, with: .keepBoth(scope: .item))
+            }
+            var terminal: OperationSnapshot?
+            let terminalDeadline = Date(timeIntervalSinceNow: 5)
+            while Date() < terminalDeadline {
+                if let snapshot = try? await service.snapshot(id),
+                   [.completed, .completedWithSkips, .completedWithSourceRetained]
+                    .contains(snapshot.state) {
+                    terminal = snapshot
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            let bridge = FileOperationBridge(
+                service: service,
+                nativeCopyEnabled: true,
+                presentsAlerts: false
+            )
+            var lateRefreshCount = 0
+            if let terminal, let stale {
+                bridge.m2ProbeConsumeSnapshot(terminal)
+                bridge.m2ProbeRegisterRefresh(for: id) {
+                    lateRefreshCount += 1
+                }
+                bridge.m2ProbeConsumeSnapshot(stale)
+            }
+            let projected = bridge.snapshots[id]
+            assert(
+                "M2 stale snapshot cannot regress terminal projection",
+                stale != nil && terminal != nil &&
+                    projected?.latestSequence == terminal?.latestSequence &&
+                    projected?.state == terminal?.state &&
+                    lateRefreshCount == 1,
+                "stale=\(String(describing: stale?.state)) " +
+                    "terminal=\(String(describing: terminal?.state)) " +
+                    "projected=\(String(describing: projected?.state)) " +
+                    "lateRefreshes=\(lateRefreshCount)"
+            )
+            withExtendedLifetime(bridge) {}
+        } else {
+            assert("M2 snapshot ordering service constructed", false, "service unavailable")
+        }
+
+        let unavailableRoot = sandbox.appendingPathComponent(
+            "m2-unavailable-owner", isDirectory: true
+        )
+        let unavailableDestination = unavailableRoot.appendingPathComponent(
+            "destination", isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: unavailableDestination, withIntermediateDirectories: true
+        )
+        let unavailableSource = unavailableRoot.appendingPathComponent("source.txt")
+        try? Data("unavailable".utf8).write(to: unavailableSource)
+        if let service = try? FileOperationService.makeVolatileNativeCopy() {
+            let bridge = FileOperationBridge(
+                service: service,
+                nativeCopyEnabled: false,
+                presentsAlerts: false
+            )
+            var legacyDenials = 0
+            let observer = NotificationCenter.default.addObserver(
+                forName: .legacyWriteDenied,
+                object: nil,
+                queue: .main
+            ) { _ in
+                legacyDenials += 1
+            }
+            let legacyBefore = TransferQueue.shared.snapshot.count
+            FileOps.transfer(
+                [unavailableSource],
+                into: unavailableDestination,
+                move: false,
+                fileOperationBridge: bridge,
+                route: .paste
+            )
+            NotificationCenter.default.removeObserver(observer)
+            assert(
+                "M2 unavailable copy has one bridge presentation owner",
+                bridge.failurePresentationRequests == 1 &&
+                    legacyDenials == 0 &&
+                    TransferQueue.shared.snapshot.count == legacyBefore,
+                "bridgeRequests=\(bridge.failurePresentationRequests) " +
+                    "legacyDenials=\(legacyDenials) " +
+                    "legacyDelta=\(TransferQueue.shared.snapshot.count - legacyBefore)"
+            )
+            withExtendedLifetime(bridge) {}
+        } else {
+            assert("M2 unavailable owner service constructed", false, "service unavailable")
+        }
     }
 
     /// Off-screen assertions for the lazily-expanding sidebar folder tree.
@@ -3789,6 +4044,17 @@ final class TestRunner {
         let deadline = Date(timeIntervalSinceNow: timeout)
         while !predicate() && Date() < deadline {
             RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        return predicate()
+    }
+
+    private func waitUntilAsync(
+        _ timeout: TimeInterval = 3,
+        _ predicate: @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !predicate() && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
         return predicate()
     }

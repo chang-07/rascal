@@ -115,16 +115,24 @@ final class DropStackController: NSWindowController, NSTableViewDataSource, NSTa
         guard FileManager.default.fileExists(atPath: dest.path, isDirectory: &isDir), isDir.boolValue else {
             NSSound.beep(); return
         }
+        submitStackTransfer(items, into: dest, move: move)
+        if move { DropStack.clear() }
+    }
+
+    private func submitStackTransfer(_ sources: [URL], into destination: URL, move: Bool) {
         FileOps.transfer(
-            items,
-            into: dest,
+            sources,
+            into: destination,
             move: move,
             from: BrowserWindowController.frontmost?.window,
             fileOperationBridge: fileOperationBridge,
             route: .dropStack,
             refresh: { BrowserWindowController.frontmost?.refreshActivePane() }
         )
-        if move { DropStack.clear() }
+    }
+
+    func m2ProbeSubmitDropStackCopy(_ sources: [URL], into destination: URL) {
+        submitStackTransfer(sources, into: destination, move: false)
     }
 
     // MARK: Table data / drag

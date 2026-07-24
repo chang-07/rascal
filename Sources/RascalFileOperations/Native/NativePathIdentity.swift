@@ -7,7 +7,7 @@ import Darwin
 package final class NativeDirectoryHandle: @unchecked Sendable {
     package let fileDescriptor: Int32
 
-    private init(fileDescriptor: Int32) {
+    package init(fileDescriptor: Int32) {
         self.fileDescriptor = fileDescriptor
     }
 
@@ -44,6 +44,38 @@ package final class NativeDirectoryHandle: @unchecked Sendable {
             close(descriptor)
             throw error
         }
+    }
+
+    package func duplicate() throws -> NativeDirectoryHandle {
+        let descriptor = dup(fileDescriptor)
+        guard descriptor >= 0 else {
+            throw NativeFileError.fromErrno(
+                errno, path: "<directory-fd>", operation: "duplicate anchored directory"
+            )
+        }
+        return NativeDirectoryHandle(fileDescriptor: descriptor)
+    }
+
+    package func openChildDirectory(
+        named name: String,
+        diagnosticPath: String
+    ) throws -> NativeDirectoryHandle {
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/") else {
+            throw NativeFileError(
+                code: .validation,
+                systemCode: nil,
+                message: "invalid anchored directory component: \(name)"
+            )
+        }
+        let descriptor = openat(
+            fileDescriptor, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else {
+            throw NativeFileError.fromErrno(
+                errno, path: diagnosticPath, operation: "open anchored child directory"
+            )
+        }
+        return NativeDirectoryHandle(fileDescriptor: descriptor)
     }
 
     private static func canonicalSystemRootAlias(_ path: String) -> String {
@@ -151,6 +183,16 @@ package struct NativeCompositeIdentity: Sendable, Equatable {
     }
 }
 
+/// Identity fields that remain stable while metadata and bytes are applied to
+/// an operation-owned staging object. This is used for ownership checks, not
+/// for source-change detection.
+package struct NativeStableObjectIdentity: Codable, Sendable, Equatable {
+    package let volumeUUID: String
+    package let device: UInt64
+    package let inode: UInt64
+    package let nodeType: UInt32
+}
+
 package enum NativePathInspector {
     package static func identity(at url: URL) throws -> NativeCompositeIdentity {
         var info = stat()
@@ -174,6 +216,169 @@ package enum NativePathInspector {
         )
     }
 
+    package static func stableIdentity(at url: URL) throws -> NativeStableObjectIdentity {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else {
+            throw NativeFileError.fromErrno(errno, path: url.path, operation: "stable lstat")
+        }
+        return NativeStableObjectIdentity(
+            volumeUUID: try volumeUUIDString(for: url),
+            device: UInt64(info.st_dev),
+            inode: UInt64(info.st_ino),
+            nodeType: UInt32(info.st_mode & S_IFMT)
+        )
+    }
+
+    package static func identity(
+        fileDescriptor: Int32,
+        volumeUUID: String,
+        diagnosticPath: String
+    ) throws -> NativeCompositeIdentity {
+        var info = stat()
+        guard fstat(fileDescriptor, &info) == 0 else {
+            throw NativeFileError.fromErrno(
+                errno, path: diagnosticPath, operation: "fstat identity"
+            )
+        }
+        return compositeIdentity(from: info, volumeUUID: volumeUUID)
+    }
+
+    package static func stableIdentity(
+        fileDescriptor: Int32,
+        volumeUUID: String,
+        diagnosticPath: String
+    ) throws -> NativeStableObjectIdentity {
+        var info = stat()
+        guard fstat(fileDescriptor, &info) == 0 else {
+            throw NativeFileError.fromErrno(
+                errno, path: diagnosticPath, operation: "fstat stable identity"
+            )
+        }
+        return stableIdentity(from: info, volumeUUID: volumeUUID)
+    }
+
+    package static func identity(
+        parentFileDescriptor: Int32,
+        name: String,
+        volumeUUID: String,
+        diagnosticPath: String
+    ) throws -> NativeCompositeIdentity {
+        var info = stat()
+        guard fstatat(
+            parentFileDescriptor, name, &info, AT_SYMLINK_NOFOLLOW
+        ) == 0 else {
+            throw NativeFileError.fromErrno(
+                errno, path: diagnosticPath, operation: "anchored identity"
+            )
+        }
+        return compositeIdentity(from: info, volumeUUID: volumeUUID)
+    }
+
+    package static func stableIdentity(
+        parentFileDescriptor: Int32,
+        name: String,
+        volumeUUID: String,
+        diagnosticPath: String
+    ) throws -> NativeStableObjectIdentity {
+        var info = stat()
+        guard fstatat(
+            parentFileDescriptor, name, &info, AT_SYMLINK_NOFOLLOW
+        ) == 0 else {
+            throw NativeFileError.fromErrno(
+                errno, path: diagnosticPath, operation: "anchored stable identity"
+            )
+        }
+        return stableIdentity(from: info, volumeUUID: volumeUUID)
+    }
+
+    /// Proves absence relative to the same parent object captured earlier.
+    /// A missing path alone is insufficient because renaming the parent moves
+    /// the operation-owned child while making its original URL disappear.
+    package static func isAnchoredEntryAbsent(
+        _ entry: URL,
+        expectedParent: NativeStableObjectIdentity
+    ) throws -> Bool {
+        let parentURL = entry.standardizedFileURL.deletingLastPathComponent()
+        let parent: NativeDirectoryHandle
+        do {
+            parent = try NativeDirectoryHandle.openAnchored(parentURL)
+        } catch let native as NativeFileError
+            where native.systemCode == ENOENT || native.systemCode == ENOTDIR {
+            throw NativeFileError(
+                code: .recoveryRequired,
+                systemCode: native.systemCode,
+                message: "staging parent is no longer reachable at its authorized path"
+            )
+        }
+        var parentInfo = stat()
+        guard fstat(parent.fileDescriptor, &parentInfo) == 0 else {
+            throw NativeFileError.fromErrno(
+                errno, path: parentURL.path, operation: "fstat anchored staging parent"
+            )
+        }
+        let actualParent = NativeStableObjectIdentity(
+            volumeUUID: try volumeUUIDString(for: parentURL),
+            device: UInt64(parentInfo.st_dev),
+            inode: UInt64(parentInfo.st_ino),
+            nodeType: UInt32(parentInfo.st_mode & S_IFMT)
+        )
+        guard actualParent == expectedParent else {
+            throw NativeFileError(
+                code: .recoveryRequired,
+                systemCode: nil,
+                message: "staging parent identity changed before absence could be proven"
+            )
+        }
+
+        var childInfo = stat()
+        if fstatat(
+            parent.fileDescriptor,
+            entry.lastPathComponent,
+            &childInfo,
+            AT_SYMLINK_NOFOLLOW
+        ) == 0 {
+            return false
+        }
+        guard errno == ENOENT else {
+            throw NativeFileError.fromErrno(
+                errno, path: entry.path, operation: "anchored staging absence check"
+            )
+        }
+        return true
+    }
+
+    private static func compositeIdentity(
+        from info: stat,
+        volumeUUID: String
+    ) -> NativeCompositeIdentity {
+        NativeCompositeIdentity(
+            volumeUUID: volumeUUID,
+            device: UInt64(info.st_dev),
+            inode: UInt64(info.st_ino),
+            mode: UInt32(info.st_mode),
+            linkCount: UInt64(info.st_nlink),
+            size: info.st_size,
+            modificationSeconds: Int64(info.st_mtimespec.tv_sec),
+            modificationNanoseconds: Int64(info.st_mtimespec.tv_nsec),
+            changeSeconds: Int64(info.st_ctimespec.tv_sec),
+            changeNanoseconds: Int64(info.st_ctimespec.tv_nsec),
+            birthSeconds: Int64(info.st_birthtimespec.tv_sec),
+            birthNanoseconds: Int64(info.st_birthtimespec.tv_nsec)
+        )
+    }
+
+    private static func stableIdentity(
+        from info: stat,
+        volumeUUID: String
+    ) -> NativeStableObjectIdentity {
+        NativeStableObjectIdentity(
+            volumeUUID: volumeUUID,
+            device: UInt64(info.st_dev),
+            inode: UInt64(info.st_ino),
+            nodeType: UInt32(info.st_mode & S_IFMT)
+        )
+    }
+
     package static func safetyCapabilities(
         source: URL, destinationParent: URL
     ) -> NativeSafetyCapabilities {
@@ -194,7 +399,7 @@ package enum NativePathInspector {
 
         let caseInsensitiveNames: NativeCapabilityStatus
         do {
-            let sourceValue = try source.resourceValues(forKeys: [
+            let sourceValue = try volumeReferenceURL(for: source).resourceValues(forKeys: [
                 .volumeSupportsCaseSensitiveNamesKey
             ]).volumeSupportsCaseSensitiveNames
             let destinationValue = try destinationParent.resourceValues(forKeys: [
@@ -320,7 +525,7 @@ package enum NativePathInspector {
     }
 
     package static func volumeUUIDString(for url: URL) throws -> String {
-        let existing = nearestExistingAncestor(of: url)
+        let existing = volumeReferenceURL(for: url)
         let values = try existing.resourceValues(forKeys: [.volumeUUIDStringKey])
         guard let uuid = values.volumeUUIDString, !uuid.isEmpty else {
             throw NativeFileError(
@@ -340,8 +545,20 @@ package enum NativePathInspector {
         return candidate
     }
 
-    private static func fileSystemFacts(for url: URL) throws -> (type: String, isLocal: Bool) {
+    /// A copied symbolic link belongs to the volume containing the link inode,
+    /// not the volume reached by following its target.
+    private static func volumeReferenceURL(for url: URL) -> URL {
         let existing = nearestExistingAncestor(of: url)
+        var info = stat()
+        if lstat(existing.path, &info) == 0,
+           (info.st_mode & S_IFMT) == S_IFLNK {
+            return existing.deletingLastPathComponent()
+        }
+        return existing
+    }
+
+    private static func fileSystemFacts(for url: URL) throws -> (type: String, isLocal: Bool) {
+        let existing = volumeReferenceURL(for: url)
         var facts = statfs()
         guard statfs(existing.path, &facts) == 0 else {
             throw NativeFileError.fromErrno(errno, path: existing.path, operation: "statfs")

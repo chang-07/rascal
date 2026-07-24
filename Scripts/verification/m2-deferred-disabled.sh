@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly PYTHON_BIN=/usr/bin/python3
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$ROOT/Scripts/verification/m2-evidence-common.sh"
 HEAD_OID="$(git -C "$ROOT" rev-parse HEAD)"
 RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 OUT="${1:-$ROOT/.build/verification/$HEAD_OID/m2-deferred-disabled/$RUN_ID}"
@@ -22,6 +23,10 @@ cleanup() {
         hdiutil detach "$CASE_MOUNT" -force >/dev/null 2>&1 || true
     fi
     rm -rf "$TEMP_ROOT"
+    if ! m2_capture_end_and_compare "$ROOT" "$OUT"; then
+        echo "M2 evidence source state changed during deferred lane" >&2
+        status=1
+    fi
     printf '%s\n' "$status" > "$OUT/lane.exit"
     find "$OUT" -type f -not -name evidence.sha256 -print0 \
         | sort -z | xargs -0 shasum -a 256 > "$OUT/evidence.sha256"
@@ -125,19 +130,23 @@ codesign --verify --deep --strict --verbose=2 "$APP" \
     > "$OUT/app-codesign.stdout" 2> "$OUT/app-codesign.stderr"
 shasum -a 256 "$APP/Contents/MacOS/FinderTwo" > "$OUT/app-binary.sha256"
 
-printf 'open -n -W -o %q --stderr %q --env FT_M2_DEFERRED_PROBE=1 --env FT_HEADLESS_TESTING=1 --env RASCAL_ENABLE_M2_NATIVE_COPY=1 --env RASCAL_ENABLE_LEGACY_WRITES=1 --env RASCAL_M2_CASE_SENSITIVE_SOURCE=%q --env RASCAL_M2_EXFAT_SOURCE=%q %q\n' \
-    "$OUT/ui-probe.stdout" "$OUT/ui-probe.stderr" \
-    "$CASE_MOUNT" "$EXFAT_MOUNT" "$APP" > "$OUT/ui-probe.command"
-open -n -W \
-    -o "$OUT/ui-probe.stdout" \
-    --stderr "$OUT/ui-probe.stderr" \
-    --env FT_M2_DEFERRED_PROBE=1 \
-    --env FT_HEADLESS_TESTING=1 \
-    --env RASCAL_ENABLE_M2_NATIVE_COPY=1 \
-    --env RASCAL_ENABLE_LEGACY_WRITES=1 \
-    --env RASCAL_M2_CASE_SENSITIVE_SOURCE="$CASE_MOUNT" \
-    --env RASCAL_M2_EXFAT_SOURCE="$EXFAT_MOUNT" \
-    "$APP"
+set +e
+m2_run_timed "$OUT" ui-probe 180 \
+    /usr/bin/env \
+    FT_M2_DEFERRED_PROBE=1 \
+    FT_HEADLESS_TESTING=1 \
+    RASCAL_ENABLE_M2_NATIVE_COPY=1 \
+    RASCAL_ENABLE_LEGACY_WRITES=1 \
+    RASCAL_M2_CASE_SENSITIVE_SOURCE="$CASE_MOUNT" \
+    RASCAL_M2_EXFAT_SOURCE="$EXFAT_MOUNT" \
+    "$APP/Contents/MacOS/FinderTwo"
+status=$?
+set -e
+if [[ "$status" != 0 ]]; then
+    cat "$OUT/ui-probe.stdout" >&2
+    cat "$OUT/ui-probe.stderr" >&2
+    exit "$status"
+fi
 
 grep -Fxq 'M2_DEFERRED_PROBE PASS volumes=2 routes=12 native=12 legacy=0 finals=0' \
     "$OUT/ui-probe.stderr"

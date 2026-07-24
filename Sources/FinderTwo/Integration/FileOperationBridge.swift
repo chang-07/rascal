@@ -32,6 +32,7 @@ final class FileOperationBridge {
     let service: FileOperationService
     let nativeCopyEnabled: Bool
     private let presentsAlerts: Bool
+    private let submissionRegistrationDelayNanoseconds: UInt64
     private var eventTask: Task<Void, Never>?
     private(set) var snapshots: [OperationID: OperationSnapshot] = [:]
     private var refreshHandlers: [OperationID: @MainActor () -> Void] = [:]
@@ -39,17 +40,20 @@ final class FileOperationBridge {
     private var presentedFailures: Set<OperationID> = []
     private var didPresentFailureAlert = false
     private var failureAlert: NSAlert?
+    private(set) var failurePresentationRequests = 0
     private let submissionTraceStore = NativeCopySubmissionTraceStore()
     var submissionTrace: [NativeCopySubmissionTrace] { submissionTraceStore.snapshot() }
 
     init(
         service: FileOperationService,
         nativeCopyEnabled: Bool = false,
-        presentsAlerts: Bool = true
+        presentsAlerts: Bool = true,
+        submissionRegistrationDelayNanoseconds: UInt64 = 0
     ) {
         self.service = service
         self.nativeCopyEnabled = nativeCopyEnabled
         self.presentsAlerts = presentsAlerts
+        self.submissionRegistrationDelayNanoseconds = submissionRegistrationDelayNanoseconds
         eventTask = Task { [weak self, service] in
             let clock = ContinuousClock()
             var consecutiveResyncs = 0
@@ -64,8 +68,9 @@ final class FileOperationBridge {
                     self?.consume(snapshot)
                 }
                 let subscriptionLifetime = subscriptionStartedAt.duration(to: clock.now)
-                let knownIDs = self.map { Set($0.snapshots.keys) } ?? Set<OperationID>()
-                self?.snapshots.removeAll()
+                let knownIDs = self.map {
+                    Set($0.snapshots.keys).union($0.refreshHandlers.keys)
+                } ?? Set<OperationID>()
                 for id in knownIDs {
                     guard !Task.isCancelled else { return }
                     if let snapshot = try? await service.snapshot(id) {
@@ -128,12 +133,47 @@ final class FileOperationBridge {
     private func didSubmit(
         _ id: OperationID,
         refresh: (@MainActor () -> Void)?
-    ) {
+    ) async {
+        if submissionRegistrationDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: submissionRegistrationDelayNanoseconds)
+        }
         if let refresh { refreshHandlers[id] = refresh }
+        // The service may reach a terminal state before this MainActor hop.
+        // Read current truth after registering the one-shot handler so the UI
+        // projection converges even when no later event exists.
+        if let snapshot = try? await service.snapshot(id) {
+            consume(snapshot)
+        }
+    }
+
+    func presentCopyUnavailable() {
+        present(FileOperationFailure(
+            code: .featureDisabled,
+            diagnostic: "Native transactional copy is unavailable in this build or app session.",
+            retryable: false
+        ))
     }
 
     private func consume(_ snapshot: OperationSnapshot) {
+        if let current = snapshots[snapshot.id] {
+            guard snapshot.latestSequence >= current.latestSequence else { return }
+            // An event resync and the post-submit convergence read can finish
+            // out of order. Once the UI has observed a terminal state, no
+            // older/non-terminal projection may make it visible again.
+            if Self.isTerminal(current.state), !Self.isTerminal(snapshot.state) {
+                return
+            }
+            if snapshot.latestSequence == current.latestSequence,
+               snapshot.state == current.state {
+                consumeSideEffects(current)
+                return
+            }
+        }
         snapshots[snapshot.id] = snapshot
+        consumeSideEffects(snapshot)
+    }
+
+    private func consumeSideEffects(_ snapshot: OperationSnapshot) {
         if let decision = snapshot.pendingDecision,
            resolvedDecisionTokens.insert(decision.token).inserted {
             present(decision)
@@ -142,7 +182,8 @@ final class FileOperationBridge {
         case .completed, .completedWithSkips, .completedWithSourceRetained:
             refreshHandlers.removeValue(forKey: snapshot.id)?()
         case .failedRecoverable, .recoveryRequired, .cleanupRequired:
-            refreshHandlers.removeValue(forKey: snapshot.id)
+            let refresh = refreshHandlers.removeValue(forKey: snapshot.id)
+            if snapshot.hasPartialCommit { refresh?() }
             if let failure = snapshot.terminalFailure,
                presentedFailures.insert(snapshot.id).inserted {
                 present(failure)
@@ -151,6 +192,34 @@ final class FileOperationBridge {
             refreshHandlers.removeValue(forKey: snapshot.id)
         default:
             break
+        }
+    }
+
+    private static func isTerminal(_ state: OperationState) -> Bool {
+        switch state {
+        case .completed, .completedWithSkips, .completedWithSourceRetained,
+             .cancelled, .failedRecoverable, .recoveryRequired,
+             .cleanupRequired, .rolledBack:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Debug-probe seam for replaying an intentionally stale service snapshot.
+    /// Production owners never call this; the route lane uses it to prove that
+    /// asynchronous resync cannot regress a terminal UI projection.
+    func m2ProbeConsumeSnapshot(_ snapshot: OperationSnapshot) {
+        consume(snapshot)
+    }
+
+    func m2ProbeRegisterRefresh(
+        for id: OperationID,
+        refresh: @escaping @MainActor () -> Void
+    ) {
+        refreshHandlers[id] = refresh
+        if let snapshot = snapshots[id] {
+            consume(snapshot)
         }
     }
 
@@ -222,6 +291,7 @@ final class FileOperationBridge {
     }
 
     private func present(_ failure: FileOperationFailure) {
+        failurePresentationRequests += 1
         // A burst of independent items can fail on the same unavailable
         // capability. Present one actionable summary for this app session;
         // per-operation typed failures remain available in snapshots without

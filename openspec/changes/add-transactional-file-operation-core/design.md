@@ -661,14 +661,17 @@ M1 composition root只在AppDelegate构造一次service/bridge skeleton，不向
 
 - `Package.swift`（仅把`Native`/`Copy`纳入`RascalFileOperations` sources）
 - `Scripts/verification/mutation-allowlist.json`（仅把已迁移copy owner收窄为精确debug兼容门、补Drop Stack copy入口及M2归因字段）
-- `Scripts/verification/m1-fast-lane.sh`（仅把冻结的83个M1测试显式过滤出来；M2新增测试进入独立M2 lane，不得修改M1断言数或scenario语义）
+- `Scripts/verification/m1-fast-lane.sh`（冻结M1测试清单保持不变；被既有suite filter选中的M2测试必须进入独立adjacent manifest并精确验收；为冻结605 smoke设置不可由正常UI到达的M1 legacy-copy兼容fixture；不得修改M1断言数或scenario语义）
 - `Sources/RascalFileOperations/Core/**`、`Native/**`、`Copy/**`
 - `Sources/RascalFileOperations/Interfaces/OperationDependencies.swift`、`UnavailableOperationJournal.swift`、`TestSupport/TestSupport.swift`（仅传播M2 preflight OperationID、callback signal与exclusive keep-both最终URL outcome；不得改变M1公共语义）
 - `Tests/RascalFileOperationsTests/Copy/**`、`Tests/RascalFileOperationsIntegrationTests/Copy/**`
+- `Tests/RascalFileOperationsIntegrationTests/ServiceIntegrationTests.swift`（仅增加M2 terminal/descending progress回归；M1冻结测试进入原manifest，该M2测试进入adjacent manifest）
 - `Scripts/verification/m2-copy-static-scan.sh`、`m2-apfs-volume-matrix.sh`、`m2-copy-performance.sh`、`m2-deferred-disabled.sh`、`metadata-manifest.sh`
+- `Scripts/verification/m2-evidence-common.sh`、`m2-route-owner-probe.sh`、`m2-total-gate.sh`（新增；仅负责首尾源码归因、六个真实UI owner probe与M2 stable-ID总门编排，不扩大生产写能力）
 - `Sources/FinderTwo/Integration/FileOperationBridge.swift`（新增）
 - `Sources/FinderTwo/Integration/FileOperationCompositionRoot.swift`
 - `Sources/FinderTwo/AppDelegate.swift`
+- `Sources/FinderTwo/FS/LegacyWriteGate.swift`（仅把legacy copy兼容收窄为`TestRunner.runAll`持有的进程内lease；lease还要求`RASCAL_ENABLE_LEGACY_WRITES=1`、`FT_M1_LEGACY_COPY_COMPATIBILITY=1`、`FT_HEADLESS_TESTING=1`与`FT_RUN_TESTS=1`同时成立；环境变量本身不得授权，normal UI、M2 route probe与release均不得进入）
 - `Sources/FinderTwo/FS/FileOps.swift`
 - `Sources/FinderTwo/UI/FileListController.swift`
 - `Sources/FinderTwo/UI/PaneController.swift`
@@ -679,6 +682,29 @@ M1 composition root只在AppDelegate构造一次service/bridge skeleton，不向
 - `Sources/FinderTwo/Tests/TestRunner.swift`（仅M2 route trace/test hook）
 
 M2仅允许窄constructor/event adapter与既有copy入口替换，不允许结构性重写其他UI owner。依赖传播固定为`AppDelegate → BrowserWindowController → PanesContainerController → PaneController/FileListController/DropStackController`，不得新增全局service/bridge singleton。六类入口为paste、list drag、icon drag、pane-to-pane、Drop Stack、duplicate；动态trace必须证明每次调用一个OperationID、一次native engine submission、零legacy enqueue。
+
+### M2 independent review remediation gate
+
+2026-07-23 首轮独立 metadata/数据完整性、接口/并发、测试假阳性 reviewer 与 verifier 一致判定 M2 No-go。既有 tests/lane/artifact 的“通过”仍是已验证事实，但不能覆盖下列漏测，因此不得把 3.1–4.6 的旧证据直接提升为 M2 Go。
+
+返工合同：
+
+1. **Commit authorization**：verification receipt 只证明当时的 source/stage。进入 exclusive rename 前必须在同一commit authorization pass重新核对source composite identity与tree manifest、stage root identity与tree manifest、destination parent identity/volume/capability；任一变化都在final path不变的前提下失败。确定性`beforeCommit` hook必须先于这次重核，回归必须能替换整个stage或只改stage child并证明不会提交。
+2. **Owned staging cleanup**：首次创建stage后立即登记root identity；cleanup前比较已登记root identity与已验证manifest，unexpected child/identity变化进入`recoveryRequired`，不得以路径式递归删除外来对象。每个node最后可注入checkpoint必须发生在同一parent FD的最终`fstatat`之前，随后紧邻`unlinkat`且不再回调/按path解析。M2只声明对该syscall-adjacent稳定检查点收敛；同UID恶意进程在两个内核调用之间的理论竞态残余风险保留到M8 hardening，不得宣称OS级隔离。
+3. **Decision identity**：resolved decision必须持久化原`DecisionRequest.identityDigest`并传回adapter；adapter重算当前source/destination/fidelity identity，digest不一致时旧decision失效并重新decision或返回`decisionExpired`，不得把旧token授权给替换对象。
+4. **UI projection**：operation可能在MainActor注册refresh前终态，bridge必须在注册后立即读取当前snapshot并以一次性handler收敛；任何已提交item后进入`failedRecoverable/recoveryRequired/cleanupRequired`也必须刷新受影响目录。Event resync与post-submit snapshot必须按`latestSequence`单调合并，terminal projection不得被晚到的旧/non-terminal snapshot覆盖；terminal后不得接受迟到或倒退progress。
+5. **No normal-UI fallback**：native gate关闭、bridge缺失或submit拒绝时，normal UI fail closed并显示typed unavailable；M1冻结compatibility smoke只允许同时设置`RASCAL_ENABLE_LEGACY_WRITES=1`、`FT_M1_LEGACY_COPY_COMPATIBILITY=1`与headless test标志的隔离fixture。该fixture不是M2迁移入口，M2六路动态trace必须证明它不可达。
+6. **Evidence closure**：route probe必须真正触发六个UI owner而不是只替换route label；fault rule必须证明命中；sparse同时比较hole topology与allocated blocks；perf只读取一次duration且RSS采样失败即lane失败；每个lane记录HEAD/status/diff首尾并比较，M2总门输出stable scenario manifest与mandatory skip list。
+7. **Preflight receipt**：native adapter只可在preflight完成全部safety/fidelity与source/tree/destination-parent检查后签发按`OperationID + ItemID`索引的进程内receipt。Executor在创建stage前必须消费并逐字段重验该receipt；preflight返回后、plan开始前替换source或destination parent必须失败，不能把旧capability结论带给新对象。
+8. **Parent-anchored cleanup**：staging登记同时保存destination parent stable identity。只有通过`open(parent, O_NOFOLLOW)`、`fstat`核对原parent identity/volume，再由`fstatat(..., AT_SYMLINK_NOFOLLOW)`证明原parent下stage entry不存在，才能清除ownership；parent被rename/recreate或stage随parent移动时必须保留登记并进入`recoveryRequired`，不得把旧URL的ENOENT当作已清理。
+9. **Structural legacy isolation**：环境变量集合不是normal UI不可达性的充分证明。只有`TestRunner.runAll`在四个精确测试环境变量满足时创建并持有的进程内lease可授权M1 copy compatibility；route/release probe即使注入同名legacy变量也拿不到lease。冻结M1 smoke、GUI、feature-gate和mutation inventory必须在当前diff上全量重跑。
+10. **Bound evidence**：总门不得无条件写PASS。每个stable scenario必须绑定实际执行且未skip的精确XCTest、动态owner marker或字段级artifact；release probe必须对六个fixture的完整目录树做前后快照；真实ENOSPC必须由copy syscall收到kernel `ENOSPC`而不是只命中preflight容量阈值；只有所有child evidence hash和总门源码首尾状态均一致后才生成`M2-EVIDENCE-001 PASS`。
+11. **Copyfile error callback**：`COPYFILE_ERR` stage不得返回`COPYFILE_CONTINUE`，否则近满APFS可能无限重试并把operation卡在staging。Callback必须先保存线程局部原始errno再返回`COPYFILE_QUIT`；若libcopyfile随后把外层errno改写为`ECANCELED`，executor仍使用已保存的真实errno做typed mapping、fault evidence与cleanup。真实APFS lane必须证明production `fcopyfile`记录`ENOSPC`并收敛到`failedRecoverable/noSpace`。
+12. **Descriptor-only staging mutation**：普通文件data、directory/symlink metadata、symlink创建与creation time必须全部解析到已授权的source/destination FD。Anchored parent校验后不得退回destination URL调用`copyfile`/`setattrlist`，以免替换ancestor中的同名对象先被修改、事后才由manifest发现。
+13. **Final rename checkpoint**：commit authorization完成后，最后可注入fault必须发生在同一parent FD的最终staging `fstatat`之前；该identity read之后紧邻`renameatx_np(RENAME_EXCL)`，不得再await、callback或path resolve。Stage在该checkpoint被替换时保留final absent并进入`recoveryRequired`。
+14. **Evidence finalization**：父manifest必须直接哈希全部child `evidence.sha256`；scenario聚合、source end-state、整包manifest生成与立即复验全部完成后，才可最后写`lane.exit=0`。Probe wrapper收到INT/TERM也必须回收其独立process group。
+15. **Cancellation checkpoint observability**：mid-file与mid-tree取消不得只等待operation进入宽泛`.staging`状态；测试必须在真实data-progress callback或至少一个tree node完成的checkpoint阻塞，确认hook命中后并发发出cancel，再释放callback并断言final absent、source不变与staging清理/保守登记语义。
+16. **Projection and alert single ownership**：event resync不得清空用于单调比较的既有snapshot基线；late non-terminal snapshot不得覆盖terminal，late refresh handler必须至多执行一次。Normal UI unavailable只由bridge计数并呈现，legacy compatibility denial在这些入口不得再发notification或排队第二个alert。
 
 ### M3 allowlist
 
@@ -783,6 +809,10 @@ Mandatory scenario被 skip即 milestone FAIL；environment preflight缺失直接
 | M2-ROUTE-001 | UI/static | M2 mandatory | 6类copy入口各一个ID/engine，legacy调用0，replace/merge unavailable | 4.2-4.4 |
 | M2-RELEASE-DISABLED-001 | release | M2 mandatory | release六类copy入口均unavailable、before/after不变、Core与legacy submission均0 | 4.2, 4.6 |
 | M2-PERF-001 | performance | M2 mandatory | 固定protocol median≥cp 70%、peak RSS delta≤64MiB | 4.5 |
+| M2-COMMIT-RECHECK-001 | fault/integration | M2 mandatory | post-verification替换source/stage root或stage child均阻止commit；final不变，owned staging absent或明确pending recovery | 4.7a |
+| M2-DECISION-IDENTITY-001 | integration | M2 mandatory | waiting期间替换source/destination后旧token不得授权新identity；重新decision或decisionExpired | 4.7b |
+| M2-REFRESH-001 | UI/integration | M2 mandatory | fast terminal与partial commit failure各触发一次目录refresh；terminal后无迟到/倒退progress | 4.7b |
+| M2-EVIDENCE-001 | evidence | M2 mandatory | 每个M2 lane首尾HEAD/status/diff一致；总manifest覆盖全部M2 mandatory ID且skip清单为空 | 4.7c |
 | M2-CSAPFS-001 | capability | M8 deferred-disabled | M2只证明runtime/UI disabled与无fallback；M8转mandatory | 4.6 |
 | M2-EXFAT-001 | capability | M8 deferred-disabled | M2只证明runtime/UI disabled与无fallback；M8转mandatory | 4.6 |
 | M3-JRN-001 | journal/process | M3 mandatory | PRAGMA、version、owner lock、second process拒绝、SIGKILL后接管全过 | 5.1, 5.5 |
@@ -804,7 +834,7 @@ Metadata fixture每个字段只能得到：before/after相等的`preserved`、�
 
 M2性能protocol固定：clone关闭；同一1GiB source和相同source/destination卷拓扑；各engine先1次预热，随后至少7次有效样本，以交替且轮次随机顺序执行；同时报告每次吞吐、median/p95、运行顺序与缓存限制。RSS以idle baseline到active peak的delta计算。该lane独立退出，不混入correctness smoke。
 
-证据写入`.build/verification/<HEAD>/<lane>/<run-id>/`，至少包含command/exit、HEAD OID、`git status --porcelain=v2`、staged/unstaged binary diff SHA-256、untracked allowlist内容manifest SHA-256、构建产物SHA-256、OS/Xcode/Swift/SQLite、seed/failpoint、volume UUID/format、scenario IDs/skip、before/after manifest、hash/metadata diff、event trace、journal dump与evidence bundle SHA-256。多个verifier使用独立scratch/build path；GUI串行；主Codex亲跑最终门。
+证据写入`.build/verification/<HEAD>/<lane>/<run-id>/`，至少包含command/exit、HEAD OID、`git status --porcelain=v2`、staged/unstaged binary diff SHA-256、untracked allowlist内容manifest SHA-256、构建产物SHA-256、OS/Xcode/Swift/SQLite、seed/failpoint、volume UUID/format、scenario IDs/skip、before/after manifest、hash/metadata diff、event trace、journal dump与evidence bundle SHA-256。M2总门冻结精确binding全集/摘要并逐binding计算结果，missing/extra/unknown/duplicate均失败；`M2-CANCEL-001`绑定mid-file、mid-tree、metadata前、metadata后与commit前五个取消边界。父bundle直接哈希所有child `evidence.sha256`与复制入包的M1 manifest，不能只保存一次校验成功文本。Signal中止或finalization未完成时不得生成成功`lane.exit`；成功lane只能在整包hash复验后最后写入。多个verifier使用独立scratch/build path；GUI串行；主Codex亲跑最终门。
 
 ## Risks / Trade-offs
 

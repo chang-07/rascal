@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly PYTHON_BIN=/usr/bin/python3
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$ROOT/Scripts/verification/m2-evidence-common.sh"
 HEAD_OID="$(git -C "$ROOT" rev-parse HEAD)"
 RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 OUT="${1:-$ROOT/.build/verification/$HEAD_OID/m2-performance/$RUN_ID}"
@@ -13,6 +14,10 @@ mkdir -p "$OUT" "$SCRATCH"
 finish() {
     local status=$?
     trap - EXIT
+    if ! m2_capture_end_and_compare "$ROOT" "$OUT"; then
+        echo "M2 evidence source state changed during performance lane" >&2
+        status=1
+    fi
     printf '%s\n' "$status" > "$OUT/lane.exit"
     find "$OUT" -type f -not -name evidence.sha256 -print0 \
         | sort -z | xargs -0 shasum -a 256 > "$OUT/evidence.sha256"

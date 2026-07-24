@@ -35,7 +35,9 @@ final class ServiceIntegrationTests: XCTestCase {
 
         XCTAssertEqual(harness.journal.operationCount(), 1)
         let expectedID = deterministicOperationID(1)
-        XCTAssertEqual(harness.journal.storedOperation(expectedID)?.state, .planned)
+        let admitted = harness.journal.admittedSnapshot(operationID: expectedID)
+        XCTAssertEqual(admitted?.state, .planned)
+        XCTAssertEqual(admitted?.latestSequence, 1)
 
         await gate.release()
         let id = try await withServiceTestDeadline("planned submit continuation") {
@@ -85,6 +87,63 @@ final class ServiceIntegrationTests: XCTestCase {
         let maxConcurrency = await executor.maximumConcurrency()
         XCTAssertEqual(startsAfterRelease, [first, second])
         XCTAssertEqual(maxConcurrency, 1)
+    }
+
+    func testDescendingAndPostTerminalProgressAreIgnored() async throws {
+        let executor = FakeOperationExecutor()
+        await executor.setProgressEvents([
+            OperationProgress(
+                bytesCompleted: 5, bytesTotal: 10,
+                itemsCompleted: 0, itemsTotal: 1
+            ),
+            OperationProgress(
+                bytesCompleted: 3, bytesTotal: 10,
+                itemsCompleted: 0, itemsTotal: 1
+            ),
+            OperationProgress(
+                bytesCompleted: 6, bytesTotal: 4,
+                itemsCompleted: 0, itemsTotal: 1
+            ),
+            OperationProgress(
+                bytesCompleted: 6, bytesTotal: 10,
+                itemsCompleted: 2, itemsTotal: 1
+            ),
+            OperationProgress(
+                bytesCompleted: 6, bytesTotal: 10,
+                itemsCompleted: 0, itemsTotal: 0
+            ),
+            OperationProgress(
+                bytesCompleted: 7, bytesTotal: 12,
+                itemsCompleted: 0, itemsTotal: 1
+            )
+        ])
+        let progressGate = ContinuationGate()
+        await executor.setProgressGate(progressGate, afterStep: 5)
+        await executor.setLateProgress(delayNanoseconds: 100_000_000, bytesCompleted: 2)
+        let harness = try ServiceTestHarness(executor: executor)
+        let id = try await harness.service.submit(copyRequest())
+        try await progressGate.waitUntilEntered()
+        let staging = try await harness.service.snapshot(id)
+        XCTAssertEqual(staging.progress.bytesCompleted, 7)
+        XCTAssertEqual(staging.progress.bytesTotal, 12)
+        XCTAssertEqual(staging.progress.itemsCompleted, 0)
+        XCTAssertEqual(staging.progress.itemsTotal, 1)
+        await progressGate.release()
+        let completed = try await waitForState(.completed, id: id, service: harness.service)
+
+        XCTAssertEqual(completed.progress.bytesCompleted, 7)
+        XCTAssertEqual(completed.progress.bytesTotal, 12)
+        XCTAssertEqual(completed.progress.itemsCompleted, 1)
+        XCTAssertEqual(completed.progress.itemsTotal, 1)
+        XCTAssertEqual(completed.items.first?.progress.bytesCompleted, 7)
+        let terminalSequence = completed.latestSequence
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let afterLateCallback = try await harness.service.snapshot(id)
+        XCTAssertEqual(afterLateCallback.latestSequence, terminalSequence)
+        XCTAssertEqual(afterLateCallback.progress.bytesCompleted, 7)
+        XCTAssertEqual(afterLateCallback.progress.bytesTotal, 12)
+        XCTAssertEqual(afterLateCallback.progress.itemsTotal, 1)
+        XCTAssertEqual(afterLateCallback.items.first?.progress.bytesCompleted, 7)
     }
 
     func testPlanningCancellationQuiescesBeforeNextOperationStarts() async throws {
