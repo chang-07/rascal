@@ -12,10 +12,6 @@
 >
 > This fork remains aligned with upstream and can be retired once the fix is merged and released.
 
-
-
-
-
 # Rascal
 
 ![Rascal, a keyboard-first Finder replacement for macOS](media/rascal-banner.png)
@@ -26,13 +22,13 @@ Rascal is a Finder replacement for macOS, built for people who'd rather not reac
 
 Free and open source. macOS 13 or later, Apple Silicon or Intel.
 
-[Download](https://github.com/chang-07/rascal/releases/latest) · [Keymap](HOTKEYS.md) · [User guide](https://chang-07.github.io/rascal/guide.html) · [Customize](https://chang-07.github.io/rascal/customize.html)
+[Download fixed build](https://github.com/zz999dev/rascal/releases/latest) · [Keymap](HOTKEYS.md) · [User guide](https://chang-07.github.io/rascal/guide.html) · [Customize](https://chang-07.github.io/rascal/customize.html)
 
 ---
 
 ## Download
 
-Grab the latest DMG from the [releases page](https://github.com/chang-07/rascal/releases/latest), pick Apple Silicon or Intel, and drag Rascal into Applications.
+Grab the latest fixed DMG from this fork's [releases page](https://github.com/zz999dev/rascal/releases/latest), pick Apple Silicon or Intel, and drag Rascal into Applications.
 
 The build is ad-hoc signed, so the first launch needs a right-click on Rascal.app → Open. If macOS still refuses (or calls it "damaged"), clear the quarantine flag and try again:
 
@@ -40,7 +36,7 @@ The build is ad-hoc signed, so the first launch needs a right-click on Rascal.ap
 xattr -cr /Applications/Rascal.app
 ```
 
-You can also install it with Homebrew:
+Homebrew currently installs the upstream build, which may not include this fix:
 
 ```bash
 brew install --cask chang-07/tap/rascal
@@ -63,7 +59,7 @@ Or build it yourself — see below.
 You'll need macOS 13+ and a Swift 5.9+ toolchain. The Command Line Tools (`xcode-select --install`) are enough; full Xcode isn't required. It's a plain SwiftPM package with no `.xcodeproj`.
 
 ```bash
-git clone https://github.com/chang-07/rascal.git
+git clone https://github.com/zz999dev/rascal.git
 cd rascal
 
 ./run.sh                 # build (debug) + launch in place

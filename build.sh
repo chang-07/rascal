@@ -45,7 +45,7 @@ cp "$ROOT/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 # makes macOS re-ask every time. Run ./setup-signing.sh once to create it.
 SIGN_CN="FinderTwo Local Signing"
 SIGN_HASH=$(security find-certificate -c "$SIGN_CN" -Z "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null \
-    | awk '/SHA-1 hash:/{print $NF; exit}')
+    | awk '/SHA-1 hash:/{print $NF; exit}' || true)
 if [[ -n "${SIGN_HASH:-}" ]] && codesign --force --deep --sign "$SIGN_HASH" "$APP_DIR" >/dev/null 2>&1; then
     echo "  signed with stable identity ($SIGN_CN) — permissions persist across rebuilds"
 else
