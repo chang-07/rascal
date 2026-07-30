@@ -1,3 +1,21 @@
+> [!NOTE]
+> ## Why this fork exists
+>
+> This unofficial fork fixes a drag-session bug in Rascal 0.1.5.
+>
+> Dragging a folder could interrupt AppKit cleanup, causing multitouch gestures to stop working until Rascal quit.
+>
+> The fix removes an invalid `super.draggingEnded(_:)` call while preserving Rascal’s drag cleanup.
+>
+> - Original project: https://github.com/chang-07/rascal
+> - Upstream pull request: https://github.com/chang-07/rascal/pull/18
+>
+> This fork remains aligned with upstream and can be retired once the fix is merged and released.
+
+
+
+
+
 # Rascal
 
 ![Rascal, a keyboard-first Finder replacement for macOS](media/rascal-banner.png)
