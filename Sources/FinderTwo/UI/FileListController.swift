@@ -1552,7 +1552,7 @@ final class FileListTableView: NSTableView {
     }
     override func draggingEnded(_ sender: NSDraggingInfo) {
         listController?.cancelSpring()
-        super.draggingEnded(sender)
+        // This optional destination callback has no NSTableView implementation to forward to.
     }
 
     /// Build the context menu fresh per right-click. On a row: select it first
