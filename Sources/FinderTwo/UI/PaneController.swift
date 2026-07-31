@@ -39,6 +39,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     private(set) var viewMode: ViewMode = .list
     private var isActive: Bool = false
+    private var selection: SelectionModel { activeTab.selection }
 
     /// Free-space is queried via a kernel call (volumeAvailableCapacityForImportantUsageKey).
     /// Caching it for a few seconds keeps the status bar smooth during keyboard arrow
@@ -341,7 +342,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
         self.view = root
         subscribeToTheme(root)   // paints the chrome strip behind the inset toolbar
-        updateAfterNavigate(announce: true)
+        updateAfterNavigate(announce: true, clearSelection: false)
         updateTabStripVisibility()
         applyHotbarVisibility()
         applyChromeVisibility()
@@ -456,21 +457,27 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         switch viewMode {
         case .icon:    iconVC?.moveSelection(by: delta)
         case .gallery: galleryVC?.moveFocus(by: delta)
-        default:       fileList.moveSelection(by: delta)
+        default:
+            fileList.moveSelection(by: delta)
+            syncSelectionFromList()
         }
     }
     func vimSelectFirst() {
         switch viewMode {
         case .icon:    iconVC?.selectFirst()
         case .gallery: galleryVC?.focusFirst()
-        default:       fileList.selectRow(0)
+        default:
+            fileList.selectRow(0)
+            syncSelectionFromList()
         }
     }
     func vimSelectLast() {
         switch viewMode {
         case .icon:    iconVC?.selectLast()
         case .gallery: galleryVC?.focusLast()
-        default:       fileList.selectRow(fileList.lastRowIndex)
+        default:
+            fileList.selectRow(fileList.lastRowIndex)
+            syncSelectionFromList()
         }
     }
 
@@ -553,7 +560,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         tabs.remove(at: activeTabIndex)
         if activeTabIndex >= tabs.count { activeTabIndex = tabs.count - 1 }
         switchToActiveTabModel()
-        updateAfterNavigate(announce: true)
+        updateAfterNavigate(announce: true, clearSelection: false)
         updateTabStripVisibility()
     }
 
@@ -561,7 +568,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         guard tabs.indices.contains(index), index != activeTabIndex else { return }
         activeTabIndex = index
         switchToActiveTabModel()
-        updateAfterNavigate(announce: true)
+        updateAfterNavigate(announce: true, clearSelection: false)
         updateTabStripVisibility()
     }
 
@@ -625,6 +632,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     private func switchToActiveTabModel() {
         fileList.setModel(activeTab.model)
+        fileList.restoreSelection(selection.urls)
     }
 
     private func updateTabStripVisibility() {
@@ -646,7 +654,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         if activeTabIndex >= tabs.count { activeTabIndex = tabs.count - 1 }
         else if index < activeTabIndex { activeTabIndex -= 1 }
         if wasActive { switchToActiveTabModel() }
-        updateAfterNavigate(announce: true)
+        updateAfterNavigate(announce: true, clearSelection: false)
         updateTabStripVisibility()
     }
     func tabStripDidRequestNew() { newTab(at: activeTab.currentURL) }
@@ -662,7 +670,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     /// don't masquerade as an explicit per-folder choice.
     func setViewMode(_ mode: ViewMode, persist: Bool = true) {
         guard mode != viewMode else { return }
-        let keep = selectedURLs()   // preserve the selection across the switch (Finder parity)
+        let keep = selection.urls   // preserve the selection across supported view switches
         viewMode = mode
         switch mode {
         case .columns: installColumnsView()
@@ -681,7 +689,11 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
                 }
             case .icon:    iconVC?.restoreSelection(keep)
             case .gallery: galleryVC?.restoreSelection(keep)
-            case .columns: break   // Miller columns manage their own column stack
+            case .columns:
+                // Miller columns cannot faithfully restore an arbitrary root
+                // selection without changing the visible column stack. Clear it
+                // rather than allow an invisible selection to receive actions.
+                selection.clear()
             }
         }
         if persist { saveFolderViewPref() }
@@ -722,16 +734,11 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     private var columnVC: ColumnViewController?
     private var iconVC: IconViewController?
     private var galleryVC: GalleryViewController?
-    private var iconSelection: [FileItem] = []
-    private var columnSelection: [URL] = []
-
     /// Remove any installed alternate (columns/icon/gallery) view controller.
     private func teardownAlternateViews() {
         columnVC?.view.removeFromSuperview(); columnVC?.removeFromParent(); columnVC = nil
         iconVC?.view.removeFromSuperview(); iconVC?.removeFromParent(); iconVC = nil
         galleryVC?.view.removeFromSuperview(); galleryVC?.removeFromParent(); galleryVC = nil
-        iconSelection = []
-        columnSelection = []
     }
 
     /// Pin an alternate view's edges into the content region (hotbar↓ to status,
@@ -756,7 +763,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         emptyState.isHidden = true
         let col = ColumnViewController(pane: self)
         col.onSelectionChange = { [weak self] urls in
-            self?.columnSelection = urls
+            self?.selection.replace(with: urls, focusedURL: urls.first)
             self?.updateStatus()
         }
         addChild(col)
@@ -772,14 +779,17 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         let icon = IconViewController()
         addChild(icon)
         icon.onOpen = { [weak self] item in self?.fileListOpenItem(item) }
-        icon.onSelectionChange = { [weak self] items in self?.iconSelection = items; self?.updateStatus() }
+        icon.onSelectionChange = { [weak self] items in
+            self?.selection.replace(with: items.map(\.url), focusedURL: items.first?.url)
+            self?.updateStatus()
+        }
         icon.onDrop = { [weak self] urls, folder, isCopy in
             guard let self else { return }
             FileOps.transfer(urls, into: folder?.url ?? self.currentURL, move: !isCopy, from: self.view.window)
         }
         pinAlternate(icon.view, in: host)
         iconVC = icon
-        icon.reload(activeTab.model.items)
+        icon.reload(activeTab.model.items, preserving: selection.urls)
     }
 
     private func installGalleryView() {
@@ -790,10 +800,13 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         let gallery = GalleryViewController()
         addChild(gallery)
         gallery.onOpen = { [weak self] item in self?.fileListOpenItem(item) }
-        gallery.onSelectionChange = { [weak self] items in self?.iconSelection = items; self?.updateStatus() }
+        gallery.onSelectionChange = { [weak self] items in
+            self?.selection.replace(with: items.map(\.url), focusedURL: items.first?.url)
+            self?.updateStatus()
+        }
         pinAlternate(gallery.view, in: host)
         galleryVC = gallery
-        gallery.reload(activeTab.model.items)
+        gallery.reload(activeTab.model.items, preserving: selection.urls)
     }
 
     private func installListView() {
@@ -849,11 +862,17 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     }
 
     func selectedURLs() -> [URL] {
-        switch viewMode {
-        case .icon, .gallery: return iconSelection.map { $0.url }
-        case .columns:        return columnSelection
-        case .list:           return fileList.selectedItems().map { $0.url }
-        }
+        selection.urls
+    }
+
+    /// Vim's visual-range extension changes NSTableView selection directly, so
+    /// synchronise it immediately instead of waiting for AppKit's coalesced
+    /// selection notification. File operations issued by the next keystroke
+    /// then see the full visible range.
+    func syncSelectionFromList() {
+        let urls = fileList.selectedItems().map(\.url)
+        selection.replace(with: urls, focusedURL: urls.first)
+        updateStatus()
     }
 
     /// Copy currently selected files to the general pasteboard as file URLs.
@@ -973,7 +992,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         activeTab.model.filterText = text
     }
 
-    private func updateAfterNavigate(announce: Bool) {
+    private func updateAfterNavigate(announce: Bool, clearSelection: Bool = true) {
+        if clearSelection || viewMode == .columns { selection.clear() }
         applyFolderPrefs()
         pathBar.url = activeTab.currentURL
         toolbar.canGoBack = activeTab.canGoBack
@@ -983,13 +1003,11 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         if announce { onURLChange?(activeTab.currentURL) }
         if notesVisible { notesView.folderURL = activeTab.currentURL }
         if terminalVisible { terminalView.cwd = activeTab.currentURL }
-        iconVC?.reload(activeTab.model.items)
-        galleryVC?.reload(activeTab.model.items)
-        // The column (Miller) view keeps its own column stack; on navigation,
-        // reset it to the new folder and drop the now-stale column selection
-        // (otherwise selectedURLs() would act on the previous folder's items).
+        iconVC?.reload(activeTab.model.items, preserving: selection.urls)
+        galleryVC?.reload(activeTab.model.items, preserving: selection.urls)
+        // The column (Miller) view keeps its own column stack; reset it on
+        // navigation after clearing the pane's canonical selection above.
         if columnVC != nil {
-            columnSelection = []
             columnVC?.reload()
         }
         updateStatus()
@@ -1010,15 +1028,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         updatePreviewContent()
         updateGitDiffContent()
         let total = activeTab.model.items.count
-        // Selection is view-specific: list uses the table; icon/gallery track
-        // FileItems; column view tracks URLs (no FileItem sizes to sum there).
-        let selected: [FileItem]
-        switch viewMode {
-        case .icon, .gallery: selected = iconSelection
-        case .columns:        selected = []
-        case .list:           selected = fileList.selectedItems()
+        let selected = activeTab.model.items.filter { item in
+            selection.urls.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == item.url.standardizedFileURL.resolvingSymlinksInPath().path }
         }
-        let selectedCount = (viewMode == .columns) ? columnSelection.count : selected.count
+        let selectedCount = selection.urls.count
         let freeStr = currentFreeBytesString()
 
         var segments: [StatusBarView.Segment] = []
@@ -1084,9 +1097,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func directoryModelDidUpdate(_ model: DirectoryModel) {
         // Only update UI if the changed model belongs to the active tab.
         if model === activeTab.model {
+            selection.retain(available: activeTab.model.items)
             fileList.reload()
-            iconVC?.reload(activeTab.model.items)
-        galleryVC?.reload(activeTab.model.items)
+            iconVC?.reload(activeTab.model.items, preserving: selection.urls)
+            galleryVC?.reload(activeTab.model.items, preserving: selection.urls)
             updateStatus()
         }
     }
@@ -1101,7 +1115,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
     // MARK: FileListDelegate
 
-    func fileListSelectionChanged() { updateStatus() }
+    func fileListSelectionChanged() {
+        syncSelectionFromList()
+    }
     func fileListOpenItem(_ item: FileItem) {
         if item.isPackage {
             NSWorkspace.shared.open(item.url)   // launch the app/bundle

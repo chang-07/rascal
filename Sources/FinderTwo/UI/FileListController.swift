@@ -52,6 +52,21 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         reload()
     }
 
+    /// Repaint the table's native selection from canonical URL state after a
+    /// tab or view switch. A new model must not inherit matching row indexes
+    /// from the tab that was visible before it.
+    func restoreSelection(_ urls: [URL], scroll: Bool = false) {
+        let paths = Set(urls.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+        var indexes = IndexSet()
+        for (index, item) in model.items.enumerated()
+            where paths.contains(item.url.standardizedFileURL.resolvingSymlinksInPath().path) {
+            indexes.insert(tableRow(forModelIndex: index))
+        }
+        tableView.selectRowIndexes(indexes, byExtendingSelection: false)
+        if scroll, let first = indexes.first { tableView.scrollRowToVisible(first) }
+        delegate?.fileListSelectionChanged()
+    }
+
     /// URL → row index for the currently-displayed items. Rebuilt on every
     /// `reload()` and used to make async thumbnail callbacks O(1) instead of
     /// O(n) (matters once items.count gets into the tens of thousands).
@@ -390,6 +405,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             let r = tableRow(forModelIndex: idx)
             tableView.selectRowIndexes(IndexSet(integer: r), byExtendingSelection: false)
             if scroll { tableView.scrollRowToVisible(r) }
+            delegate?.fileListSelectionChanged()
         }
     }
 

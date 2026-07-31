@@ -3100,6 +3100,24 @@ final class TestRunner {
         }
         wc5.window?.close()
 
+        // --- GI-3b: each tab restores only its own selection ---
+        let tabA = mkdir("s3b/A"); let tabB = mkdir("s3b/B")
+        mkfile(tabA, "only-a.txt"); mkfile(tabB, "only-b.txt")
+        let wc3b = BrowserWindowController(rootURL: tabA); _ = wc3b.window
+        if let p = wc3b.testActivePane {
+            p.setViewMode(.list); p.testReloadSync()
+            if let item = p.testCurrentItems.first(where: { $0.name == "only-a.txt" }) { p.testSelectItem(item) }
+            p.newTab(at: tabB); p.testReloadSync()
+            if let item = p.testCurrentItems.first(where: { $0.name == "only-b.txt" }) { p.testSelectItem(item) }
+            p.selectTab(at: 0)
+            assert("switching back restores tab A selection", p.selectedURLs().map(\.lastPathComponent) == ["only-a.txt"],
+                   "sel=\(p.selectedURLs().map { $0.lastPathComponent })")
+            p.selectTab(at: 1)
+            assert("switching forward restores tab B selection", p.selectedURLs().map(\.lastPathComponent) == ["only-b.txt"],
+                   "sel=\(p.selectedURLs().map { $0.lastPathComponent })")
+        }
+        wc3b.window?.close()
+
         // --- GI-4 (S8): per-folder view memory across navigate-away-and-back ---
         let a8 = mkdir("s8/A"); mkfile(a8, "a.txt")
         let b8 = mkdir("s8/B"); mkfile(b8, "b.txt")
