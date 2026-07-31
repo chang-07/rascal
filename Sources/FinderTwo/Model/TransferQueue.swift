@@ -39,6 +39,12 @@ final class TransferOp {
             lock.lock()
             let was = _state
             _state = newValue
+            // A successful terminal state is authoritative. Keep counters
+            // consistent with it so a completed row can never retain a partial
+            // progress bar because metadata changed during the transfer.
+            if newValue == .done {
+                _bytesDone = max(_bytesDone, _totalBytes)
+            }
             if newValue == .running {
                 if _startedAt == nil { _startedAt = Date() }
             } else if was == .running, let s = _startedAt {
@@ -141,16 +147,7 @@ final class TransferQueue {
         nextId += 1
         ops.append(op)
         lock.unlock()
-        
-        let opCopy = op
-        DispatchQueue.global(qos: .userInitiated).async {
-            let bytes = plan.reduce(0) { $0 + Self.size(of: $1.src) }
-            DispatchQueue.main.async {
-                opCopy.totalBytes = bytes
-                self.notify(force: true)
-            }
-        }
-        
+
         notify(force: true)
         kick()
         return op
@@ -210,10 +207,15 @@ final class TransferQueue {
     }
 
     private func run(_ op: TransferOp) {
+        // Measure on the serial worker before any move can rename/delete a
+        // source. Use logical bytes because streamed copies increment progress
+        // by bytes read, not by allocated disk blocks.
+        let plannedBytes = op.plan.map { Self.size(of: $0.src) }
+        op.totalBytes = plannedBytes.reduce(0, +)
         op.state = .running; notify(force: true)
         // Successfully-completed, non-merge steps, for undo registration.
         var done: [(src: URL, dst: URL)] = []
-        for step in op.plan {
+        for (step, stepBytes) in zip(op.plan, plannedBytes) {
             if op.cancelFlag.value { break }
             waitWhilePaused(op)
             if op.cancelFlag.value { break }
@@ -221,10 +223,10 @@ final class TransferQueue {
             var ok = true
             if step.merge {
                 ok = FileOps.mergeDirectory(src: step.src, into: step.dst, move: op.move) == 0
-                op.bytesDone += Self.size(of: step.dst)
+                if ok { op.bytesDone += stepBytes }
             } else if op.move && sameVolume(step.src, step.dst) {
                 ok = (try? fm.moveItem(at: step.src, to: step.dst)) != nil
-                op.bytesDone += Self.size(of: step.dst)
+                if ok { op.bytesDone += stepBytes }
             } else if isDir(step.src) {
                 ok = copyTree(step.src, into: step.dst, op: op)
                 if ok && op.move { try? fm.removeItem(at: step.src) }
@@ -348,7 +350,21 @@ final class TransferQueue {
 
     static func size(of url: URL) -> Int64 {
         let rv = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
-        if rv?.isDirectory == true { return FileListController.recursiveSize(url) }
+        if rv?.isDirectory == true {
+            var total: Int64 = 0
+            let keys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey]
+            if let entries = FileManager.default.enumerator(
+                at: url, includingPropertiesForKeys: Array(keys), options: []
+            ) {
+                while let entry = entries.nextObject() as? URL {
+                    let values = try? entry.resourceValues(forKeys: keys)
+                    if values?.isDirectory != true {
+                        total += Int64(values?.fileSize ?? 0)
+                    }
+                }
+            }
+            return total
+        }
         return Int64(rv?.fileSize ?? 0)
     }
 

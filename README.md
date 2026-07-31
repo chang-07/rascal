@@ -1,11 +1,12 @@
 > [!NOTE]
 > ## Why this fork exists
 >
-> This unofficial fork fixes a drag-session bug in Rascal 0.1.5.
+> This unofficial fork carries focused fixes for Rascal 0.1.5.
 >
-> Dragging a folder could interrupt AppKit cleanup, causing multitouch gestures to stop working until Rascal quit.
+> - Dragging a folder could interrupt AppKit cleanup, causing multitouch gestures to stop working until Rascal quit.
+> - Completed folder transfers could retain a partial progress bar because total size used allocated disk blocks while progress used logical file bytes.
 >
-> The fix removes an invalid `super.draggingEnded(_:)` call while preserving Rascal’s drag cleanup.
+> The fork preserves Rascal's existing behavior while correcting both cleanup and transfer-progress accounting.
 >
 > - Original project: https://github.com/chang-07/rascal
 > - Upstream pull request: https://github.com/chang-07/rascal/pull/18
@@ -29,6 +30,13 @@ Free and open source. macOS 13 or later, Apple Silicon or Intel.
 ## Download
 
 Grab the latest fixed DMG from this fork's [releases page](https://github.com/zz999dev/rascal/releases/latest), pick Apple Silicon or Intel, and drag Rascal into Applications.
+
+### v0.1.6 — Accurate transfer progress
+
+- Completed copies and moves now finish at 100%.
+- Folder totals use logical file bytes, matching bytes actually copied.
+- Transfer sizing finishes before a move can rename or remove its source.
+- Cancelled and failed transfers remain partial, preserving truthful status.
 
 The build is ad-hoc signed, so the first launch needs a right-click on Rascal.app → Open. If macOS still refuses (or calls it "damaged"), clear the quarantine flag and try again:
 

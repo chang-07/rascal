@@ -306,6 +306,27 @@ final class TestRunner {
         assert("queue runs a copy to completion", qop.state == .done, "state=\(qop.state)")
         assert("queued streamed copy is byte-identical", (try? Data(contentsOf: tqOut)) == tqBytes, "bytes differ")
         assert("queue reports full progress", qop.fraction >= 0.999, "frac=\(qop.fraction)")
+        // Folder totals must use the same logical-byte unit as streamed copy
+        // progress. Allocated-size totals leave completed small-file copies with
+        // visibly partial bars.
+        let tqFolder = tqDir.appendingPathComponent("folder")
+        try? FileManager.default.createDirectory(at: tqFolder, withIntermediateDirectories: true)
+        mk(tqFolder.appendingPathComponent("small-a.txt"), "a")
+        mk(tqFolder.appendingPathComponent("small-b.txt"), "bc")
+        let tqFolderOut = tqDir.appendingPathComponent("folder-out")
+        let folderOp = TransferQueue.shared.enqueue(plan: [(tqFolder, tqFolderOut, false)], move: false)
+        waitUntil(5) { folderOp.state == .done }
+        assert("folder queue totals logical bytes", folderOp.totalBytes == 3, "total=\(folderOp.totalBytes)")
+        assert("completed folder queue counts all bytes", folderOp.bytesDone == 3, "done=\(folderOp.bytesDone)")
+        assert("completed folder queue shows full progress", folderOp.fraction >= 0.999, "frac=\(folderOp.fraction)")
+        // Terminal success remains authoritative if source metadata changes
+        // between sizing and completion.
+        let terminalOp = TransferOp(id: 2, move: false, plan: [])
+        terminalOp.totalBytes = 10
+        terminalOp.bytesDone = 6
+        terminalOp.state = .done
+        assert("done state normalizes progress to full", terminalOp.bytesDone == 10 && terminalOp.fraction == 1,
+               "done=\(terminalOp.bytesDone), frac=\(terminalOp.fraction)")
         // pause flag toggles
         TransferQueue.shared.setPaused(true)
         assert("queue pause flag sets", TransferQueue.shared.isPaused, "not paused")
