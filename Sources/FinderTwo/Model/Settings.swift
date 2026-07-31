@@ -130,6 +130,22 @@ enum Settings {
         set { d.set(newValue, forKey: "FinderTwo.showPathBar"); notify() }
     }
 
+    enum PathBarPosition: String, CaseIterable {
+        case top
+        case bottom
+
+        var label: String { rawValue.capitalized }
+    }
+
+    /// Place the breadcrumb above pane content or along the bottom edge,
+    /// directly above the status bar. Finder-style bottom placement is default.
+    static var pathBarPosition: PathBarPosition {
+        get {
+            PathBarPosition(rawValue: d.string(forKey: "FinderTwo.pathBarPosition") ?? "") ?? .bottom
+        }
+        set { d.set(newValue.rawValue, forKey: "FinderTwo.pathBarPosition"); notify() }
+    }
+
     /// Compute and show recursive folder sizes in the Size column (Finder's
     /// "Calculate all sizes"). Off by default — it's I/O-heavy.
     static var calculateFolderSizes: Bool {
@@ -264,6 +280,7 @@ enum Settings {
                     "FinderTwo.density", "FinderTwo.fontSizeDelta", "FinderTwo.accent",
                     "FinderTwo.typeAhead", "FinderTwo.showHotbar", "FinderTwo.showTitleBar",
                     "FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar",
+                    "FinderTwo.pathBarPosition",
                     "FinderTwo.springLoadedFolders", "FinderTwo.springLoadDelay",
                     "FinderTwo.useGroups",
                     "FinderTwo.gitIntegrationEnabled", "FinderTwo.showGitBranchInStatusBar",

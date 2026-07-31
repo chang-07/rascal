@@ -1409,12 +1409,21 @@ final class TestRunner {
         pane.navigate(to: sandbox); pane.testReloadSync()
 
         // --- T42g: view/layout setting defaults ---
-        for k in ["FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar"] {
+        for k in ["FinderTwo.typeToSelect", "FinderTwo.showStatusBar", "FinderTwo.showPathBar",
+                  "FinderTwo.pathBarPosition"] {
             UserDefaults.standard.removeObject(forKey: k)
         }
         assert("typeToSelect defaults off", Settings.typeToSelect == false, "got \(Settings.typeToSelect)")
         assert("showStatusBar defaults on", Settings.showStatusBar == true, "got \(Settings.showStatusBar)")
         assert("showPathBar defaults on", Settings.showPathBar == true, "got \(Settings.showPathBar)")
+        assert("pathBarPosition defaults to bottom", Settings.pathBarPosition == .bottom,
+               "got \(Settings.pathBarPosition)")
+        Settings.pathBarPosition = .top; wait(0.02)
+        assert("path bar moves to top live", pane.testPathBarPosition == .top,
+               "got \(pane.testPathBarPosition)")
+        Settings.pathBarPosition = .bottom; wait(0.02)
+        assert("path bar moves to bottom live", pane.testPathBarPosition == .bottom,
+               "got \(pane.testPathBarPosition)")
 
         // --- T42g2: spring-loaded folder settings ---
         for k in ["FinderTwo.springLoadedFolders", "FinderTwo.springLoadDelay"] {

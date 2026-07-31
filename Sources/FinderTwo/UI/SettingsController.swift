@@ -174,6 +174,8 @@ class SettingsPane: NSViewController, ThemeObserving {
 // MARK: - General
 
 final class GeneralPane: SettingsPane {
+    private let pathBarPosition = NSPopUpButton()
+
     override func build() {
         let loc = NSPopUpButton()
         for l in Settings.DefaultLocation.allCases { loc.addItem(withTitle: l.label); loc.lastItem?.representedObject = l.rawValue }
@@ -221,7 +223,15 @@ final class GeneralPane: SettingsPane {
         pathBar.state = Settings.showPathBar ? .on : .off
         addRow("", pathBar)
 
-
+        for position in Settings.PathBarPosition.allCases {
+            pathBarPosition.addItem(withTitle: position.label)
+            pathBarPosition.lastItem?.representedObject = position.rawValue
+        }
+        pathBarPosition.selectItem(withTitle: Settings.pathBarPosition.label)
+        pathBarPosition.target = self
+        pathBarPosition.action = #selector(pathBarPositionChanged(_:))
+        pathBarPosition.isEnabled = Settings.showPathBar
+        addRow("Path bar position:", pathBarPosition)
 
         let alwaysShowTab = NSButton(checkboxWithTitle: "Always show tab bar",
                                      target: self, action: #selector(alwaysShowTabChanged(_:)))
@@ -237,7 +247,15 @@ final class GeneralPane: SettingsPane {
     @objc private func foldersTopChanged(_ s: NSButton) { Settings.foldersFirst = s.state == .on }
     @objc private func titleBarChanged(_ s: NSButton) { Settings.showTitleBar = s.state == .on }
     @objc private func statusBarChanged(_ s: NSButton) { Settings.showStatusBar = s.state == .on }
-    @objc private func pathBarChanged(_ s: NSButton) { Settings.showPathBar = s.state == .on }
+    @objc private func pathBarChanged(_ s: NSButton) {
+        Settings.showPathBar = s.state == .on
+        pathBarPosition.isEnabled = Settings.showPathBar
+    }
+    @objc private func pathBarPositionChanged(_ s: NSPopUpButton) {
+        guard let raw = s.selectedItem?.representedObject as? String,
+              let position = Settings.PathBarPosition(rawValue: raw) else { return }
+        Settings.pathBarPosition = position
+    }
     @objc private func alwaysShowTabChanged(_ s: NSButton) { Settings.alwaysShowTabBar = s.state == .on }
     @objc private func doubleClickTabChanged(_ s: NSButton) { Settings.doubleClickFolderOpensNewTab = s.state == .on }
 
