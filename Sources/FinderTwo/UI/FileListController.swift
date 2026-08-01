@@ -7,6 +7,7 @@ protocol FileListDelegate: AnyObject {
     func fileListOpenItem(_ item: FileItem)
     func fileListEnterParent()
     func fileListBecameActive()
+    func fileListRequestAddPane()
     func fileListBeginTypeAhead(initial: String)
     func fileListShowPackageContents(_ url: URL)
     func fileListShowGitDiff(for url: URL)
@@ -1027,6 +1028,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     func contextMenu() -> NSMenu {
         let m = NSMenu()
         m.addItem(NSMenuItem(title: "Open", action: #selector(menuOpen), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Open in New Pane", action: #selector(menuAddPane), keyEquivalent: ""))
         m.addItem(openWithSubmenuItem())
         m.addItem(NSMenuItem(title: "Quick Look", action: #selector(menuQuickLook), keyEquivalent: ""))
         m.addItem(NSMenuItem(title: "Reveal in Finder", action: #selector(menuReveal), keyEquivalent: ""))
@@ -1087,7 +1089,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         m.addItem(tagsSubmenuItem())
         if selectedItems().count == 1,
            (try? selectedItems()[0].url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            m.addItem(NSMenuItem(title: "Add to Sidebar", action: #selector(menuAddToSidebar), keyEquivalent: ""))
+            m.addItem(NSMenuItem(title: "Add to Favorites", action: #selector(menuAddToSidebar), keyEquivalent: ""))
         }
         if selectedItems().count == 1,
            FileOps.imageExtensions.contains(selectedItems()[0].url.pathExtension.lowercased()) {
@@ -1327,7 +1329,8 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         }
         m.addItem(NSMenuItem.separator())
         m.addItem(NSMenuItem(title: "Get Info", action: #selector(menuBgGetInfo), keyEquivalent: ""))
-        m.addItem(NSMenuItem(title: "Add to Sidebar", action: #selector(menuBgAddToSidebar), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Add to Favorites", action: #selector(menuBgAddToSidebar), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Open in New Pane", action: #selector(menuAddPane), keyEquivalent: ""))
         for it in m.items { it.target = self }
         return m
     }
@@ -1341,6 +1344,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     }
     @objc private func menuBgGetInfo() { GetInfoSheetController.show(for: model.url, parent: view.window) }
     @objc private func menuBgAddToSidebar() { SidebarBookmarks.add(model.url) }
+    @objc private func menuAddPane() { delegate?.fileListRequestAddPane() }
     @objc private func menuSetDesktop() {
         if let u = selectedItems().first?.url { FileOps.setDesktopPicture(u) }
     }
