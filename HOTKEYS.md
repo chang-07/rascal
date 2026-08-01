@@ -190,8 +190,15 @@ list so the selection is visible.
 
 - **Favorites** — Recents (recently-modified files via Spotlight), Home,
   Desktop, Documents, Downloads, Movies, Music, Pictures, Applications (only
-  those that exist), plus any folders you've added.
-- **Locations** — mounted local volumes (`Macintosh HD`, external drives).
+  those that exist), plus any folders you've added. Drag folders in to add them,
+  drag favorites to reorder them, or right-click to rename the sidebar label,
+  reveal the folder, or remove it.
+- Drag category headings to reorder sidebar categories. Drag folders into
+  **Favorites**, **Locations**, or **Folders** to pin them in that category.
+- **Locations** — mounted local volumes (the startup disk and external drives) plus
+  pinned folders. Right-click a pinned folder to remove it.
+- **Folders** — expandable Home, volume, and pinned folder roots. Right-click a
+  pinned root to remove it.
 - **Smart Folders** — your saved searches (File ▸ New Smart Folder…, `⌥⌘N`).
   Each re-runs its query (filename and/or content, optionally scoped to a
   folder) on click. Right-click ▸ Delete Smart Folder to remove one.
@@ -199,7 +206,9 @@ list so the selection is visible.
   file with it, anywhere on disk. The coloured dot matches the Finder tag color.
 
 Click any entry to navigate the active pane there; right-click for Open in New
-Tab / New Window, Eject, or Remove from Sidebar.
+Tab / New Pane / New Window, favorite editing, Eject, or Add/Remove from
+Favorites. The file-list context menu also includes **Open in New Pane** for the
+current folder.
 
 ---
 
@@ -210,7 +219,7 @@ A System-Settings-style window with five sections:
 - **General** — where new windows open (last session / Home / Desktop / Documents / Downloads), restore-session-on-launch toggle, show-hidden-by-default, type-to-filter toggle, default view (List / Columns).
 - **Appearance** — theme, accent color (9 choices + System), density (Compact / Comfortable / Spacious → row height), font size (−1…+4 pt), with a **live preview** strip that reflects every change instantly.
 - **Keyboard** — every action with a click-to-record shortcut field. Recording captures the next combo (needs ⌘/⌃/⌥); `⌫` clears, `Esc` cancels. **Conflicts are detected** — reassigning a combo prompts to steal it from the other action. Per-row **Reset** and **Restore All Defaults**. Changes rebuild the menu **live**.
-- **Hotbar** — choose which actions appear in each pane's hotbar; reorder by drag or ↑/↓, add from a popup, remove, or reset.
+- **Hotbar** — choose which actions appear in each pane's hotbar; reorder by drag or ↑/↓, add from a popup, remove, or reset. **Add to Favorites** is included in the default hotbar.
 - **Advanced** — Vim toggle, reset General & Appearance.
 
 All preferences are plain `UserDefaults` — no account, no cloud.

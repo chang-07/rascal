@@ -1,18 +1,20 @@
 > [!NOTE]
 > ## Why this fork exists
 >
-> This unofficial fork carries focused fixes and UI options for Rascal 0.1.5.
+> This unofficial fork extends upstream Rascal 0.1.5 with stability fixes and native sidebar and pane workflows.
 >
 > - Dragging a folder could interrupt AppKit cleanup, causing multitouch gestures to stop working until Rascal quit.
 > - Completed folder transfers could retain a partial progress bar because total size used allocated disk blocks while progress used logical file bytes.
 > - The path bar can now sit above pane content or along the bottom edge.
+> - Sidebar categories can be reordered, while Favorites can be reordered, renamed, hidden, and restored.
+> - Folders can open directly in new panes, and complete window layouts can be joined without losing tabs.
 >
-> The fork corrects cleanup and transfer-progress accounting while adding a configurable path-bar position.
+> The fork keeps Rascal's local-first AppKit core while adding focused Finder-style organization and multi-pane workflows.
 >
 > - Original project: https://github.com/chang-07/rascal
 > - Upstream pull request: https://github.com/chang-07/rascal/pull/18
 >
-> This fork remains aligned with upstream and can be retired once the fix is merged and released.
+> The upstream pull request tracks the original drag fix; this fork now also carries its own user-facing workflow additions.
 
 # Rascal
 
@@ -31,6 +33,16 @@ Free and open source. macOS 13 or later, Apple Silicon or Intel.
 ## Download
 
 Grab the latest fixed DMG from this fork's [releases page](https://github.com/zz999dev/rascal/releases/latest), pick Apple Silicon or Intel, and drag Rascal into Applications.
+
+### v0.2.0 — Customizable sidebar and pane workflows
+
+- Reorder sidebar categories and Favorites by dragging them into place.
+- Rename or remove Favorites, restore built-in entries, and pin folders into Favorites, Locations, or the expandable Folders tree.
+- Sidebar drops use stable insertion markers, avoiding displaced or hidden category rows during a drag.
+- Open the current folder or any sidebar location directly in a new pane.
+- Join one Rascal window into another, preserving every pane and tab when the combined layout fits the four-pane limit.
+- Add to Favorites is available as an action and in the default hotbar, with existing customized hotbars left unchanged.
+- Selection now remains consistent when switching tabs, panes, and view modes.
 
 ### v0.1.6 — Transfer progress and path bar options
 
@@ -57,7 +69,8 @@ Or build it yourself — see below.
 ## Features
 
 - A command palette on `⌘⇧P` and real vim navigation (`hjkl`, `/`, `dd`, `gg`, `gt`). Most things are reachable without the mouse.
-- Dual and multi-pane layouts, tabs, and four view modes: List, Icon, Column, and Gallery.
+- Dual and multi-pane layouts, tabs, and four view modes: List, Icon, Column, and Gallery. Open folders directly in new panes, or drag one Rascal window over another to join every pane and tab (up to four panes total).
+- A Finder-style sidebar with reorderable categories and Favorites, editable labels, saved searches, and folders pinned into Favorites, Locations, or an expandable folder tree.
 - A live disk treemap. It's a colour-coded map of whatever folder you're in; click a tile to go deeper.
 - Reads and writes the same Finder tags Finder does (`kMDItemUserTags`), and you can pin saved searches to the sidebar as smart folders.
 - An inline terminal drawer (`` ⌘` ``) that stays in sync with the active pane's directory.
@@ -107,7 +120,7 @@ Vim mode (toggle in Settings) maps `h j k l`, `gg`, `G`, `gt`/`gT`, `dd`, `yy`, 
 Two scripts, both of which run off-screen, so no window appears and focus is never taken.
 
 ```bash
-./smoketest.sh           # in-process functional runner — 200+ assertions
+./smoketest.sh           # in-process functional runner — 600+ assertions
 ./guitest.sh             # Accessibility audit of menus + shortcuts
 ```
 
@@ -126,7 +139,7 @@ Sources/FinderTwo/                 # the Swift target is named FinderTwo (histor
 │               SearchSheet, BatchRename, TreemapView, Settings, … (most of the app)
 ├── Window/     BrowserWindowController (sidebar | panes split), PanesContainerController
 ├── DemoShot.swift                 # off-screen capture harness for the website media
-└── Tests/TestRunner.swift         # 200+ in-process assertions
+└── Tests/TestRunner.swift         # 600+ in-process assertions
 ```
 
 `Package.swift` links only system frameworks (AppKit, NetFS, Security); there are no third-party Swift dependencies.
@@ -155,7 +168,7 @@ macOS 13+ and a Swift 5.9+ toolchain (Command Line Tools are enough). Edit in an
 ### Before you open a PR
 
 1. `./build.sh debug` compiles clean — fix any new warnings.
-2. `./smoketest.sh` passes (200+ assertions).
+2. `./smoketest.sh` passes (600+ assertions).
 3. `./guitest.sh` passes (menu/shortcut audit).
 4. Add assertions for new behaviour to `Sources/FinderTwo/Tests/TestRunner.swift`.
 

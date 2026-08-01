@@ -1143,6 +1143,10 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         showGitDiffDrawer(for: url)
     }
     func fileListBecameActive() { becomeActive() }
+    func fileListRequestAddPane() {
+        becomeActive()
+        (view.window?.windowController as? BrowserWindowController)?.addPane(nil)
+    }
     func fileListBeginTypeAhead(initial: String) {
         toolbar.focusSearchField(insert: initial)
     }

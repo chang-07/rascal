@@ -2,7 +2,8 @@ import AppKit
 
 /// A horizontal strip of buttons that invoke Actions. Configurable per-window
 /// via UserDefaults. Default config: New Folder, Get Info, Trash, Copy, Paste,
-/// Duplicate, Reveal in Finder, Toggle Hidden, Cycle Theme, Command Palette.
+/// Duplicate, Add to Favorites, Reveal in Finder, Toggle Hidden, Cycle Theme,
+/// Command Palette.
 final class HotbarView: NSView, ThemeObserving {
     weak var target: BrowserWindowController?
     private let stack = NSStackView()
@@ -41,15 +42,33 @@ final class HotbarView: NSView, ThemeObserving {
 
     static let didChangeConfig = Notification.Name("FinderTwo.hotbar.configChanged")
 
-    static func defaultIds() -> [String] {
+    private static func legacyDefaultIds() -> [String] {
         ["file.new-folder", "file.get-info", "file.trash",
          "edit.copy", "edit.paste", "edit.duplicate",
          "file.reveal-finder", "view.toggle-hidden",
          "view.cycle-theme", "search.palette"]
     }
 
+    static func defaultIds() -> [String] {
+        ["file.new-folder", "file.get-info", "file.add-favorite", "file.trash",
+         "edit.copy", "edit.paste", "edit.duplicate",
+         "file.reveal-finder", "view.toggle-hidden",
+         "view.cycle-theme", "search.palette"]
+    }
+
     static func currentIds() -> [String] {
-        (UserDefaults.standard.array(forKey: storageKey) as? [String]) ?? defaultIds()
+        guard let stored = UserDefaults.standard.array(forKey: storageKey) as? [String] else {
+            return defaultIds()
+        }
+        // Existing users who never customized the old ten-button default get
+        // the new favorite action automatically. Deliberately customized bars
+        // remain untouched; the action is available from Settings ▸ Hotbar.
+        if stored == legacyDefaultIds() {
+            let migrated = defaultIds()
+            UserDefaults.standard.set(migrated, forKey: storageKey)
+            return migrated
+        }
+        return stored
     }
 
     static func setIds(_ ids: [String]) {
