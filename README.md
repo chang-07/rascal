@@ -5,16 +5,15 @@
 >
 > - Dragging a folder could interrupt AppKit cleanup, causing multitouch gestures to stop working until Rascal quit.
 > - Completed folder transfers could retain a partial progress bar because total size used allocated disk blocks while progress used logical file bytes.
-> - The path bar can now sit above pane content or along the bottom edge.
+> - The path bar can now sit above pane or along  bottom edge.
 > - Sidebar categories can be reordered, while Favorites can be reordered, renamed, hidden, and restored.
-> - Folders can open directly in new panes, and complete window layouts can be joined without losing tabs.
+> - Context menu option "Open in New Pane".
+> - Drag a window into another for multi-pane.
 >
 > The fork keeps Rascal's local-first AppKit core while adding focused Finder-style organization and multi-pane workflows.
 >
 > - Original project: https://github.com/chang-07/rascal
 > - Upstream pull request: https://github.com/chang-07/rascal/pull/18
->
-> The upstream pull request tracks the original drag fix; this fork now also carries its own user-facing workflow additions.
 
 # Rascal
 
