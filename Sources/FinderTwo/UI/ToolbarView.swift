@@ -171,12 +171,15 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
             pathField.layer?.backgroundColor = bgColor.cgColor
             pathField.layer?.cornerRadius = 5
             
-            searchField.isBezeled = false
-            searchField.isBordered = false
-            searchField.drawsBackground = false
-            searchField.wantsLayer = true
-            searchField.layer?.backgroundColor = bgColor.cgColor
-            searchField.layer?.cornerRadius = 5
+            // Keep NSSearchField's native bezel machinery: its cell uses the
+            // bezel geometry to position and hit-test the search/cancel buttons.
+            // Turning it off makes typed text overlap the magnifier and leaves
+            // the visible cancel button with a broken hit region.
+            searchField.wantsLayer = false
+            searchField.isBezeled = true
+            searchField.isBordered = true
+            searchField.drawsBackground = true
+            searchField.backgroundColor = bgColor
         } else {
             pathField.wantsLayer = false
             pathField.isBezeled = true
