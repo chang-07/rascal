@@ -324,6 +324,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         toolbar.onUp = { [weak self] in self?.goUp() }
         toolbar.onCommit = { [weak self] text in self?.commitTypedPath(text) }
         toolbar.onSearchChanged = { [weak self] q in self?.applyFilter(q) }
+        toolbar.onSearchAccepted = { [weak self] in self?.focusFileList() }
         toolbar.onSearchCancelled = { [weak self] in self?.focusFileList() }
 
         pathBar.onSelectSegment = { [weak self] url in self?.navigate(to: url) }
@@ -1153,6 +1154,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     }
     func testCancelSearch() -> Bool {
         return toolbar.testSimulateCancelSearch()
+    }
+    func testAcceptSearch() -> Bool {
+        return toolbar.testSimulateAcceptSearch()
     }
 }
 

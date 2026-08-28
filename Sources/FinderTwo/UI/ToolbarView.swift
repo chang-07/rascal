@@ -7,6 +7,7 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
     var onUp: (() -> Void)?
     var onCommit: ((String) -> Void)?
     var onSearchChanged: ((String) -> Void)?
+    var onSearchAccepted: (() -> Void)?
     var onSearchCancelled: (() -> Void)?
 
     var canGoBack: Bool = false {
@@ -190,11 +191,16 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
         }
     }
 
-    // NSTextFieldDelegate (path commit + ESC on search field)
+    // NSTextFieldDelegate (path commit + accept/cancel on search field)
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if control === pathField, commandSelector == #selector(NSResponder.insertNewline(_:)) {
             onCommit?(pathField.stringValue)
             window?.makeFirstResponder(nil)
+            return true
+        }
+        if control === searchField, commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            window?.makeFirstResponder(nil)
+            onSearchAccepted?()
             return true
         }
         if control === searchField, commandSelector == #selector(NSResponder.cancelOperation(_:)) {
@@ -218,5 +224,11 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
     func testSimulateCancelSearch() -> Bool {
         return control(searchField, textView: NSTextView(),
                        doCommandBy: #selector(NSResponder.cancelOperation(_:)))
+    }
+
+    /// Test hook: simulate Return on the search field using its real identity.
+    func testSimulateAcceptSearch() -> Bool {
+        return control(searchField, textView: NSTextView(),
+                       doCommandBy: #selector(NSResponder.insertNewline(_:)))
     }
 }
