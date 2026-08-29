@@ -30,6 +30,7 @@ final class TestRunner {
 
         // --- T1: directory loads ---
         let items = pane.testCurrentItems
+        Snapshot.take(wc.window, "01-sandbox-loaded")
         assert("loads sandbox dir", items.count >= 4, "got \(items.count)")
 
         // --- T2: navigate into subdir ---
@@ -42,6 +43,7 @@ final class TestRunner {
         assert("subdir contents",
                pane.testCurrentItems.contains(where: { $0.name == "nested_file.txt" }),
                "items=\(pane.testCurrentItems.map { $0.name })")
+        Snapshot.take(wc.window, "02-subdir")
         // P1 guard: local volumes are detected as local, so navigation loads
         // synchronously (instant). Network mounts would load async to avoid
         // freezing the main thread on a slow/wedged share.
@@ -2128,6 +2130,7 @@ final class TestRunner {
                "filter changed: \(pane.testModel.filterText)")
         assert("File list focused on Return", pane.view.window?.firstResponder === pane.testFileList.tableView,
                "file list not focused")
+        Snapshot.take(wc.window, "03-vim-filter-accepted")
         
         // Check that Esc cancels search and returns focus to the file list
         pane.testFocusSearchField()

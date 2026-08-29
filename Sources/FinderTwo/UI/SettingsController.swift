@@ -63,7 +63,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate, ThemeObse
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    private func select(_ section: Section) {
+    func select(_ section: Section) {
         current = section
         let vc = section.makeController()
         window?.contentViewController = vc
