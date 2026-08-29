@@ -1,4 +1,6 @@
 import AppKit
+import Darwin
+import RascalFileOperations
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var windowControllers: [BrowserWindowController] = []
@@ -17,8 +19,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private weak var themeMenu: NSMenu?
     /// Held strongly so the one-time permissions window isn't deallocated while shown.
     private var permissionsOnboarding: PermissionsOnboardingController?
+    private var fileOperationCompositionRoot: FileOperationCompositionRoot?
+    var testFileOperationBridge: FileOperationBridge? { fileOperationCompositionRoot?.bridge }
+    private var dropStackController: DropStackController?
+    private var legacyWriteDenialObserver: NSObjectProtocol?
+    private var legacyWriteDenialPresentationGate = LegacyWriteDenialPresentationGate()
+    private var legacyWriteDenialAlert: NSAlert?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The app owns exactly one service/bridge graph. UI injection begins in M2.
+        do {
+            fileOperationCompositionRoot = try FileOperationCompositionRoot()
+        } catch {
+            // A missing service graph must never turn constructor injection
+            // into an implicit legacy-write escape hatch.
+            assertionFailure("File operation composition failed: \(error)")
+            NSApp.terminate(nil)
+            return
+        }
+        dropStackController = DropStackController(
+            fileOperationBridge: fileOperationCompositionRoot?.bridge
+        )
+        if ProcessInfo.processInfo.environment["FT_M2_RELEASE_PROBE"] == "1" {
+            DispatchQueue.main.async { [weak self] in self?.runM2ReleaseProbe() }
+            return
+        }
+        if ProcessInfo.processInfo.environment["FT_M2_DEFERRED_PROBE"] == "1" {
+            Task { [weak self] in await self?.runM2DeferredProbe() }
+            return
+        }
+        if ProcessInfo.processInfo.environment["FT_M2_ROUTE_PROBE"] == "1" {
+            DispatchQueue.main.async {
+                TestRunner().runM2Only(appDelegate: self)
+            }
+            return
+        }
+        legacyWriteDenialObserver = NotificationCenter.default.addObserver(
+            forName: .legacyWriteDenied, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let denial = note.object as? LegacyWriteDenial else { return }
+            self?.presentLegacyWriteDenial(denial)
+        }
         LaunchMetrics.shared.didFinishLaunching = ProcessInfo.processInfo.systemUptime
         ThemeStore.ensureDirectory()   // so users have a place to drop themes
         // Re-probe Full Disk Access on activation (the user may have just granted
@@ -123,6 +164,279 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private func presentLegacyWriteDenial(_ denial: LegacyWriteDenial) {
+        // The backend can reject the same gesture at several guarded layers,
+        // and key repeat can generate denials much faster than a person can
+        // dismiss an alert. Treat every denial after the first as expected
+        // control flow: neither queue another dialog nor emit an unbounded log.
+        guard legacyWriteDenialPresentationGate.claim() else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "File operation temporarily unavailable"
+        alert.informativeText = denial.reason +
+            "\n\nFurther blocked legacy operations will not open additional dialogs during this app session."
+        alert.addButton(withTitle: "OK")
+        legacyWriteDenialAlert = alert
+
+        // A sheet does not enter a nested modal event loop, so repeated input
+        // cannot enqueue another alert while this one is being acknowledged.
+        if let window = currentBrowserWC()?.window, window.attachedSheet == nil {
+            alert.beginSheetModal(for: window) { [weak self, weak alert] _ in
+                if self?.legacyWriteDenialAlert === alert {
+                    self?.legacyWriteDenialAlert = nil
+                }
+            }
+        } else {
+            alert.runModal()
+            legacyWriteDenialAlert = nil
+        }
+    }
+
+    /// Release-binary probe for the M2 fail-closed boundary. It deliberately
+    /// runs before the denial observer is installed so six expected rejections
+    /// cannot display UI in CI.
+    @MainActor
+    private func runM2ReleaseProbe() {
+        guard let bridge = fileOperationCompositionRoot?.bridge else {
+            FileHandle.standardError.write(Data("M2_RELEASE_PROBE FAIL missing bridge\n".utf8))
+            NSApp.terminate(nil)
+            return
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "Rascal-M2-Release-Probe-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+            let traceBefore = bridge.submissionTrace.count
+            let legacyBefore = TransferQueue.shared.snapshot.count
+            var fixtures: [(NativeCopyRoute, URL, URL)] = []
+            var owners: [AnyObject] = []
+            for route in NativeCopyRoute.allCases {
+                let source = root.appendingPathComponent("source-\(route.rawValue).txt")
+                let destination = root.appendingPathComponent(
+                    "destination-\(route.rawValue)", isDirectory: true
+                )
+                try Data(route.rawValue.utf8).write(to: source)
+                try FileManager.default.createDirectory(
+                    at: destination, withIntermediateDirectories: false
+                )
+                fixtures.append((route, source, destination))
+            }
+            let fixtureBefore = try m2ReleaseFixtureSnapshot(root: root)
+            for (route, source, destination) in fixtures {
+                switch route {
+                case .paste:
+                    let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                    owners.append(pane)
+                    pane.m2ProbeSubmitPasteCopy([source])
+                case .listDrag:
+                    let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                    owners.append(pane)
+                    pane.fileList.m2ProbeSubmitListCopy([source], into: destination)
+                case .iconDrag:
+                    let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                    owners.append(pane)
+                    pane.m2ProbeSubmitIconCopy([source], into: destination)
+                case .paneToPane:
+                    let panes = PanesContainerController(
+                        initialURL: destination,
+                        fileOperationBridge: bridge
+                    )
+                    owners.append(panes)
+                    panes.m2ProbeSubmitPaneToPaneCopy([source], into: destination)
+                case .dropStack:
+                    let stack = DropStackController(fileOperationBridge: bridge)
+                    owners.append(stack)
+                    stack.m2ProbeSubmitDropStackCopy([source], into: destination)
+                case .duplicate:
+                    let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                    owners.append(pane)
+                    pane.m2ProbeSubmitDuplicate([source])
+                }
+            }
+            withExtendedLifetime(owners) {}
+            let fixtureAfter = try m2ReleaseFixtureSnapshot(root: root)
+            let passed = !bridge.nativeCopyEnabled &&
+                bridge.submissionTrace.count == traceBefore &&
+                TransferQueue.shared.snapshot.count == legacyBefore &&
+                fixtureAfter == fixtureBefore
+            let result = passed
+                ? "M2_RELEASE_PROBE PASS routes=6 native=0 legacy=0 fixture=unchanged\n"
+                : "M2_RELEASE_PROBE FAIL routes=6 native=\(bridge.submissionTrace.count - traceBefore) " +
+                    "legacy=\(TransferQueue.shared.snapshot.count - legacyBefore) " +
+                    "fixtureChanged=\(fixtureAfter != fixtureBefore)\n"
+            FileHandle.standardError.write(Data(result.utf8))
+        } catch {
+            FileHandle.standardError.write(
+                Data("M2_RELEASE_PROBE FAIL fixture=\(error)\n".utf8)
+            )
+        }
+        NSApp.terminate(nil)
+    }
+
+    private func m2ReleaseFixtureSnapshot(root: URL) throws -> [String] {
+        let fileManager = FileManager.default
+        var enumerationFailure: Error?
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: [],
+            errorHandler: { _, error in
+                enumerationFailure = error
+                return false
+            }
+        ) else {
+            throw NSError(domain: "Rascal.M2.ReleaseProbe", code: 1)
+        }
+        var result: [String] = []
+        for case let url as URL in enumerator {
+            var info = stat()
+            guard lstat(url.path, &info) == 0 else {
+                throw NSError(
+                    domain: NSPOSIXErrorDomain,
+                    code: Int(errno),
+                    userInfo: [NSFilePathErrorKey: url.path]
+                )
+            }
+            let relative = String(
+                url.standardizedFileURL.path.dropFirst(
+                    root.standardizedFileURL.path.count + 1
+                )
+            )
+            let kind = info.st_mode & S_IFMT
+            let payload: String
+            if kind == S_IFREG {
+                payload = try Data(contentsOf: url).base64EncodedString()
+            } else if kind == S_IFLNK {
+                payload = try fileManager.destinationOfSymbolicLink(atPath: url.path)
+            } else {
+                payload = "-"
+            }
+            result.append([
+                relative,
+                String(info.st_mode),
+                String(info.st_size),
+                String(info.st_mtimespec.tv_sec),
+                String(info.st_mtimespec.tv_nsec),
+                String(info.st_ctimespec.tv_sec),
+                String(info.st_ctimespec.tv_nsec),
+                payload
+            ].joined(separator: "\t"))
+        }
+        if let enumerationFailure { throw enumerationFailure }
+        return result.sorted()
+    }
+
+    /// Exercises every M2 bridge route against the two real mounted-volume
+    /// fixtures that must remain disabled. Alerts are suppressed only for this
+    /// explicit probe so a burst of expected failures cannot block automation.
+    @MainActor
+    private func runM2DeferredProbe() async {
+        guard let bridge = fileOperationCompositionRoot?.bridge,
+              bridge.nativeCopyEnabled,
+              let caseRootPath = ProcessInfo.processInfo.environment["RASCAL_M2_CASE_SENSITIVE_SOURCE"],
+              let exfatRootPath = ProcessInfo.processInfo.environment["RASCAL_M2_EXFAT_SOURCE"] else {
+            FileHandle.standardError.write(Data("M2_DEFERRED_PROBE FAIL configuration\n".utf8))
+            NSApp.terminate(nil)
+            return
+        }
+
+        let token = UUID().uuidString
+        let sourceRoots = [
+            URL(fileURLWithPath: caseRootPath, isDirectory: true)
+                .appendingPathComponent("Rascal-M2-Deferred-\(token)", isDirectory: true),
+            URL(fileURLWithPath: exfatRootPath, isDirectory: true)
+                .appendingPathComponent("Rascal-M2-Deferred-\(token)", isDirectory: true),
+        ]
+        let destinationRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "Rascal-M2-Deferred-Destination-\(token)", isDirectory: true
+        )
+        defer {
+            for root in sourceRoots { try? FileManager.default.removeItem(at: root) }
+            try? FileManager.default.removeItem(at: destinationRoot)
+        }
+
+        do {
+            for root in sourceRoots {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+            }
+            try FileManager.default.createDirectory(
+                at: destinationRoot, withIntermediateDirectories: false
+            )
+            let traceBefore = bridge.submissionTrace.count
+            let legacyBefore = TransferQueue.shared.snapshot.count
+            var sources: [URL] = []
+            var finals: [URL] = []
+
+            for (volumeIndex, sourceRoot) in sourceRoots.enumerated() {
+                for route in NativeCopyRoute.allCases {
+                    let name = "source-\(volumeIndex)-\(route.rawValue).txt"
+                    let source = sourceRoot.appendingPathComponent(name)
+                    let destination = destinationRoot.appendingPathComponent(
+                        "destination-\(volumeIndex)-\(route.rawValue)", isDirectory: true
+                    )
+                    try Data("\(volumeIndex)-\(route.rawValue)".utf8).write(to: source)
+                    try FileManager.default.createDirectory(
+                        at: destination, withIntermediateDirectories: false
+                    )
+                    sources.append(source)
+                    finals.append(destination.appendingPathComponent(name))
+                    if route == .duplicate {
+                        _ = bridge.submitCopy(
+                            sources: [source], destination: destination,
+                            route: route
+                        )
+                    } else {
+                        FileOps.transfer(
+                            [source], into: destination, move: false,
+                            fileOperationBridge: bridge, route: route
+                        )
+                    }
+                }
+            }
+
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(20))
+            var terminalFailures = 0
+            while clock.now < deadline {
+                let trace = Array(bridge.submissionTrace.dropFirst(traceBefore))
+                if trace.count == 12 {
+                    var snapshots: [OperationSnapshot] = []
+                    for entry in trace {
+                        snapshots.append(try await bridge.service.snapshot(entry.operationID))
+                    }
+                    terminalFailures = snapshots.filter {
+                        $0.state == .failedRecoverable && $0.terminalFailure?.code == .serviceSafeMode
+                    }.count
+                    if terminalFailures == 12 { break }
+                }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+
+            let trace = Array(bridge.submissionTrace.dropFirst(traceBefore))
+            let passed = trace.count == 12 &&
+                Set(trace.map(\.operationID)).count == 12 &&
+                NativeCopyRoute.allCases.allSatisfy { route in
+                    trace.filter { $0.route == route }.count == 2
+                } &&
+                terminalFailures == 12 &&
+                TransferQueue.shared.snapshot.count == legacyBefore &&
+                sources.allSatisfy { FileManager.default.fileExists(atPath: $0.path) } &&
+                finals.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) }
+            let result = passed
+                ? "M2_DEFERRED_PROBE PASS volumes=2 routes=12 native=12 legacy=0 finals=0\n"
+                : "M2_DEFERRED_PROBE FAIL routes=\(trace.count) failures=\(terminalFailures) " +
+                    "legacy=\(TransferQueue.shared.snapshot.count - legacyBefore)\n"
+            FileHandle.standardError.write(Data(result.utf8))
+        } catch {
+            FileHandle.standardError.write(
+                Data("M2_DEFERRED_PROBE FAIL fixture=\(error)\n".utf8)
+            )
+        }
+        NSApp.terminate(nil)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     // MARK: - Windows
@@ -134,7 +448,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // name to all of them made each new window restore the first's exact
         // frame and open directly on top of it — which read as "⌘N does nothing".
         let isFirst = windowControllers.isEmpty
-        let wc = BrowserWindowController(rootURL: url, autosaveFrame: isFirst)
+        let wc = BrowserWindowController(
+            rootURL: url,
+            autosaveFrame: isFirst,
+            fileOperationBridge: fileOperationCompositionRoot?.bridge,
+            dropStackController: dropStackController
+        )
         finishOpening(wc)
     }
 

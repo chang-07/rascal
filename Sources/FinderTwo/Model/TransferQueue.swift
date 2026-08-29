@@ -1,5 +1,4 @@
 import AppKit
-
 /// Thread-safe cancel flag shared between the activity UI (main) and the
 /// transfer worker (background).
 final class TransferCancelFlag {
@@ -130,6 +129,17 @@ final class TransferQueue {
     private var lastNotify: TimeInterval = 0
     private let fm = FileManager.default
 
+    private struct PreparedStep {
+        let requestedSrc: URL
+        let requestedDst: URL
+        let src: URL
+        let dst: URL
+        let merge: Bool
+        let observation: LegacyTransferObservation
+
+        var classification: LegacyTransferClassification { observation.classification }
+    }
+
     var isPaused: Bool { cond.lock(); defer { cond.unlock() }; return paused }
 
     // MARK: Public control
@@ -210,20 +220,33 @@ final class TransferQueue {
     }
 
     private func run(_ op: TransferOp) {
+        // Resolve the whole plan before the first mutation. The classifier
+        // result is reused below so one item cannot silently change from an
+        // allowed rename into a copy/delete fallback during execution.
+        guard let prepared = preflight(op) else {
+            op.failures += 1; op.state = .failed; notify(force: true); return
+        }
         op.state = .running; notify(force: true)
         // Successfully-completed, non-merge steps, for undo registration.
         var done: [(src: URL, dst: URL)] = []
-        for step in op.plan {
+        for step in prepared {
             if op.cancelFlag.value { break }
             waitWhilePaused(op)
             if op.cancelFlag.value { break }
+            // A queued item may have waited behind earlier items or a pause.
+            // Reclassify exactly once immediately before its first mutation,
+            // then reuse that result for every branch within the item.
+            guard let step = revalidate(step, for: op) else {
+                op.failures += 1
+                break
+            }
             op.currentName = step.src.lastPathComponent; notify(force: true)
             var ok = true
             if step.merge {
                 ok = FileOps.mergeDirectory(src: step.src, into: step.dst, move: op.move) == 0
                 op.bytesDone += Self.size(of: step.dst)
-            } else if op.move && sameVolume(step.src, step.dst) {
-                ok = (try? fm.moveItem(at: step.src, to: step.dst)) != nil
+            } else if op.move && step.classification == .sameLocal {
+                ok = renameSameLocal(step.src, to: step.dst)
                 op.bytesDone += Self.size(of: step.dst)
             } else if isDir(step.src) {
                 ok = copyTree(step.src, into: step.dst, op: op)
@@ -239,6 +262,89 @@ final class TransferQueue {
         op.state = op.cancelFlag.value ? .cancelled : (op.failures > 0 ? .failed : .done)
         registerUndo(op, done: done)
         notify(force: true)
+    }
+
+    private func preflight(_ op: TransferOp) -> [PreparedStep]? {
+        let prepared = op.plan.map { step in
+            let observation = LegacyTransferClassifier.observe(
+                source: step.src, destination: step.dst
+            )
+            return PreparedStep(
+                requestedSrc: step.src, requestedDst: step.dst,
+                src: observation.source.operationalURL ?? step.src,
+                dst: observation.destination.operationalURL ?? step.dst,
+                merge: step.merge, observation: observation
+            )
+        }
+        if prepared.contains(where: \.merge) {
+            guard LegacyWriteGate.allows(.merge) else { return nil }
+            guard !prepared.contains(where: {
+                $0.merge && [.remoteOrProvider, .unknown].contains($0.classification)
+            }) else {
+                LegacyWriteGate.deny(
+                    .merge,
+                    reason: "Legacy merge requires confirmed local, non-symlink endpoints."
+                )
+                return nil
+            }
+        }
+        if op.move {
+            // All legacy moves, including same-volume ones, remain disabled in
+            // release/default-debug. Classification cannot grant permission.
+            guard LegacyWriteGate.allows(.transferMove) else { return nil }
+            guard !prepared.contains(where: {
+                [.remoteOrProvider, .unknown].contains($0.classification)
+            }) else {
+                LegacyWriteGate.deny(
+                    .crossVolumeMove,
+                    reason: "Legacy move is blocked for remote/provider, symlinked, or unknown endpoints."
+                )
+                return nil
+            }
+            if prepared.contains(where: { $0.classification == .crossVolume }) {
+                guard LegacyWriteGate.allows(.crossVolumeMove) else { return nil }
+            }
+        }
+        return prepared
+    }
+
+    private func revalidate(_ prepared: PreparedStep, for op: TransferOp) -> PreparedStep? {
+        let current = LegacyTransferClassifier.observe(
+            source: prepared.requestedSrc, destination: prepared.requestedDst
+        )
+        guard current == prepared.observation else {
+            LegacyWriteGate.deny(
+                prepared.merge ? .merge : .crossVolumeMove,
+                reason: "Legacy transfer endpoint observation changed after whole-plan preflight."
+            )
+            return nil
+        }
+        if op.move || prepared.merge {
+            guard current.classification != .remoteOrProvider,
+                  current.classification != .unknown,
+                  current.source.operationalURL != nil,
+                  current.destination.operationalURL != nil else {
+                LegacyWriteGate.deny(
+                    prepared.merge ? .merge : .crossVolumeMove,
+                    reason: "Legacy transfer endpoint became remote/provider or unknown before mutation."
+                )
+                return nil
+            }
+        }
+        return PreparedStep(
+            requestedSrc: prepared.requestedSrc,
+            requestedDst: prepared.requestedDst,
+            src: current.source.operationalURL ?? prepared.requestedSrc,
+            dst: current.destination.operationalURL ?? prepared.requestedDst,
+            merge: prepared.merge,
+            observation: current
+        )
+    }
+
+    /// Exclusive no-replace rename has no cross-volume copy fallback. EEXIST,
+    /// EXDEV and permission errors all leave source/destination untouched.
+    private func renameSameLocal(_ src: URL, to dst: URL) -> Bool {
+        LegacyExclusiveRename.move(source: src, destination: dst) == .moved
     }
 
     /// Register an undo for the completed steps: a move reverses src↔dst; a
@@ -337,13 +443,6 @@ final class TransferQueue {
 
     private func isDir(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    }
-
-    private func sameVolume(_ a: URL, _ b: URL) -> Bool {
-        let va = try? a.resourceValues(forKeys: [.volumeIdentifierKey]).volumeIdentifier
-        let vb = try? b.deletingLastPathComponent().resourceValues(forKeys: [.volumeIdentifierKey]).volumeIdentifier
-        guard let va = va as? NSObject, let vb = vb as? NSObject else { return false }
-        return va.isEqual(vb)
     }
 
     static func size(of url: URL) -> Int64 {

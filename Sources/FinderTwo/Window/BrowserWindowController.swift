@@ -54,6 +54,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     let splitVC: NSSplitViewController = NonResizingSplitViewController()
     let sidebarVC: SidebarController
     private let panesContainer: PanesContainerController
+    private let dropStackController: DropStackController?
     private var vimKeyMonitor: Any?
     /// Off-main branch lookups for the window subtitle (reads .git/HEAD).
     private static let gitInfoQueue = DispatchQueue(label: "FinderTwo.windowGitInfo", qos: .utility)
@@ -70,9 +71,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     ///   each new window restore the first window's exact frame and open pixel-
     ///   for-pixel on top of it — so ⌘N looked like it did nothing. Unsaved
     ///   windows cascade instead, landing visibly offset and independent.
-    init(rootURL: URL, autosaveFrame: Bool = true) {
+    init(
+        rootURL: URL,
+        autosaveFrame: Bool = true,
+        fileOperationBridge: FileOperationBridge? = nil,
+        dropStackController: DropStackController? = nil
+    ) {
         self.sidebarVC = SidebarController()
-        self.panesContainer = PanesContainerController(initialURL: rootURL)
+        self.panesContainer = PanesContainerController(
+            initialURL: rootURL,
+            fileOperationBridge: fileOperationBridge,
+            dropStackController: dropStackController
+        )
+        self.dropStackController = dropStackController
 
         let initialFrame = NSRect(x: 200, y: 200, width: 1100, height: 700)
         let headless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1"
@@ -549,7 +560,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     @objc func toggleUseGroups(_ sender: Any?) { Settings.useGroups.toggle() }
     @objc func togglePreview(_ sender: Any?) { activePane?.togglePreviewDrawer() }
     @objc func showTransferActivity(_ sender: Any?) { TransferActivityController.shared.present() }
-    @objc func toggleDropStack(_ sender: Any?) { DropStackController.shared.toggle() }
+    @objc func toggleDropStack(_ sender: Any?) { dropStackController?.toggle() }
     @objc func selectByPattern(_ sender: Any?) { activePane?.selectByPattern() }
 
     /// ⌘Z — undo the last file operation. While a text field is being edited
@@ -568,12 +579,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     }
     @objc func addToDropStack(_ sender: Any?) {
         let sel = activePane?.selectedURLs() ?? []
-        if DropStack.add(sel) > 0 { DropStackController.shared.present() } else { NSSound.beep() }
+        if DropStack.add(sel) > 0 { dropStackController?.present() } else { NSSound.beep() }
     }
 
     /// The frontmost browser window's active folder — used by the Drop Stack
     /// to know where "Copy/Move Here" should land.
     var activePaneURL: URL? { activePane?.currentURL }
+    func refreshActivePane() { activePane?.reload() }
     static var frontmost: BrowserWindowController? {
         NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }.first
     }

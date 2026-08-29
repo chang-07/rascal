@@ -327,9 +327,13 @@ final class DirectoryModel {
     }
 
     private static func fuzzyMatchStatic(_ haystack: String, needle: String) -> Bool {
-        if haystack.localizedCaseInsensitiveContains(needle) { return true }
+        // Lowercase once and reuse the result for both contiguous and
+        // subsequence matching. `localizedCaseInsensitiveContains` performed
+        // a second locale-aware scan for every item, which dominated the 5k
+        // interactive filter path on slower hosted machines.
         let h = haystack.lowercased()
         let n = needle.lowercased()
+        if h.contains(n) { return true }
         var hi = h.startIndex
         for ch in n {
             guard let f = h[hi...].firstIndex(of: ch) else { return false }

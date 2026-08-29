@@ -1,4 +1,6 @@
 import AppKit
+import Darwin
+import RascalFileOperations
 
 /// In-process test harness. Runs after applicationDidFinishLaunching when
 /// FT_RUN_TESTS=1. Drives the controller layer directly (no UI events) and
@@ -13,8 +15,22 @@ final class TestRunner {
     private var failures: [String] = []
     private var passed: [String] = []
 
+    func runM2Only(appDelegate: AppDelegate) {
+        Task { @MainActor in
+            print("=== Rascal M2 route/projection tests ===")
+            let sandbox = makeSandbox()
+            defer { try? FileManager.default.removeItem(at: sandbox) }
+            runM2NativeCopyRouteTrace(appDelegate: appDelegate, sandbox: sandbox)
+            await runM2BridgeProjectionTests(sandbox: sandbox)
+            finish()
+        }
+    }
+
     func runAll(appDelegate: AppDelegate) {
         print("=== Rascal in-process tests ===")
+        let m1CopyCompatibilityLease =
+            LegacyWriteGate.beginM1CopyCompatibilityFixture()
+        defer { withExtendedLifetime(m1CopyCompatibilityLease) {} }
 
         // Sandbox for filesystem mutations
         let sandbox = makeSandbox()
@@ -475,8 +491,8 @@ final class TestRunner {
         if let item = pane.testCurrentItems.first(where: { $0.name == "dup_me.txt" }) {
             pane.testSelectItem(item)
             pane.duplicateSelection()
-            wait(0.1)
             let copy = sandbox.appendingPathComponent("dup_me copy.txt")
+            waitUntil { FileManager.default.fileExists(atPath: copy.path) }
             assert("duplicate created copy",
                    FileManager.default.fileExists(atPath: copy.path), "no \(copy.path)")
             assert("duplicate preserved original",
@@ -801,23 +817,25 @@ final class TestRunner {
         // silently never applied. testApplyComputeSync runs the real filter+sort
         // on this thread and returns the post-filter count, so we measure work.
         perfModel.filterText = "item_0001"
-        let t4 = Date()
+        let t4 = threadCPUTime()
         let filteredCount = perfModel.testApplyComputeSync()
-        let filterMs = Int(Date().timeIntervalSince(t4) * 1000)
+        let filterMs = Int((threadCPUTime() - t4) * 1000)
         assert("Filter on 5k completes under 60ms (got \(filterMs)ms, matched \(filteredCount))",
                filterMs < 60 && filteredCount < 5000, "perf regression")
         perfModel.filterText = ""
         perfModel.testApplyComputeSync()
 
         // Progressive filter benchmark: typing extra chars should narrow the
-        // prior result set, not rescan rawItems. Wait for the async narrow to
-        // commit so `items` is the small set, then time the second narrow.
+        // prior result set, not rescan rawItems. Materialize the prefix result
+        // synchronously, then time the second narrow.
         perfModel.filterText = "item_000"
-        wait(0.20)
-        let t6 = Date()
+        // The next setter still exercises the production prefix-extension
+        // path, while its prerequisite no longer depends on queue scheduling.
+        perfModel.testApplyComputeSync()
+        let t6 = threadCPUTime()
         perfModel.filterText = "item_0001"
-        let t7 = Date()
-        let progressiveMs = Int(t7.timeIntervalSince(t6) * 1000)
+        let t7 = threadCPUTime()
+        let progressiveMs = Int((t7 - t6) * 1000)
         assert("Progressive filter (prefix-extend) under 20ms (got \(progressiveMs)ms)",
                progressiveMs < 20, "perf regression")
         perfModel.filterText = ""
@@ -2264,24 +2282,72 @@ final class TestRunner {
                    sbT.testSidebarBackground?.hexString == nord.sidebarBackground.hexString,
                    "got \(sbT.testSidebarBackground?.hexString ?? "nil") vs \(nord.sidebarBackground.hexString)")
 
-            // Render-based proof: draw the sidebar into an OFF-SCREEN bitmap (no
-            // window, no display) and sample the ACTUAL painted pixels along the
-            // right-edge background column. Attempt 1 of this fix passed every
+            // Render-based proof: attach the sidebar to a borderless window far
+            // off-screen, then sample the ACTUAL painted pixels along a right-
+            // side background column. NSVisualEffectView's `.behindWindow`
+            // compositing is undefined while detached; a real window with fixed
+            // appearance makes local and hosted-runner rendering comparable
+            // without showing UI or stealing focus. Keep the probe left of the largest
+            // possible scroller gutter: GitHub's runner may use legacy always-
+            // visible scrollbars while developer machines typically use overlay
+            // scrollers. Sampling inside that environment-owned gutter tests the
+            // scrollbar, not the sidebar surface.
+            //
+            // Attempt 1 of this fix passed every
             // property check yet still rendered the system color, because an
             // opaque clip view sat IN FRONT of the tint — a z-order bug only a
             // real pixel read can catch.
-            sbT.view.frame = NSRect(x: 0, y: 0, width: 168, height: 400)
+            let renderBounds = NSRect(x: 0, y: 0, width: 168, height: 400)
+            let renderWindow = NSWindow(
+                contentRect: renderBounds,
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false
+            )
+            renderWindow.isReleasedWhenClosed = false
+            renderWindow.appearance = NSAppearance(named: .darkAqua)
+            renderWindow.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+            renderWindow.contentView = sbT.view
+            renderWindow.orderFront(nil)
+            sbT.view.frame = renderBounds
             sbT.view.layoutSubtreeIfNeeded()
-            if let rep = sbT.view.bitmapImageRepForCachingDisplay(in: sbT.view.bounds),
+            renderWindow.displayIfNeeded()
+            let renderedSurface = sbT.testSidebarRenderedSurface
+            // AppKit's cache rep is tagged with an environment-owned color
+            // space. macOS 15 hosted runners tag the unchanged RGB samples as
+            // Generic RGB (gamma 1.8); converting those samples to sRGB turns
+            // raw #272C36 into #343A46 and creates a false overlay failure.
+            // Compare the cache's RGB sample components directly to the theme's
+            // source components. This still catches any surface that paints a
+            // different color, without applying an environment-specific transform.
+            if let rep = renderedSurface.bitmapImageRepForCachingDisplay(
+                in: renderedSurface.bounds
+            ),
                let want = nord.sidebarBackground.usingColorSpace(.sRGB) {
-                sbT.view.cacheDisplay(in: sbT.view.bounds, to: rep)
-                let x = rep.pixelsWide - 6
+                renderedSurface.cacheDisplay(in: renderedSurface.bounds, to: rep)
+                let pixelScale = CGFloat(rep.pixelsWide) /
+                    max(renderedSurface.bounds.width, 1)
+                let x = max(
+                    1,
+                    min(
+                        rep.pixelsWide - 1,
+                        Int(floor(sbT.testSidebarBackgroundSampleX * pixelScale))
+                    )
+                )
                 var matched = 0, opaque = 0
+                var observedColors: [String: Int] = [:]
                 var py = 10
                 while py < rep.pixelsHigh - 10 {
-                    if let px = rep.colorAt(x: x, y: py)?.usingColorSpace(.sRGB),
+                    if let px = rep.colorAt(x: x, y: py),
                        px.alphaComponent > 0.5 {
                         opaque += 1
+                        let rawHex = String(
+                            format: "#%02X%02X%02X",
+                            Int((px.redComponent * 255).rounded()),
+                            Int((px.greenComponent * 255).rounded()),
+                            Int((px.blueComponent * 255).rounded())
+                        )
+                        observedColors[rawHex, default: 0] += 1
                         if abs(px.redComponent - want.redComponent) < 0.06,
                            abs(px.greenComponent - want.greenComponent) < 0.06,
                            abs(px.blueComponent - want.blueComponent) < 0.06 { matched += 1 }
@@ -2293,11 +2359,23 @@ final class TestRunner {
                     // the property assertion above already stands. Not a failure.
                     assert("sidebar pixel-render check (off-screen not composited — property check stands)", true, "")
                 } else {
+                    let palette = observedColors
+                        .sorted { left, right in
+                            left.value == right.value ? left.key < right.key : left.value > right.value
+                        }
+                        .prefix(5)
+                        .map { "\($0.key):\($0.value)" }
+                        .joined(separator: ",")
                     assert("sidebar renders the EXACT theme color in real pixels (no system overlay)",
                            matched * 2 >= opaque,
-                           "only \(matched)/\(opaque) opaque right-edge samples matched nord \(want.hexString)")
+                           "only \(matched)/\(opaque) opaque right-edge samples matched nord " +
+                           "\(want.hexString); x=\(x) bitmap=\(rep.pixelsWide)x\(rep.pixelsHigh) " +
+                           "observed=[\(palette)] \(sbT.testSidebarRenderDiagnostics)")
                 }
             }
+            renderWindow.orderOut(nil)
+            renderWindow.contentView = nil
+            renderWindow.close()
         }
         ThemeManager.shared.setTheme(id: "system"); wait(0.05)
         assert("sidebar background is clear on System theme (native vibrancy shows)",
@@ -2465,7 +2543,305 @@ final class TestRunner {
         // --- T64: Explorer-style sidebar folder tree (lazy, off-screen) ---
         runSidebarFolderTreeTests(sandbox)
 
+        if ProcessInfo.processInfo.environment["RASCAL_ENABLE_M2_NATIVE_COPY"] == "1" {
+            runM2NativeCopyRouteTrace(appDelegate: appDelegate, sandbox: sandbox)
+        }
+
         finish()
+    }
+
+    private func runM2NativeCopyRouteTrace(appDelegate: AppDelegate, sandbox: URL) {
+        guard let bridge = appDelegate.testFileOperationBridge, bridge.nativeCopyEnabled else {
+            assert("M2 route trace bridge enabled", false, "native bridge is unavailable")
+            return
+        }
+        let root = sandbox.appendingPathComponent("m2-route-trace", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let traceStart = bridge.submissionTrace.count
+        let legacyStart = TransferQueue.shared.snapshot.count
+        var expectedDestinations: [URL] = []
+        var owners: [AnyObject] = []
+
+        for route in NativeCopyRoute.allCases {
+            let source = root.appendingPathComponent("source-\(route.rawValue).txt")
+            let destination = root.appendingPathComponent("destination-\(route.rawValue)", isDirectory: true)
+            try? Data(route.rawValue.utf8).write(to: source)
+            try? FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+            expectedDestinations.append(destination.appendingPathComponent(source.lastPathComponent))
+            switch route {
+            case .paste:
+                let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                owners.append(pane)
+                pane.m2ProbeSubmitPasteCopy([source])
+            case .listDrag:
+                let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                owners.append(pane)
+                pane.fileList.m2ProbeSubmitListCopy([source], into: destination)
+            case .iconDrag:
+                let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                owners.append(pane)
+                pane.m2ProbeSubmitIconCopy([source], into: destination)
+            case .paneToPane:
+                let panes = PanesContainerController(
+                    initialURL: destination,
+                    fileOperationBridge: bridge
+                )
+                owners.append(panes)
+                panes.m2ProbeSubmitPaneToPaneCopy([source], into: destination)
+            case .dropStack:
+                let stack = DropStackController(fileOperationBridge: bridge)
+                owners.append(stack)
+                stack.m2ProbeSubmitDropStackCopy([source], into: destination)
+            case .duplicate:
+                let pane = PaneController(url: destination, fileOperationBridge: bridge)
+                owners.append(pane)
+                pane.m2ProbeSubmitDuplicate([source])
+            }
+        }
+
+        let completed = waitUntil(10) {
+            bridge.submissionTrace.count == traceStart + NativeCopyRoute.allCases.count &&
+                expectedDestinations.allSatisfy {
+                    FileManager.default.fileExists(atPath: $0.path)
+                }
+        }
+        let trace = Array(bridge.submissionTrace.dropFirst(traceStart))
+        assert("M2 six copy routes complete", completed,
+               "trace=\(trace.map { $0.route.rawValue })")
+        assert("M2 one unique OperationID per route",
+               trace.count == NativeCopyRoute.allCases.count &&
+                Set(trace.map(\.operationID)).count == NativeCopyRoute.allCases.count &&
+                Set(trace.map(\.route)) == Set(NativeCopyRoute.allCases),
+               "trace=\(trace.map { "\($0.route.rawValue):\($0.operationID.rawValue)" })")
+        assert("M2 native routes enqueue zero legacy operations",
+               TransferQueue.shared.snapshot.count == legacyStart,
+               "legacy before=\(legacyStart) after=\(TransferQueue.shared.snapshot.count)")
+        withExtendedLifetime(owners) {}
+    }
+
+    private func runM2BridgeProjectionTests(sandbox: URL) async {
+        let fastRoot = sandbox.appendingPathComponent("m2-fast-refresh", isDirectory: true)
+        let fastDestination = fastRoot.appendingPathComponent("destination", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: fastDestination, withIntermediateDirectories: true
+        )
+        let fastSource = fastRoot.appendingPathComponent("source.txt")
+        try? Data("fast".utf8).write(to: fastSource)
+        var fastRefreshCount = 0
+        if let service = try? FileOperationService.makeVolatileNativeCopy() {
+            let bridge = FileOperationBridge(
+                service: service,
+                nativeCopyEnabled: true,
+                presentsAlerts: false,
+                submissionRegistrationDelayNanoseconds: 300_000_000
+            )
+            let submitted = bridge.submitCopy(
+                sources: [fastSource],
+                destination: fastDestination,
+                route: .paste,
+                refresh: { fastRefreshCount += 1 }
+            )
+            let converged = submitted
+                ? await waitUntilAsync(5) {
+                    FileManager.default.fileExists(
+                        atPath: fastDestination.appendingPathComponent("source.txt").path
+                    ) && fastRefreshCount == 1
+                }
+                : false
+            assert(
+                "M2 fast terminal registers then converges one refresh",
+                converged && fastRefreshCount == 1,
+                "submitted=\(submitted) refreshes=\(fastRefreshCount)"
+            )
+            withExtendedLifetime(bridge) {}
+        } else {
+            assert("M2 fast terminal service constructed", false, "service unavailable")
+        }
+
+        let partialRoot = sandbox.appendingPathComponent("m2-partial-refresh", isDirectory: true)
+        let partialDestination = partialRoot.appendingPathComponent(
+            "destination", isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: partialDestination, withIntermediateDirectories: true
+        )
+        let first = partialRoot.appendingPathComponent("first.txt")
+        let second = partialRoot.appendingPathComponent("second.txt")
+        try? Data("first".utf8).write(to: first)
+        try? Data("second".utf8).write(to: second)
+        let faults = NativeCopyFaultController(rules: [
+            NativeCopyFaultRule(
+                point: .copyData,
+                pathSuffix: "second.txt",
+                call: 1,
+                code: .permissionDenied,
+                systemCode: EACCES
+            )
+        ])
+        var partialRefreshCount = 0
+        if let service = try? FileOperationService.makeVolatileNativeCopy(faults: faults) {
+            let bridge = FileOperationBridge(
+                service: service,
+                nativeCopyEnabled: true,
+                presentsAlerts: false
+            )
+            let submitted = bridge.submitCopy(
+                sources: [first, second],
+                destination: partialDestination,
+                route: .listDrag,
+                refresh: { partialRefreshCount += 1 }
+            )
+            let converged = submitted
+                ? await waitUntilAsync(5) {
+                    guard let id = bridge.submissionTrace.last?.operationID,
+                          let snapshot = bridge.snapshots[id] else {
+                        return false
+                    }
+                    return snapshot.state == .failedRecoverable &&
+                        snapshot.hasPartialCommit &&
+                        partialRefreshCount == 1
+                }
+                : false
+            assert(
+                "M2 partial commit failure refreshes exactly once",
+                converged &&
+                    FileManager.default.fileExists(
+                        atPath: partialDestination.appendingPathComponent("first.txt").path
+                    ) &&
+                    !FileManager.default.fileExists(
+                        atPath: partialDestination.appendingPathComponent("second.txt").path
+                    ) &&
+                    partialRefreshCount == 1 &&
+                    faults.hitCount(ruleIndex: 0) > 0,
+                "submitted=\(submitted) refreshes=\(partialRefreshCount) " +
+                    "faultHits=\(faults.hitCount(ruleIndex: 0))"
+            )
+            withExtendedLifetime(bridge) {}
+        } else {
+            assert("M2 partial refresh service constructed", false, "service unavailable")
+        }
+
+        let orderingRoot = sandbox.appendingPathComponent(
+            "m2-snapshot-ordering", isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: orderingRoot, withIntermediateDirectories: true
+        )
+        let orderingSource = orderingRoot.appendingPathComponent("source.txt")
+        let orderingDestination = orderingRoot.appendingPathComponent("destination.txt")
+        try? Data("trusted".utf8).write(to: orderingSource)
+        try? Data("conflict".utf8).write(to: orderingDestination)
+        if let service = try? FileOperationService.makeVolatileNativeCopy(),
+           let id = try? await service.submit(OperationRequest(
+                kind: .copy,
+                sources: [orderingSource],
+                destination: orderingDestination,
+                destinationMode: .exact,
+                conflictPolicy: .ask,
+                verificationPolicy: .structural
+           )) {
+            var stale: OperationSnapshot?
+            let decisionDeadline = Date(timeIntervalSinceNow: 5)
+            while Date() < decisionDeadline {
+                if let snapshot = try? await service.snapshot(id),
+                   snapshot.state == .waitingForDecision,
+                   snapshot.pendingDecision != nil {
+                    stale = snapshot
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            if let token = stale?.pendingDecision?.token {
+                try? await service.resolve(token, with: .keepBoth(scope: .item))
+            }
+            var terminal: OperationSnapshot?
+            let terminalDeadline = Date(timeIntervalSinceNow: 5)
+            while Date() < terminalDeadline {
+                if let snapshot = try? await service.snapshot(id),
+                   [.completed, .completedWithSkips, .completedWithSourceRetained]
+                    .contains(snapshot.state) {
+                    terminal = snapshot
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            let bridge = FileOperationBridge(
+                service: service,
+                nativeCopyEnabled: true,
+                presentsAlerts: false
+            )
+            var lateRefreshCount = 0
+            if let terminal, let stale {
+                bridge.m2ProbeConsumeSnapshot(terminal)
+                bridge.m2ProbeRegisterRefresh(for: id) {
+                    lateRefreshCount += 1
+                }
+                bridge.m2ProbeConsumeSnapshot(stale)
+            }
+            let projected = bridge.snapshots[id]
+            assert(
+                "M2 stale snapshot cannot regress terminal projection",
+                stale != nil && terminal != nil &&
+                    projected?.latestSequence == terminal?.latestSequence &&
+                    projected?.state == terminal?.state &&
+                    lateRefreshCount == 1,
+                "stale=\(String(describing: stale?.state)) " +
+                    "terminal=\(String(describing: terminal?.state)) " +
+                    "projected=\(String(describing: projected?.state)) " +
+                    "lateRefreshes=\(lateRefreshCount)"
+            )
+            withExtendedLifetime(bridge) {}
+        } else {
+            assert("M2 snapshot ordering service constructed", false, "service unavailable")
+        }
+
+        let unavailableRoot = sandbox.appendingPathComponent(
+            "m2-unavailable-owner", isDirectory: true
+        )
+        let unavailableDestination = unavailableRoot.appendingPathComponent(
+            "destination", isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: unavailableDestination, withIntermediateDirectories: true
+        )
+        let unavailableSource = unavailableRoot.appendingPathComponent("source.txt")
+        try? Data("unavailable".utf8).write(to: unavailableSource)
+        if let service = try? FileOperationService.makeVolatileNativeCopy() {
+            let bridge = FileOperationBridge(
+                service: service,
+                nativeCopyEnabled: false,
+                presentsAlerts: false
+            )
+            var legacyDenials = 0
+            let observer = NotificationCenter.default.addObserver(
+                forName: .legacyWriteDenied,
+                object: nil,
+                queue: .main
+            ) { _ in
+                legacyDenials += 1
+            }
+            let legacyBefore = TransferQueue.shared.snapshot.count
+            FileOps.transfer(
+                [unavailableSource],
+                into: unavailableDestination,
+                move: false,
+                fileOperationBridge: bridge,
+                route: .paste
+            )
+            NotificationCenter.default.removeObserver(observer)
+            assert(
+                "M2 unavailable copy has one bridge presentation owner",
+                bridge.failurePresentationRequests == 1 &&
+                    legacyDenials == 0 &&
+                    TransferQueue.shared.snapshot.count == legacyBefore,
+                "bridgeRequests=\(bridge.failurePresentationRequests) " +
+                    "legacyDenials=\(legacyDenials) " +
+                    "legacyDelta=\(TransferQueue.shared.snapshot.count - legacyBefore)"
+            )
+            withExtendedLifetime(bridge) {}
+        } else {
+            assert("M2 unavailable owner service constructed", false, "service unavailable")
+        }
     }
 
     /// Off-screen assertions for the lazily-expanding sidebar folder tree.
@@ -2774,7 +3150,7 @@ final class TestRunner {
         activity.refresh()
 
         // Drop Stack panel builds (no present() → off-screen).
-        let shelf = DropStackController.shared
+        let shelf = DropStackController()
         assert("DropStackController builds", shelf.window?.contentView != nil, "nil")
         shelf.reload()
 
@@ -3718,6 +4094,16 @@ final class TestRunner {
         }
     }
 
+    /// CPU time makes synchronous microbenchmarks insensitive to hosted-runner
+    /// scheduling pauses while retaining the same work and strict thresholds.
+    private func threadCPUTime() -> TimeInterval {
+        var value = timespec()
+        guard clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value) == 0 else {
+            return ProcessInfo.processInfo.systemUptime
+        }
+        return TimeInterval(value.tv_sec) + TimeInterval(value.tv_nsec) / 1_000_000_000
+    }
+
     /// Spin the run loop until `predicate` holds or `timeout` elapses. Used to
     /// wait out the async (off-main) file-transfer queue in tests.
     @discardableResult
@@ -3725,6 +4111,17 @@ final class TestRunner {
         let deadline = Date(timeIntervalSinceNow: timeout)
         while !predicate() && Date() < deadline {
             RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        return predicate()
+    }
+
+    private func waitUntilAsync(
+        _ timeout: TimeInterval = 3,
+        _ predicate: @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !predicate() && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
         return predicate()
     }

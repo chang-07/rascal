@@ -167,9 +167,28 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     /// Whether a node has already loaded its children (proves laziness).
     static func testIsLoaded(_ node: TreeNode) -> Bool { node.isLoaded }
 
-    /// Themed tint that covers the vibrancy for non-System themes so the
-    /// sidebar background matches the rest of the window.
-    private let tintView = NSView()
+    /// Draws the custom-theme color through AppKit's normal display pass.
+    /// A plain layer background is not consistently included by off-screen
+    /// compositing on every supported macOS release.
+    private final class SidebarTintView: NSView {
+        var fillColor: NSColor = .clear {
+            didSet { needsDisplay = true }
+        }
+
+        override var allowsVibrancy: Bool { false }
+        override var isOpaque: Bool { fillColor.alphaComponent >= 1 }
+
+        override func draw(_ dirtyRect: NSRect) {
+            fillColor.setFill()
+            dirtyRect.fill()
+        }
+    }
+
+    /// Themed tint that covers vibrancy for non-System themes. Scroll, clip,
+    /// and outline surfaces stay transparent so no system background can sit
+    /// in front of this view.
+    private let effectView = NSVisualEffectView()
+    private let tintView = SidebarTintView()
     private var scrollTopConstraint: NSLayoutConstraint!
 
     /// Inset the source-list rows from the top (used to clear the traffic
@@ -180,15 +199,16 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     var testTopInset: CGFloat { scrollTopConstraint?.constant ?? -1 }
 
     override func loadView() {
-        // Sidebar-style NSVisualEffectView gives the native translucency for the
-        // System theme; a themed tint overlay covers it for custom themes.
-        let v = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 168, height: 400))
-        v.wantsLayer = true
-        v.material = .sidebar
-        v.blendingMode = .behindWindow
-        v.state = .followsWindowActiveState
+        // Keep vibrancy in a dedicated background child. If the root itself is
+        // an NSVisualEffectView, older AppKit releases can color-mix every
+        // descendant — including an otherwise opaque custom-theme tint.
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 168, height: 400))
+        effectView.material = .sidebar
+        effectView.blendingMode = .behindWindow
+        effectView.state = .followsWindowActiveState
+        effectView.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(effectView)
 
-        tintView.wantsLayer = true
         tintView.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(tintView)
 
@@ -203,6 +223,10 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         v.addSubview(scrollView)
         scrollTopConstraint = scrollView.topAnchor.constraint(equalTo: v.topAnchor)
         NSLayoutConstraint.activate([
+            effectView.topAnchor.constraint(equalTo: v.topAnchor),
+            effectView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+            effectView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+            effectView.bottomAnchor.constraint(equalTo: v.bottomAnchor),
             tintView.topAnchor.constraint(equalTo: v.topAnchor),
             tintView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             tintView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
@@ -221,13 +245,11 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         outline.addTableColumn(col)
         outline.outlineTableColumn = col
         outline.headerView = nil
-        // `.inset` (not `.sourceList`): the source-list style draws its OWN
-        // system vibrancy that ignores our theme tint, so every custom theme
-        // looked identically "system". `.inset` is non-vibrant, so the tint
-        // (clear for System → the visual-effect view shows; opaque theme color
-        // otherwise) governs the sidebar background. Runtime style changes
-        // don't reliably stick, so this is set once and never toggled.
-        outline.style = .inset
+        // `.plain` avoids both source-list vibrancy and the translucent inset
+        // fill that older AppKit releases composite over custom row colors.
+        // Spacing, indentation, and selection pills are all owned explicitly
+        // below, so the table style must not add another background material.
+        outline.style = .plain
         // selectionHighlightStyle = .sourceList is deprecated since macOS 12 because
         // setting the table style to .sourceList already provides the correct highlight.
         outline.indentationPerLevel = 16
@@ -351,24 +373,45 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         let t = ThemeManager.shared.current
         let isSystem = t.id == "system"
         
-        let view = self.view as? NSVisualEffectView
         if isSystem {
-            view?.state = .followsWindowActiveState
-            view?.material = .sidebar
+            effectView.state = .followsWindowActiveState
+            effectView.material = .sidebar
         } else {
-            view?.state = .inactive
-            view?.material = .underWindowBackground
+            effectView.state = .inactive
+            effectView.material = .underWindowBackground
         }
         
         let bg: NSColor = isSystem ? .clear : t.sidebarBackground
+        // Older AppKit releases synthesize an opaque control background for a
+        // transparent outline/clip during composition. Custom themes therefore
+        // paint every front surface with the same exact color; the System theme
+        // keeps them transparent so the background vibrancy remains visible.
+        scrollView.drawsBackground = !isSystem
+        scrollView.backgroundColor = bg
+        scrollView.contentView.drawsBackground = !isSystem
+        scrollView.contentView.backgroundColor = bg
         outline.backgroundColor = bg
-        tintView.layer?.backgroundColor = bg.cgColor
+        tintView.fillColor = bg
         outline.reloadData()
     }
 
     /// Test hook: the surface the sidebar actually renders (the outline's own
     /// background). Clear / zero-alpha = native vibrancy.
-    var testSidebarBackground: NSColor? { outline.backgroundColor }
+    var testSidebarBackground: NSColor? { tintView.fillColor }
+    /// Full composed surface. Sampling the root proves no scroll/clip/outline
+    /// layer has painted a system background over the custom-theme tint.
+    var testSidebarRenderedSurface: NSView { view }
+    /// A stable column inside the clip's painted content, far enough from the
+    /// legacy/overlay scroller track and its version-dependent shadow.
+    var testSidebarBackgroundSampleX: CGFloat {
+        let clipInRoot = scrollView.contentView.convert(scrollView.contentView.bounds, to: view)
+        return max(clipInRoot.minX + 1, clipInRoot.maxX - 24)
+    }
+    var testSidebarRenderDiagnostics: String {
+        "root=\(view.bounds) effect=\(effectView.frame) tint=\(tintView.frame) " +
+        "scroll=\(scrollView.frame) clip=\(scrollView.contentView.frame) " +
+        "outline=\(outline.frame)"
+    }
 
     func highlight(url: URL) {
         selectedURL = url
@@ -677,7 +720,9 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         !(item is Section)
     }
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-        ThemedRowView()   // theme-accent selection pill (system theme → native)
+        let row = ThemedRowView()   // theme-accent selection pill (system theme → native)
+        row.backgroundSurface = .sidebar
+        return row
     }
     func outlineViewSelectionDidChange(_ notification: Notification) {
         guard let url = navigableURL(forRow: outline.selectedRow) else { return }

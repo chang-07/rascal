@@ -147,8 +147,17 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     private var springTargetURL: URL?
     private var springTimer: Timer?
 
-    init(model: DirectoryModel) {
+    private let fileOperationBridge: FileOperationBridge?
+    private weak var dropStackController: DropStackController?
+
+    init(
+        model: DirectoryModel,
+        fileOperationBridge: FileOperationBridge? = nil,
+        dropStackController: DropStackController? = nil
+    ) {
         self.model = model
+        self.fileOperationBridge = fileOperationBridge
+        self.dropStackController = dropStackController
         super.init(nibName: nil, bundle: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(clipboardDidChangeNote),
                                                name: FileOps.clipboardDidChange, object: nil)
@@ -775,8 +784,24 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             target = model.url
         }
         let isCopy = FileOps.dropIsCopy(info)
-        FileOps.transfer(urls, into: target, move: !isCopy, from: view.window)
+        submitDrop(urls: urls, target: target, isCopy: isCopy)
         return true
+    }
+
+    private func submitDrop(urls: [URL], target: URL, isCopy: Bool) {
+        FileOps.transfer(
+            urls,
+            into: target,
+            move: !isCopy,
+            from: view.window,
+            fileOperationBridge: fileOperationBridge,
+            route: .listDrag,
+            refresh: { [weak self] in self?.model.reload() }
+        )
+    }
+
+    func m2ProbeSubmitListCopy(_ sources: [URL], into destination: URL) {
+        submitDrop(urls: sources, target: destination, isCopy: true)
     }
 
     // MARK: Cell helpers
@@ -1423,7 +1448,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     @objc private func menuAddToShelf() {
         let urls = selectedItems().map { $0.url }
         guard !urls.isEmpty else { return }
-        if DropStack.add(urls) > 0 { DropStackController.shared.present() }
+        if DropStack.add(urls) > 0 { dropStackController?.present() }
     }
     @objc private func menuCompress() {
         let urls = selectedItems().map { $0.url }
@@ -1497,7 +1522,14 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     @objc private func menuPaste() {
         let pb = NSPasteboard.general
         let move = FileOps.consumeCutFlag(for: pb)
-        FileOps.paste(pb, into: model.url, move: move, from: view.window)
+        FileOps.paste(
+            pb,
+            into: model.url,
+            move: move,
+            from: view.window,
+            fileOperationBridge: fileOperationBridge,
+            refresh: { [weak self] in self?.model.reload() }
+        )
     }
     @objc private func menuNewFolderWithSelection() {
         let sel = selectedItems().map { $0.url }

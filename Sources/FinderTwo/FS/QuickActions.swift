@@ -15,6 +15,7 @@ enum QuickActions {
     /// Rotate images in place. `clockwise` 90° (right) or counter-clockwise (left).
     @discardableResult
     static func rotate(_ urls: [URL], clockwise: Bool) -> Bool {
+        guard LegacyWriteGate.allows(.inPlaceQuickAction) else { return false }
         let degrees = clockwise ? "90" : "270"
         var allOK = true
         for u in urls where isImage(u) {

@@ -85,6 +85,7 @@ enum Archive {
     /// or nil on failure.
     @discardableResult
     static func extract(_ entry: Entry, from archive: URL, to destination: URL) -> URL? {
+        guard LegacyWriteGate.allows(.archiveWrite) else { return nil }
         guard let kind = Kind.detect(archive) else { return nil }
         let fm = FileManager.default
         var outFile = destination.appendingPathComponent((entry.path as NSString).lastPathComponent)
@@ -136,6 +137,7 @@ enum Archive {
     /// entries would escape `destination` (zip-slip).
     @discardableResult
     static func extractAll(_ archive: URL, to destination: URL) -> Bool {
+        guard LegacyWriteGate.allows(.archiveWrite) else { return false }
         guard let kind = Kind.detect(archive) else { return false }
         guard entriesAreSafe(archive) else { return false }
         let proc = Process()
@@ -175,6 +177,7 @@ enum Archive {
     /// Names like Finder: "<name>.<ext>" for one item, "Archive.<ext>" for many.
     /// A non-empty `password` (zip only) produces an encrypted zip.
     static func compress(_ items: [URL], format: CompressFormat = .zip, password: String? = nil) -> URL? {
+        guard LegacyWriteGate.allows(.archiveWrite) else { return nil }
         guard let first = items.first else { return nil }
         let parent = first.deletingLastPathComponent()
         let fm = FileManager.default
@@ -214,6 +217,7 @@ enum Archive {
     /// Extract an archive into a new sibling folder named after it (Finder-style).
     /// Returns the destination folder, or nil on failure / zip-slip refusal.
     static func extractInPlace(_ archive: URL) -> URL? {
+        guard LegacyWriteGate.allows(.archiveWrite) else { return nil }
         guard Kind.detect(archive) != nil else { return nil }
         let parent = archive.deletingLastPathComponent()
         let fm = FileManager.default

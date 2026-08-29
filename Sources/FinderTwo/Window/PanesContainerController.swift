@@ -30,8 +30,16 @@ final class PanesContainerController: NSSplitViewController {
     }
 
     private let initialURL: URL
-    init(initialURL: URL) {
+    private let fileOperationBridge: FileOperationBridge?
+    private weak var dropStackController: DropStackController?
+    init(
+        initialURL: URL,
+        fileOperationBridge: FileOperationBridge? = nil,
+        dropStackController: DropStackController? = nil
+    ) {
         self.initialURL = initialURL
+        self.fileOperationBridge = fileOperationBridge
+        self.dropStackController = dropStackController
         super.init(nibName: nil, bundle: nil)
         splitView.isVertical = true
     }
@@ -94,7 +102,11 @@ final class PanesContainerController: NSSplitViewController {
 
     @discardableResult
     private func addPane(at url: URL, activate: Bool) -> PaneController {
-        let pane = PaneController(url: url)
+        let pane = PaneController(
+            url: url,
+            fileOperationBridge: fileOperationBridge,
+            dropStackController: dropStackController
+        )
         pane.onBecomeActive = { [weak self, weak pane] in
             guard let self, let pane else { return }
             if let idx = self.panes.firstIndex(where: { $0 === pane }) {
@@ -139,7 +151,30 @@ final class PanesContainerController: NSSplitViewController {
         let other = panes[(activeIndex + 1) % panes.count]
         let sel = active.selectedURLs()
         guard !sel.isEmpty else { return }
-        FileOps.transfer(sel, into: other.currentURL, move: move, from: view.window)
+        submitPaneTransfer(sel, into: other.currentURL, move: move) {
+            [weak other] in other?.reload()
+        }
+    }
+
+    private func submitPaneTransfer(
+        _ sources: [URL],
+        into destination: URL,
+        move: Bool,
+        refresh: (@MainActor () -> Void)? = nil
+    ) {
+        FileOps.transfer(
+            sources,
+            into: destination,
+            move: move,
+            from: view.window,
+            fileOperationBridge: fileOperationBridge,
+            route: .paneToPane,
+            refresh: refresh
+        )
+    }
+
+    func m2ProbeSubmitPaneToPaneCopy(_ sources: [URL], into destination: URL) {
+        submitPaneTransfer(sources, into: destination, move: false)
     }
 
     /// Toggle synchronized browsing; re-baseline each pane's last URL so the

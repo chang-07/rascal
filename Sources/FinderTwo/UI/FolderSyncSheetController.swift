@@ -179,6 +179,7 @@ final class FolderSyncSheetController: NSWindowController, NSTableViewDataSource
     }
 
     @objc private func doApply() {
+        guard LegacyWriteGate.allows(.folderSync) else { return }
         let src = URL(fileURLWithPath: sourceField.stringValue)
         let dst = URL(fileURLWithPath: destField.stringValue)
 

@@ -71,6 +71,7 @@ enum AppUninstaller {
     /// Move every leftover (and the app bundle itself) to Trash.
     @discardableResult
     static func uninstall(app: URL, leftovers: [Leftover]) -> Bool {
+        guard LegacyWriteGate.allows(.appUninstall) else { return false }
         var ok = true
         for l in leftovers {
             do { try FileManager.default.trashItem(at: l.url, resultingItemURL: nil) }

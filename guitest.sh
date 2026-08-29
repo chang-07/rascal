@@ -41,9 +41,35 @@ FT_HEADLESS_TESTING=1 "$BIN" > "$LOG" 2>&1 &
 APP_PID=$!
 trap 'kill $APP_PID 2>/dev/null' EXIT
 PROC="first process whose unix id is $APP_PID"
-sleep 1.5
 
 osa() { osascript -e "$1" 2>&1; }
+
+# A fresh debug binary can take several seconds to register with Accessibility
+# after a clean SwiftPM build. A fixed sleep made the lane start assertions
+# against a live process before System Events had published its menu bar,
+# producing a cascade of false "missing" failures. Readiness is bounded and
+# checks both process liveness and the minimum menu surface used below.
+READY_TIMEOUT_SECONDS="${FT_GUI_READY_TIMEOUT_SECONDS:-60}"
+READY_DEADLINE=$((SECONDS + READY_TIMEOUT_SECONDS))
+AX_READY=false
+while (( SECONDS < READY_DEADLINE )); do
+    if ! kill -0 "$APP_PID" 2>/dev/null; then
+        echo "FinderTwo exited before Accessibility became ready (pid=$APP_PID)"
+        tail -20 "$LOG"
+        exit 70
+    fi
+    ready=$(osa "tell application \"System Events\" to tell ($PROC) to exists menu bar item \"Rascal\" of menu bar 1")
+    if [[ "$ready" == "true" ]]; then
+        AX_READY=true
+        break
+    fi
+    sleep 0.2
+done
+if [[ "$AX_READY" != "true" ]]; then
+    echo "FinderTwo Accessibility menu bar was not ready within ${READY_TIMEOUT_SECONDS}s (pid=$APP_PID)"
+    tail -20 "$LOG"
+    exit 71
+fi
 
 # -- Phase 1: top-level menus -----------------------------------------------
 
