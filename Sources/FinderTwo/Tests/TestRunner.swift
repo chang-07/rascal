@@ -2038,7 +2038,7 @@ final class TestRunner {
         }
         VimMode.shared.setEnabled(false)
 
-        // --- T56c: vim '/' and '?' focuses filter, Esc cancels and focuses file list ---
+        // --- T56c: vim '/' and '?' focus filter; Return accepts and Esc cancels ---
         VimMode.shared.setEnabled(true)
         pane.navigate(to: sandbox)
         pane.testReloadSync()
@@ -2061,9 +2061,18 @@ final class TestRunner {
                                              isARepeat: false, keyCode: 44)!
         let questionHandled = VimMode.shared.handle(event: questionEvent, in: pane, fileList: pane.testFileList)
         assert("vim '?' is consumed", questionHandled, "not handled")
+
+        // Return accepts the current filter, preserving it and returning focus to the list.
+        pane.testFocusSearchField(insert: "subdir")
+        let returnHandled = pane.testAcceptSearch()
+        assert("Toolbar insertNewline is handled", returnHandled, "not handled")
+        assert("Search text preserved on Return", pane.testModel.filterText == "subdir",
+               "filter changed: \(pane.testModel.filterText)")
+        assert("File list focused on Return", pane.view.window?.firstResponder === pane.testFileList.tableView,
+               "file list not focused")
         
         // Check that Esc cancels search and returns focus to the file list
-        pane.testFocusSearchField(insert: "subdir")
+        pane.testFocusSearchField()
         let escHandled = pane.testCancelSearch()
         assert("Toolbar cancelOperation is handled", escHandled, "not handled")
         assert("Search text cleared on Esc", pane.testModel.filterText.isEmpty, "filter not cleared: \(pane.testModel.filterText)")
