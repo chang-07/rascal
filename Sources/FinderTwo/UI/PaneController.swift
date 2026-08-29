@@ -183,11 +183,12 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
             // the pane stayed permanently blank. Snapping open (vs. the other drawers'
             // slide) is the deliberate trade for a preview that always renders.
             previewView.isHidden = false
-            previewWidthConstraint.constant = 260
+            previewWidthConstraint.constant = LayoutMetrics.value(.previewPaneWidth)
             view.layoutSubtreeIfNeeded()
             updatePreviewContent()
         } else {
-            animateDrawer(previewView, previewWidthConstraint, open: false, size: 260)
+            animateDrawer(previewView, previewWidthConstraint,
+                          open: false, size: LayoutMetrics.value(.previewPaneWidth))
         }
     }
 
@@ -361,11 +362,18 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         hotbarHeightConstraint.constant = Settings.showHotbar ? PaneController.hotbarHeight : 0
     }
 
-    /// Show/hide the breadcrumb path bar and the status bar per the user
-    /// settings (both on by default), collapsing to zero height when hidden.
+    /// Apply the path-control style and status-bar visibility, collapsing hidden
+    /// bands to zero height.
+    ///
+    /// The path used to be drawn twice — an editable field in the toolbar AND a
+    /// breadcrumb band beneath it. `Settings.pathControlStyle` now picks one, so
+    /// the default chrome is a band shorter and shows the path once.
     private func applyChromeVisibility() {
-        pathBar.isHidden = !Settings.showPathBar
-        pathBarHeightConstraint.constant = Settings.showPathBar ? 26 : 0
+        let style = Settings.pathControlStyle
+        let showCrumbs = (style == .breadcrumb || style == .both)
+        pathBar.isHidden = !showCrumbs
+        pathBarHeightConstraint.constant = showCrumbs ? 26 : 0
+        toolbar.setPathFieldVisible(style == .editableField || style == .both)
         statusBar.isHidden = !Settings.showStatusBar
         statusBarHeightConstraint.constant = Settings.showStatusBar ? 22 : 0
     }

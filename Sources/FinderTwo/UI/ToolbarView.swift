@@ -116,6 +116,18 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
         pathField.currentEditor()?.selectAll(nil)
     }
 
+    /// Show/hide the editable path field (see `Settings.PathControlStyle`).
+    /// Only toggles visibility — the field's layout slot is deliberately left in
+    /// place rather than re-flowing the toolbar, so this can't produce a broken
+    /// or conflicting layout. Reflowing the freed space belongs to the
+    /// data-driven toolbar phase.
+    func setPathFieldVisible(_ visible: Bool) {
+        pathField.isHidden = !visible
+    }
+
+    /// Test hook: whether the editable path field is currently showing.
+    var testPathFieldVisible: Bool { !pathField.isHidden }
+
     /// Programmatically set the filter and propagate (used by AX-driven tests
     /// where setting the AXValue alone does not fire controlTextDidChange).
     func setFilterText(_ value: String) {
