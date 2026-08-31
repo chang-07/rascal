@@ -39,61 +39,100 @@ enum FastDirScan {
         defer { closedir(d) }
 
         let parentPath = path.hasSuffix("/") ? path : path + "/"
+        // Raw bytes of the parent path (no trailing NUL), so each child's lstat path
+        // can be assembled from bytes rather than a lossy String round-trip.
+        let parentBytes: [CChar] = parentPath.withCString { p in
+            Array(UnsafeBufferPointer(start: p, count: strlen(p)))
+        }
         while let entryPtr = readdir(d) {
             let entry = entryPtr.pointee
-            // Skip "." and ".."
-            var name = withUnsafeBytes(of: entry.d_name) { rawPtr -> String in
-                let buf = rawPtr.bindMemory(to: CChar.self)
-                return String(cString: buf.baseAddress!)
+
+            // Assemble "<parent><name>" as a NUL-terminated C path straight from the
+            // raw d_name bytes. Do NOT decode the name to a String and rebuild the
+            // path from it: String(cString:) substitutes U+FFFD for any byte that
+            // isn't valid UTF-8, so the path would point at a file that doesn't exist,
+            // lstat would fail, and the entry would silently vanish from the listing
+            // (names copied from Linux, legacy encodings, some network volumes) — the
+            // "some folders don't show all the files" bug.
+            var pathBytes = parentBytes
+            var isDotEntry = false
+            let displayName: String = withUnsafeBytes(of: entry.d_name) { rawPtr -> String in
+                let base = rawPtr.bindMemory(to: CChar.self).baseAddress!
+                let len = strlen(base)
+                if (len == 1 && base[0] == 0x2E) ||
+                   (len == 2 && base[0] == 0x2E && base[1] == 0x2E) {
+                    isDotEntry = true
+                    return ""
+                }
+                pathBytes.append(contentsOf: UnsafeBufferPointer(start: base, count: len))
+                return String(cString: base)   // display only; may contain U+FFFD
             }
-            if name == "." || name == ".." { continue }
+            if isDotEntry { continue }          // "." / ".."
+            pathBytes.append(0)                 // NUL-terminate for the C calls
 
-            // Build path C-string for lstat
-            let fullPath = parentPath + name
+            // Fetch metadata — but do NOT drop the entry if lstat fails. readdir
+            // already reported the file exists; a failed lstat (a directory that's
+            // readable but not searchable — mode r-- with no x — or an item racing
+            // deletion) used to `continue` and silently hide the file, which is the
+            // real local "some folders don't show all the files" bug. Keep the row
+            // and fall back to readdir's d_type for the icon.
             var st = stat()
-            if lstat(fullPath, &st) != 0 { continue }
+            let haveStat = lstat(pathBytes, &st) == 0
 
-            let isSymlink = (st.st_mode & S_IFMT) == S_IFLNK
+            let isSymlink: Bool
             let isDir: Bool
-            if isSymlink {
-                // Resolve symlinks once so directory icons follow Finder behavior.
-                var stTarget = stat()
-                if stat(fullPath, &stTarget) == 0 {
-                    isDir = (stTarget.st_mode & S_IFMT) == S_IFDIR
+            if haveStat {
+                isSymlink = (st.st_mode & S_IFMT) == S_IFLNK
+                if isSymlink {
+                    // Resolve symlinks once so directory icons follow Finder behavior.
+                    var stTarget = stat()
+                    isDir = (stat(pathBytes, &stTarget) == 0)
+                        && (stTarget.st_mode & S_IFMT) == S_IFDIR
                 } else {
-                    isDir = false
+                    isDir = (st.st_mode & S_IFMT) == S_IFDIR
                 }
             } else {
-                isDir = (st.st_mode & S_IFMT) == S_IFDIR
+                // No stat available — use the directory entry's own type, which
+                // readdir provides without a stat. DT_UNKNOWN falls through to file.
+                isSymlink = Int32(entry.d_type) == DT_LNK
+                isDir = Int32(entry.d_type) == DT_DIR
             }
-            let mtime = Date(timeIntervalSince1970: Double(st.st_mtimespec.tv_sec)
-                                + Double(st.st_mtimespec.tv_nsec) / 1_000_000_000)
-            let ctime = Date(timeIntervalSince1970: Double(st.st_birthtimespec.tv_sec)
-                                + Double(st.st_birthtimespec.tv_nsec) / 1_000_000_000)
-            let size = isDir ? Int64(-1) : Int64(st.st_size)
-            // st_blocks is in fixed 512-byte units (POSIX), independent of the
-            // filesystem block size — this is the actual on-disk footprint and
-            // is what `du` and Disk Utility's "used" are based on. For symlinks
-            // this is the link's own (tiny) allocation, not the target's.
-            let physicalSize = Int64(st.st_blocks) * 512
+            let mtime = haveStat
+                ? Date(timeIntervalSince1970: Double(st.st_mtimespec.tv_sec)
+                        + Double(st.st_mtimespec.tv_nsec) / 1_000_000_000)
+                : Date(timeIntervalSince1970: 0)
+            let ctime = haveStat
+                ? Date(timeIntervalSince1970: Double(st.st_birthtimespec.tv_sec)
+                        + Double(st.st_birthtimespec.tv_nsec) / 1_000_000_000)
+                : Date(timeIntervalSince1970: 0)
+            let size = isDir ? Int64(-1) : (haveStat ? Int64(st.st_size) : 0)
+            // st_blocks is in fixed 512-byte units (POSIX) — the actual on-disk
+            // footprint (what `du` / Disk Utility "used" report). For symlinks this
+            // is the link's own (tiny) allocation, not the target's.
+            let physicalSize = haveStat ? Int64(st.st_blocks) * 512 : 0
+            // Display name keeps its original encoding, precomposed for HFS+/APFS
+            // consistency (cheap for ASCII names).
+            let name = (displayName as NSString).precomposedStringWithCanonicalMapping
             let isHidden = name.hasPrefix(".")
             let dot = name.lastIndex(of: ".")
             let ext = (dot != nil && dot != name.startIndex)
                 ? String(name[name.index(after: dot!)...]).lowercased()
                 : ""
 
-            // Strip a take-it-while strategy: name keeps its original encoding
-            // even when filesystem returns precomposed unicode (HFS+/APFS varies).
-            // Compatibility-decompose only when needed (very cheap for ASCII names).
-            name = (name as NSString).precomposedStringWithCanonicalMapping
-
-            let url = URL(fileURLWithPath: fullPath, isDirectory: isDir)
+            // Build the URL from the file-system representation (the real bytes) so it
+            // round-trips to the actual file even when the name isn't valid UTF-8.
+            let url = pathBytes.withUnsafeBufferPointer { bp in
+                URL(fileURLWithFileSystemRepresentation: bp.baseAddress!,
+                    isDirectory: isDir, relativeTo: nil)
+            }
             out.append(Entry(
                 url: url, name: name,
                 isDirectory: isDir, isSymlink: isSymlink, isHidden: isHidden,
                 size: size, modified: mtime, created: ctime, ext: ext,
-                physicalSize: physicalSize, inode: UInt64(st.st_ino),
-                device: Int32(st.st_dev), linkCount: Int(st.st_nlink)
+                physicalSize: physicalSize,
+                inode: haveStat ? UInt64(st.st_ino) : 0,
+                device: haveStat ? Int32(st.st_dev) : 0,
+                linkCount: haveStat ? Int(st.st_nlink) : 1
             ))
         }
         return out
