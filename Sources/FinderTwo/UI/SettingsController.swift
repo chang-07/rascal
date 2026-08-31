@@ -15,12 +15,13 @@ final class SettingsController: NSWindowController, NSToolbarDelegate, ThemeObse
     }
 
     enum Section: String, CaseIterable {
-        case general, appearance, keyboard, hotbar, developer, advanced
+        case general, appearance, layout, keyboard, hotbar, developer, advanced
         var label: String { rawValue.capitalized }
         var symbol: String {
             switch self {
             case .general: return "gearshape"
             case .appearance: return "paintpalette"
+            case .layout: return "slider.horizontal.3"
             case .keyboard: return "keyboard"
             case .hotbar: return "square.grid.2x2"
             case .developer: return "terminal"
@@ -31,6 +32,7 @@ final class SettingsController: NSWindowController, NSToolbarDelegate, ThemeObse
             switch self {
             case .general: return GeneralPane()
             case .appearance: return AppearancePane()
+            case .layout: return LayoutPane()
             case .keyboard: return KeyboardPane()
             case .hotbar: return HotbarPane()
             case .developer: return DeveloperPane()

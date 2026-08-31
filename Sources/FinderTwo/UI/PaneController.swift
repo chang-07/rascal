@@ -174,16 +174,21 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     func togglePreviewDrawer() {
         previewVisible.toggle()
         if previewVisible {
-            // Load the preview only once the drawer has slid to full width —
-            // QuickLook needs a non-zero frame (PreviewDrawerView guards this,
-            // but loading at full size avoids a blank first paint).
-            animateDrawer(previewView, previewWidthConstraint, open: true, size: 260,
-                          afterOpen: { [weak self] in
-                              guard let self, self.previewVisible else { return }
-                              self.updatePreviewContent()
-                          })
+            // Open to full width and lay out *before* loading, so QuickLook always
+            // builds against a real, non-zero host frame. Loading from the slide's
+            // completion handler was unreliable: AppKit fires that handler
+            // synchronously — before the width constraint is committed — whenever the
+            // change isn't animatable (e.g. the window isn't key), so the host read
+            // 0pt-wide, PreviewDrawerView's size guard dropped the QLPreviewView, and
+            // the pane stayed permanently blank. Snapping open (vs. the other drawers'
+            // slide) is the deliberate trade for a preview that always renders.
+            previewView.isHidden = false
+            previewWidthConstraint.constant = LayoutMetrics.value(.previewPaneWidth)
+            view.layoutSubtreeIfNeeded()
+            updatePreviewContent()
         } else {
-            animateDrawer(previewView, previewWidthConstraint, open: false, size: 260)
+            animateDrawer(previewView, previewWidthConstraint,
+                          open: false, size: LayoutMetrics.value(.previewPaneWidth))
         }
     }
 
@@ -320,6 +325,7 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         toolbar.onUp = { [weak self] in self?.goUp() }
         toolbar.onCommit = { [weak self] text in self?.commitTypedPath(text) }
         toolbar.onSearchChanged = { [weak self] q in self?.applyFilter(q) }
+        toolbar.onSearchAccepted = { [weak self] in self?.focusFileList() }
         toolbar.onSearchCancelled = { [weak self] in self?.focusFileList() }
 
         pathBar.onSelectSegment = { [weak self] url in self?.navigate(to: url) }
@@ -356,19 +362,29 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         hotbarHeightConstraint.constant = Settings.showHotbar ? PaneController.hotbarHeight : 0
     }
 
-    /// Show/hide the breadcrumb path bar and the status bar per the user
-    /// settings (both on by default), collapsing to zero height when hidden.
+    /// Apply the path-control style and status-bar visibility, collapsing hidden
+    /// bands to zero height.
+    ///
+    /// The path used to be drawn twice — an editable field in the toolbar AND a
+    /// breadcrumb band beneath it. `Settings.pathControlStyle` now picks one, so
+    /// the default chrome is a band shorter and shows the path once.
     private func applyChromeVisibility() {
-        pathBar.isHidden = !Settings.showPathBar
-        pathBarHeightConstraint.constant = Settings.showPathBar ? 26 : 0
+        let style = Settings.pathControlStyle
+        let showCrumbs = (style == .breadcrumb || style == .both)
+        pathBar.isHidden = !showCrumbs
+        pathBarHeightConstraint.constant = showCrumbs ? 26 : 0
+        toolbar.setPathFieldVisible(style == .editableField || style == .both)
         statusBar.isHidden = !Settings.showStatusBar
         statusBarHeightConstraint.constant = Settings.showStatusBar ? 22 : 0
     }
 
-    /// When the window title bar is hidden, inset the toolbar from the top so it
-    /// clears the traffic lights and lines up with the (also-inset) sidebar.
+    /// Pin the toolbar to the top of the pane. The window's traffic lights sit at
+    /// the top-LEFT, over the sidebar — not over this main pane (which is to the
+    /// sidebar's right) — so the toolbar never needs to clear them. Pushing it down
+    /// when the title bar was hidden just left an empty band (a "blank row") at the
+    /// top of the pane; the sidebar keeps its own inset to clear the lights.
     private func applyTopInset() {
-        topInsetConstraint.constant = Settings.showTitleBar ? 0 : PaneController.hiddenTitleBarInset
+        topInsetConstraint.constant = 0
     }
 
     func setActive(_ active: Bool, showBorder: Bool = false) {
@@ -1132,6 +1148,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     var testTabStripVisible: Bool { !tabStrip.isHidden }
     var testTabStrip: TabStripView { tabStrip }
     var testPreviewVisible: Bool { previewVisible }
+    var testPreviewHostSize: NSSize { previewView.testQLHostSize }
+    var testPreviewHasQLView: Bool { previewView.testHasLiveQLView }
     var testHotbarHeight: CGFloat { hotbarHeightConstraint.constant }
     var testToolbarTopInset: CGFloat { topInsetConstraint.constant }
     func testToolbarHasFocusAPI() -> Bool {
@@ -1144,6 +1162,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     }
     func testCancelSearch() -> Bool {
         return toolbar.testSimulateCancelSearch()
+    }
+    func testAcceptSearch() -> Bool {
+        return toolbar.testSimulateAcceptSearch()
     }
 }
 
