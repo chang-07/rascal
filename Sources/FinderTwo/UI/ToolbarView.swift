@@ -7,6 +7,7 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
     var onUp: (() -> Void)?
     var onCommit: ((String) -> Void)?
     var onSearchChanged: ((String) -> Void)?
+    var onSearchAccepted: (() -> Void)?
     var onSearchCancelled: (() -> Void)?
 
     var canGoBack: Bool = false {
@@ -115,6 +116,18 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
         pathField.currentEditor()?.selectAll(nil)
     }
 
+    /// Show/hide the editable path field (see `Settings.PathControlStyle`).
+    /// Only toggles visibility — the field's layout slot is deliberately left in
+    /// place rather than re-flowing the toolbar, so this can't produce a broken
+    /// or conflicting layout. Reflowing the freed space belongs to the
+    /// data-driven toolbar phase.
+    func setPathFieldVisible(_ visible: Bool) {
+        pathField.isHidden = !visible
+    }
+
+    /// Test hook: whether the editable path field is currently showing.
+    var testPathFieldVisible: Bool { !pathField.isHidden }
+
     /// Programmatically set the filter and propagate (used by AX-driven tests
     /// where setting the AXValue alone does not fire controlTextDidChange).
     func setFilterText(_ value: String) {
@@ -170,12 +183,15 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
             pathField.layer?.backgroundColor = bgColor.cgColor
             pathField.layer?.cornerRadius = 5
             
-            searchField.isBezeled = false
-            searchField.isBordered = false
-            searchField.drawsBackground = false
-            searchField.wantsLayer = true
-            searchField.layer?.backgroundColor = bgColor.cgColor
-            searchField.layer?.cornerRadius = 5
+            // Keep NSSearchField's native bezel machinery: its cell uses the
+            // bezel geometry to position and hit-test the search/cancel buttons.
+            // Turning it off makes typed text overlap the magnifier and leaves
+            // the visible cancel button with a broken hit region.
+            searchField.wantsLayer = false
+            searchField.isBezeled = true
+            searchField.isBordered = true
+            searchField.drawsBackground = true
+            searchField.backgroundColor = bgColor
         } else {
             pathField.wantsLayer = false
             pathField.isBezeled = true
@@ -190,11 +206,16 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
         }
     }
 
-    // NSTextFieldDelegate (path commit + ESC on search field)
+    // NSTextFieldDelegate (path commit + accept/cancel on search field)
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if control === pathField, commandSelector == #selector(NSResponder.insertNewline(_:)) {
             onCommit?(pathField.stringValue)
             window?.makeFirstResponder(nil)
+            return true
+        }
+        if control === searchField, commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            window?.makeFirstResponder(nil)
+            onSearchAccepted?()
             return true
         }
         if control === searchField, commandSelector == #selector(NSResponder.cancelOperation(_:)) {
@@ -218,5 +239,11 @@ final class ToolbarView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate, The
     func testSimulateCancelSearch() -> Bool {
         return control(searchField, textView: NSTextView(),
                        doCommandBy: #selector(NSResponder.cancelOperation(_:)))
+    }
+
+    /// Test hook: simulate Return on the search field using its real identity.
+    func testSimulateAcceptSearch() -> Bool {
+        return control(searchField, textView: NSTextView(),
+                       doCommandBy: #selector(NSResponder.insertNewline(_:)))
     }
 }
