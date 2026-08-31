@@ -202,25 +202,15 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         tableView.autosaveName = "FinderTwo.FileList"
         tableView.autosaveTableColumns = true
 
-        // Columns
-        addColumn(id: "name", title: "Name", width: 340, minWidth: 120, sortKey: SortKey.name.rawValue)
-        addColumn(id: "modified", title: "Date Modified", width: 170, minWidth: 110, sortKey: SortKey.dateModified.rawValue)
-        addColumn(id: "size", title: "Size", width: 90, minWidth: 60, sortKey: SortKey.size.rawValue, alignment: .right)
-        addColumn(id: "kind", title: "Kind", width: 130, minWidth: 70, sortKey: SortKey.kind.rawValue)
+        // Columns — every available column is created up front (so width/order
+        // autosave is stable) and hidden/shown from the persisted visible set.
+        for col in ListColumn.allCases { addColumn(col) }
+        applyColumnVisibility()
         suppressSortSave = true
         tableView.sortDescriptors = [NSSortDescriptor(key: SortKey.name.rawValue, ascending: true)]
         suppressSortSave = false
 
-        // Column chooser: right-click the header to show/hide columns (Name stays).
-        let headerMenu = NSMenu()
-        for col in tableView.tableColumns where col.identifier.rawValue != "name" {
-            let it = NSMenuItem(title: col.title, action: #selector(toggleColumn(_:)), keyEquivalent: "")
-            it.representedObject = col.identifier.rawValue
-            it.target = self
-            it.state = col.isHidden ? .off : .on
-            headerMenu.addItem(it)
-        }
-        tableView.headerView?.menu = headerMenu
+        rebuildHeaderMenu()
 
         scrollView.documentView = tableView
         scrollView.focusRingType = .none   // no blue focus outline around the list
@@ -267,14 +257,52 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         tableView.reloadData()
     }
 
-    private func addColumn(id: String, title: String, width: CGFloat, minWidth: CGFloat, sortKey: String, alignment: NSTextAlignment = .left) {
-        let c = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-        c.title = title
-        c.width = width
-        c.minWidth = minWidth
-        c.sortDescriptorPrototype = NSSortDescriptor(key: sortKey, ascending: true)
-        c.headerCell.alignment = alignment == .right ? .right : .left
+    private func addColumn(_ col: ListColumn) {
+        let c = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(col.id))
+        c.title = col.title
+        c.width = col.defaultWidth
+        c.minWidth = col.minWidth
+        // Only columns with a FileItem-backed ordering get a clickable sort
+        // header; Tags / Comments have no sort key.
+        if let key = col.sortKey {
+            c.sortDescriptorPrototype = NSSortDescriptor(key: key.rawValue, ascending: true)
+        }
+        c.headerCell.alignment = col.alignment == .right ? .right : .left
         tableView.addTableColumn(c)
+    }
+
+    /// Show/hide each table column to match the persisted visible set. Order is
+    /// left to NSTableView's column autosave (and user drag), so we only flip
+    /// `isHidden` here.
+    private func applyColumnVisibility() {
+        for c in tableView.tableColumns {
+            guard let col = ListColumn(rawValue: c.identifier.rawValue) else { continue }
+            c.isHidden = !ListColumnPrefs.isVisible(col)
+        }
+    }
+
+    /// Build the header right-click menu: one checkmark item per toggleable
+    /// column (the mandatory Name column is omitted — it can't be hidden).
+    private func rebuildHeaderMenu() {
+        let menu = NSMenu()
+        for col in ListColumn.allCases where !col.isMandatory {
+            let it = NSMenuItem(title: col.title, action: #selector(toggleColumn(_:)), keyEquivalent: "")
+            it.representedObject = col.id
+            it.target = self
+            it.state = ListColumnPrefs.isVisible(col) ? .on : .off
+            menu.addItem(it)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let reset = NSMenuItem(title: "Reset to Default Columns", action: #selector(resetColumns), keyEquivalent: "")
+        reset.target = self
+        menu.addItem(reset)
+        tableView.headerView?.menu = menu
+    }
+
+    @objc private func resetColumns() {
+        ListColumnPrefs.reset()
+        applyColumnVisibility()
+        rebuildHeaderMenu()   // refresh the checkmarks
     }
 
     /// A just-created item (New Folder / New File) to select — and optionally
@@ -463,6 +491,49 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         return "…"   // computing
     }
 
+    // MARK: Spotlight metadata cache (Comments / Date Added columns)
+    // MDItemCreateWithURL does synchronous disk I/O that can stall on a big or
+    // networked folder, so — exactly like the folder-size cache above — fetch it
+    // off-main and repaint the one row when it lands. One fetch fills both the
+    // Comments and Date Added columns for that URL.
+    private final class SpotlightEntry {
+        let comment: String
+        let dateAdded: Date?
+        init(comment: String, dateAdded: Date?) { self.comment = comment; self.dateAdded = dateAdded }
+    }
+    private static let spotlightQueue = DispatchQueue(label: "FinderTwo.spotlight", qos: .utility)
+    private let spotlightCache: NSCache<NSURL, SpotlightEntry> = {
+        let c = NSCache<NSURL, SpotlightEntry>(); c.countLimit = 4096; return c
+    }()
+    // Main-thread-confined: read + inserted in spotlightEntry(for:) (called from
+    // tableView(_:viewFor:) on main) and removed inside DispatchQueue.main.async.
+    // The off-main fetch (spotlightQueue.async) never touches this set, so it needs
+    // no lock — adding one would only add main-thread contention.
+    private var spotlightInFlight: Set<URL> = []
+
+    /// Cached Spotlight metadata for `url`, kicking off an off-main fetch (and
+    /// returning nil) the first time. The row is reloaded when the fetch lands.
+    private func spotlightEntry(for url: URL) -> SpotlightEntry? {
+        if let e = spotlightCache.object(forKey: url as NSURL) { return e }
+        if !spotlightInFlight.contains(url) {
+            spotlightInFlight.insert(url)
+            FileListController.spotlightQueue.async { [weak self] in
+                let entry = SpotlightEntry(comment: SpotlightMetadata.finderComment(url),
+                                           dateAdded: SpotlightMetadata.dateAdded(url))
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.spotlightCache.setObject(entry, forKey: url as NSURL)
+                    self.spotlightInFlight.remove(url)
+                    if let idx = self.urlToRowIndex[url], idx < self.tableView.numberOfRows {
+                        self.tableView.reloadData(forRowIndexes: IndexSet(integer: idx),
+                                                  columnIndexes: IndexSet(integersIn: 0..<self.tableView.numberOfColumns))
+                    }
+                }
+            }
+        }
+        return nil   // fetching
+    }
+
     static func recursiveSize(_ url: URL) -> Int64 {
         var total: Int64 = 0
         let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
@@ -478,9 +549,11 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
 
     @objc private func toggleColumn(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
-              let col = tableView.tableColumns.first(where: { $0.identifier.rawValue == id }) else { return }
-        col.isHidden.toggle()
-        sender.state = col.isHidden ? .off : .on
+              let col = ListColumn(rawValue: id),
+              let tableCol = tableView.tableColumns.first(where: { $0.identifier.rawValue == id }) else { return }
+        let nowVisible = ListColumnPrefs.toggle(col)   // persists the new set
+        tableCol.isHidden = !nowVisible
+        sender.state = nowVisible ? .on : .off
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -508,12 +581,12 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             return cell
         }
         guard let col = tableColumn, let mi = modelIndex(forRow: row),
-              model.items.indices.contains(mi) else { return nil }
+              model.items.indices.contains(mi),
+              let column = ListColumn(rawValue: col.identifier.rawValue) else { return nil }
         let item = model.items[mi]
-        let id = col.identifier.rawValue
 
-        switch id {
-        case "name":
+        switch column {
+        case .name:
             let cellId = NSUserInterfaceItemIdentifier("NameCell")
             let cell = (tableView.makeView(withIdentifier: cellId, owner: nil) as? NameCell) ?? NameCell()
             cell.identifier = cellId
@@ -521,9 +594,11 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             cell.configure(with: item, gitState: model.gitStates[item.name])
             cell.imageView?.image = thumbnail(for: item, indexPath: row)
             return cell
-        case "modified":
+        case .modified:
             return makeTextCell(text: DateFormatterCache.string(item.modified), color: secondaryTextColor)
-        case "size":
+        case .created:
+            return makeTextCell(text: DateFormatterCache.string(item.created), color: secondaryTextColor)
+        case .size:
             let sizeText: String
             if item.isDirectory {
                 sizeText = Settings.calculateFolderSizes ? folderSizeText(for: item.url) : "—"
@@ -531,11 +606,32 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
                 sizeText = SizeFormatter.string(item.size)
             }
             return makeTextCell(text: sizeText, color: secondaryTextColor, alignment: .right)
-        case "kind":
+        case .kind:
             return makeTextCell(text: item.kindDescription, color: secondaryTextColor)
-        default:
-            return nil
+        case .tags:
+            // Reuse the memoized color read from the name cell's dots (no extra
+            // getxattr per row); show colored dots + comma-joined tag names.
+            let colors = Tags.cachedColors(for: item.url, modified: item.modified)
+            return makeTagsCell(colors: colors, names: tagNames(for: item))
+        case .comments:
+            let comment = spotlightEntry(for: item.url)?.comment ?? ""
+            return makeTextCell(text: comment, color: secondaryTextColor)
+        case .dateAdded:
+            let text: String
+            if let entry = spotlightEntry(for: item.url) {
+                text = entry.dateAdded.map { DateFormatterCache.string($0) } ?? "—"
+            } else {
+                text = "…"   // Spotlight fetch in flight
+            }
+            return makeTextCell(text: text, color: secondaryTextColor)
         }
+    }
+
+    /// Tag names for a file (full set, including uncolored tags) for the Tags
+    /// column. Goes through Tags.read, which is memoized for color dots; the name
+    /// read is cheap relative to a Spotlight fetch and only runs for visible rows.
+    private func tagNames(for item: FileItem) -> [String] {
+        Tags.read(item.url).map { $0.name }
     }
 
     func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
@@ -709,6 +805,31 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         // Honor the live font size (theme base + density delta) — secondary
         // columns sit one point smaller than the name column.
         cell.textField?.font = NSFont.systemFont(ofSize: max(9, ThemeManager.shared.effectiveFontSize - 1))
+        return cell
+    }
+
+    /// Tags column cell: leading colored dots (one per tag color) followed by the
+    /// comma-joined tag names. Renders into the same TextCell as other secondary
+    /// columns so it picks up theme color/font; the dots ride in an attributed
+    /// prefix the way the name cell shows them.
+    private func makeTagsCell(colors: [Tags.Color], names: [String]) -> NSView {
+        let cell = makeTextCell(text: "", color: secondaryTextColor)
+        guard let tf = (cell as? NSTableCellView)?.textField else { return cell }
+        if colors.isEmpty && names.isEmpty {
+            tf.attributedStringValue = NSAttributedString(string: "")
+            return cell
+        }
+        let s = NSMutableAttributedString()
+        let dotFont = NSFont.systemFont(ofSize: 9)
+        for c in colors.prefix(5) {
+            s.append(NSAttributedString(string: "● ", attributes: [.foregroundColor: c.nsColor, .font: dotFont]))
+        }
+        if !names.isEmpty {
+            s.append(NSAttributedString(string: names.joined(separator: ", "),
+                                        attributes: [.foregroundColor: secondaryTextColor,
+                                                     .font: tf.font ?? NSFont.systemFont(ofSize: 12)]))
+        }
+        tf.attributedStringValue = s
         return cell
     }
 

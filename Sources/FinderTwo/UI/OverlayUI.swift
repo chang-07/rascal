@@ -6,9 +6,12 @@ import AppKit
 /// icon + title + subtitle result row. The panel adopts the active theme, so
 /// in Rascal Light it's a warm light card, in Rascal Dark a deep one.
 enum OverlayUI {
-    static let panelWidth: CGFloat = 640
-    static let panelHeight: CGFloat = 440
-    static let rowHeight: CGFloat = 36
+    // User-customizable via LayoutMetrics (Layout settings pane). Overlay panels
+    // are built fresh on each invocation, so a new size applies the next time an
+    // overlay opens — no live relayout needed.
+    static var panelWidth: CGFloat { LayoutMetrics.value(.paletteWidth) }
+    static var panelHeight: CGFloat { LayoutMetrics.value(.paletteHeight) }
+    static var rowHeight: CGFloat { LayoutMetrics.value(.overlayRowHeight) }
 
     private static var isDark: Bool {
         let t = ThemeManager.shared.current

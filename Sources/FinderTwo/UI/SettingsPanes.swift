@@ -415,6 +415,18 @@ final class DeveloperPane: SettingsPane {
     private let customShellField = NSTextField()
 
     override func build() {
+        let devMode = NSButton(checkboxWithTitle: "Show developer commands in menus",
+                               target: self, action: #selector(devModeChanged(_:)))
+        devMode.state = Settings.developerMode ? .on : .off
+        addRow("Developer:", devMode)
+
+        let devHint = NSTextField(wrappingLabelWithString:
+            "Surfaces View Git Diffs, Jump to Project Root, and Open in Editor directly in the menus. When off, they stay under the Developer submenu and the command palette.")
+        devHint.font = NSFont.systemFont(ofSize: 11)
+        devHint.textColor = .tertiaryLabelColor
+        devHint.preferredMaxLayoutWidth = 380
+        addRow("", devHint)
+
         let gitEnabled = NSButton(checkboxWithTitle: "Enable Git integration (status & badges)",
                                   target: self, action: #selector(gitEnabledChanged(_:)))
         gitEnabled.state = Settings.gitIntegrationEnabled ? .on : .off
@@ -460,6 +472,12 @@ final class DeveloperPane: SettingsPane {
         addRow("Terminal shell:", shellStack)
     }
 
+    @objc private func devModeChanged(_ s: NSButton) {
+        Settings.developerMode = s.state == .on
+        // Rebuild the menu bar so the Developer-gated items move in/out of the
+        // default menus immediately (reuses the menu's existing rebuild hook).
+        NotificationCenter.default.post(name: ActionRegistry.shortcutsDidChange, object: nil)
+    }
     @objc private func gitEnabledChanged(_ s: NSButton) { Settings.gitIntegrationEnabled = s.state == .on }
     @objc private func gitBranchChanged(_ s: NSButton) { Settings.showGitBranchInStatusBar = s.state == .on }
 

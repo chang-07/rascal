@@ -57,8 +57,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     private var vimKeyMonitor: Any?
     /// Off-main branch lookups for the window subtitle (reads .git/HEAD).
     private static let gitInfoQueue = DispatchQueue(label: "FinderTwo.windowGitInfo", qos: .utility)
+    /// Anchor for cascading additional windows. AppKit's `cascadeTopLeft` mutates
+    /// the point it's given, so we thread it through every window we open: the
+    /// first window seeds it, each subsequent window steps down-right from it so
+    /// new windows never land exactly on top of an existing one.
+    static var cascadePoint = NSPoint.zero
 
-    init(rootURL: URL) {
+    /// - Parameter autosaveFrame: when true (the single launch window) the
+    ///   window's size/position persists across launches via a shared frame
+    ///   autosave name. Additional windows (⌘N, "Open in New Window", move-tab-
+    ///   out) pass false: binding the SAME autosave name to every window made
+    ///   each new window restore the first window's exact frame and open pixel-
+    ///   for-pixel on top of it — so ⌘N looked like it did nothing. Unsaved
+    ///   windows cascade instead, landing visibly offset and independent.
+    init(rootURL: URL, autosaveFrame: Bool = true) {
         self.sidebarVC = SidebarController()
         self.panesContainer = PanesContainerController(initialURL: rootURL)
 
@@ -89,9 +101,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         window.isRestorable = false
 
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarVC)
-        sidebarItem.minimumThickness = 130
-        sidebarItem.maximumThickness = 240
-        sidebarItem.preferredThicknessFraction = 0.15   // ~165pt on the default window, capped at 240
+        sidebarItem.minimumThickness = LayoutToken.sidebarWidth.range.lowerBound
+        // Raise the drag ceiling to the customized width when it exceeds the
+        // stock 240 cap, so a wider sidebar is reachable by dragging too.
+        sidebarItem.maximumThickness = max(LayoutMetrics.value(.sidebarWidth), 240)
+        sidebarItem.preferredThicknessFraction = 0.15   // ~165pt on the default window
         sidebarItem.canCollapse = true
         // High holding priority pins the sidebar to its set width so the main
         // pane absorbs window resizing instead of the sidebar ballooning.
@@ -99,7 +113,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         splitVC.addSplitViewItem(sidebarItem)
 
         let mainItem = NSSplitViewItem(viewController: panesContainer)
-        mainItem.minimumThickness = 360
+        mainItem.minimumThickness = LayoutMetrics.value(.paneMinWidth)
         mainItem.holdingPriority = .defaultLow + 1
         splitVC.addSplitViewItem(mainItem)
 
@@ -109,7 +123,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         // contentViewController assignment nor later column navigation can
         // auto-resize the window.
         let isHeadless = ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1"
-        if !isHeadless {
+        if isHeadless {
+            window.setContentSize(NSSize(width: 1100, height: 700))
+        } else if autosaveFrame {
+            // The single launch window: persist its size/position across launches.
+            // Only ONE window may own this autosave name — additional windows
+            // (autosaveFrame == false) must not bind it, or they'd all restore
+            // this same frame and stack on top of each other.
             windowFrameAutosaveName = "FinderTwo.BrowserWindow"
             if !window.setFrameUsingName("FinderTwo.BrowserWindow") {
                 window.setContentSize(NSSize(width: 1100, height: 700))
@@ -124,13 +144,29 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
                     window.setFrame(centered, display: false)
                 }
             }
+            // Seed the cascade anchor from the launch window's top-left so the
+            // first ⌘N steps down-right from wherever this window ended up.
+            BrowserWindowController.cascadePoint = NSPoint(x: window.frame.minX,
+                                                           y: window.frame.maxY)
         } else {
+            // An additional window: give it the default size and cascade it from
+            // the last opened window so it's visibly offset and independent —
+            // never restored onto the launch window's saved frame.
             window.setContentSize(NSSize(width: 1100, height: 700))
+            BrowserWindowController.cascadePoint =
+                window.cascadeTopLeft(from: BrowserWindowController.cascadePoint)
         }
         // Initial size is now set (default or autosaved). From here the window only
         // resizes when the user drags its edge / zooms / goes fullscreen — content
         // (e.g. Miller-view column navigation) can no longer auto-grow it.
         (window as? UserResizeOnlyWindow)?.sizeLockedToUser = true
+
+        // A customized sidebar width is applied once the split view has laid
+        // out — setPosition before first layout doesn't stick. Untouched
+        // installs keep preferredThicknessFraction and skip this entirely.
+        if LayoutMetrics.isCustomized(.sidebarWidth) {
+            DispatchQueue.main.async { [weak self] in self?.applyLayoutMetrics() }
+        }
 
         sidebarVC.onSelect = { [weak self] url in
             self?.panesContainer.activePane?.navigate(to: url)
@@ -176,7 +212,28 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         ThemeChrome.apply(to: window)
     }
 
-    @objc private func chromeSettingsChanged() { applyTitleBarVisibility() }
+    @objc private func chromeSettingsChanged() {
+        applyTitleBarVisibility()
+        applyLayoutMetrics()
+    }
+
+    /// Last sidebar width pushed via `setPosition`. We only re-position when the
+    /// token itself changes, so an unrelated settings change never snaps the
+    /// sidebar back and undoes the user's manual drag.
+    private var appliedSidebarWidth: CGFloat?
+
+    /// Apply the user-customizable split geometry (`LayoutMetrics` tokens).
+    private func applyLayoutMetrics() {
+        guard let splitVC = window?.contentViewController as? NSSplitViewController,
+              splitVC.splitViewItems.count >= 2 else { return }
+        splitVC.splitViewItems[1].minimumThickness = LayoutMetrics.value(.paneMinWidth)
+
+        let width = LayoutMetrics.value(.sidebarWidth)
+        splitVC.splitViewItems[0].maximumThickness = max(width, 240)
+        guard appliedSidebarWidth != width else { return }
+        appliedSidebarWidth = width
+        splitVC.splitView.setPosition(width, ofDividerAt: 0)
+    }
 
     /// Show/hide the window title bar. Hidden = full-size content under a
     /// transparent, title-less bar (traffic lights remain). The sidebar gets a
@@ -599,6 +656,63 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     }
     @objc func goToFolder(_ sender: Any?) { activePane?.showGoToFolderSheet() }
 
+    /// Pop up the GLOBAL recent-directories history (session-wide, distinct from
+    /// the pane's back/forward) as a menu and navigate the ACTIVE pane to the
+    /// chosen folder. Keyboard-first: the popped menu is arrow-key navigable and
+    /// type-to-select, matching the workspace-open menu pattern.
+    /// Navigate the active pane to a folder chosen from the Recent Directories
+    /// menu. A thin production wrapper so the menu target routes through the real
+    /// `activePane` accessor instead of a test-only one.
+    func navigateActivePane(to url: URL) { activePane?.navigate(to: url) }
+
+    @objc func showRecentDirectories(_ sender: Any?) {
+        guard let pane = activePane else { NSSound.beep(); return }
+        // Don't offer the folder you're already in.
+        let current = pane.currentURL.path
+        let recents = RecentDirectories.all().filter { $0.path != current }
+        guard !recents.isEmpty else { NSSound.beep(); return }
+
+        let menu = NSMenu(title: "Recent Directories")
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        for url in recents {
+            let name = url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent
+            let item = NSMenuItem(title: name,
+                                  action: #selector(RecentDirectoriesMenuTarget.navigate(_:)),
+                                  keyEquivalent: "")
+            // Show the abbreviated parent path so duplicate folder names (e.g. two
+            // "src" folders) are still distinguishable at a glance.
+            let parent = url.deletingLastPathComponent().path
+            let shown = parent.hasPrefix(home)
+                ? "~" + parent.dropFirst(home.count)
+                : parent
+            item.toolTip = url.path
+            item.representedObject = RecentDirectoriesMenuTarget.Payload(url: url, wc: self)
+            item.target = RecentDirectoriesMenuTarget.shared
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            icon.size = NSSize(width: 16, height: 16)
+            item.image = icon
+            // Attributed title puts the dimmed parent path after the folder name.
+            let title = NSMutableAttributedString(string: name)
+            title.append(NSAttributedString(
+                string: "   \(shown)",
+                attributes: [.foregroundColor: NSColor.secondaryLabelColor,
+                             .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]))
+            item.attributedTitle = title
+            menu.addItem(item)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let clear = NSMenuItem(title: "Clear Recent Directories",
+                               action: #selector(RecentDirectoriesMenuTarget.clear(_:)),
+                               keyEquivalent: "")
+        clear.target = RecentDirectoriesMenuTarget.shared
+        menu.addItem(clear)
+
+        if let view = window?.contentView {
+            let p = NSPoint(x: 20, y: view.bounds.height - 20)
+            menu.popUp(positioning: nil, at: p, in: view)
+        }
+    }
+
     @objc func renameSelection(_ sender: Any?) {
         activePane?.beginRenameSelection()
     }
@@ -810,5 +924,22 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
 final class OffscreenSafeWindow: NSWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect   // never clamp onto a display
+    }
+}
+
+/// Target for the "Recent Directories" pop-up menu items. Menu items need a
+/// concrete target/action; a shared object keeps that off the controller and
+/// mirrors `WorkspaceMenuTarget`. The chosen folder navigates the ACTIVE pane.
+final class RecentDirectoriesMenuTarget: NSObject {
+    static let shared = RecentDirectoriesMenuTarget()
+    struct Payload { let url: URL; let wc: BrowserWindowController }
+
+    @objc func navigate(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? Payload else { return }
+        p.wc.navigateActivePane(to: p.url)
+    }
+
+    @objc func clear(_ sender: NSMenuItem) {
+        RecentDirectories.clear()
     }
 }
