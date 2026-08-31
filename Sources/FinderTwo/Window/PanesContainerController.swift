@@ -120,7 +120,7 @@ final class PanesContainerController: NSSplitViewController {
             pane.view.window?.invalidateRestorableState()
         }
         let item = NSSplitViewItem(viewController: pane)
-        item.minimumThickness = 280
+        item.minimumThickness = LayoutMetrics.value(.extraPaneMinWidth)
         item.holdingPriority = .defaultLow
         addSplitViewItem(item)
         panes.append(pane)

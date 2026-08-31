@@ -1647,6 +1647,63 @@ final class TestRunner {
                        "recursive delete failed")
             }
         }
+        // --- T45d: LayoutMetrics default / override / clamp / cache / reset ---
+        LayoutMetrics.resetAll()
+        assert("LayoutMetrics returns the built-in default when unset",
+               LayoutMetrics.value(.paletteWidth) == LayoutToken.paletteWidth.defaultValue
+               && !LayoutMetrics.isCustomized(.paletteWidth),
+               "got=\(LayoutMetrics.value(.paletteWidth))")
+        LayoutMetrics.set(.paletteWidth, 800)
+        assert("LayoutMetrics honors an override (and invalidates its cache)",
+               LayoutMetrics.value(.paletteWidth) == 800 && LayoutMetrics.isCustomized(.paletteWidth),
+               "got=\(LayoutMetrics.value(.paletteWidth))")
+        assert("OverlayUI reads its panel width from LayoutMetrics",
+               OverlayUI.panelWidth == 800,
+               "overlay=\(OverlayUI.panelWidth)")
+        LayoutMetrics.set(.paletteWidth, 99_999)
+        assert("LayoutMetrics clamps above the range maximum",
+               LayoutMetrics.value(.paletteWidth) == LayoutToken.paletteWidth.range.upperBound,
+               "got=\(LayoutMetrics.value(.paletteWidth))")
+        LayoutMetrics.set(.paletteWidth, 1)
+        assert("LayoutMetrics clamps below the range minimum",
+               LayoutMetrics.value(.paletteWidth) == LayoutToken.paletteWidth.range.lowerBound,
+               "got=\(LayoutMetrics.value(.paletteWidth))")
+        LayoutMetrics.set(.paletteWidth, nil)
+        assert("LayoutMetrics clearing an override restores the default",
+               LayoutMetrics.value(.paletteWidth) == LayoutToken.paletteWidth.defaultValue
+               && !LayoutMetrics.isCustomized(.paletteWidth),
+               "got=\(LayoutMetrics.value(.paletteWidth))")
+        LayoutMetrics.set(.previewPaneWidth, 320)
+        LayoutMetrics.resetAll()
+        assert("LayoutMetrics.resetAll clears every override",
+               !LayoutMetrics.hasAnyCustomization
+               && LayoutMetrics.value(.previewPaneWidth) == LayoutToken.previewPaneWidth.defaultValue,
+               "customized=\(LayoutMetrics.hasAnyCustomization)")
+
+        // --- T45e: Layout settings pane is registered and builds a row per token ---
+        assert("Settings window has a Layout section",
+               SettingsController.Section.allCases.contains(.layout), "missing")
+        let layoutPane = LayoutPane()
+        _ = layoutPane.view     // force loadView() -> build()
+        assert("LayoutPane builds path-control + a row per token + reset",
+               layoutPane.grid.numberOfRows == LayoutToken.allCases.count + 4,
+               "rows=\(layoutPane.grid.numberOfRows) tokens=\(LayoutToken.allCases.count)")
+
+        // --- T45f: PathControlStyle collapses the duplicated path chrome ---
+        UserDefaults.standard.removeObject(forKey: "FinderTwo.pathControlStyle")
+        assert("pathControlStyle defaults to one path control, not two",
+               Settings.pathControlStyle == .editableField,
+               "got=\(Settings.pathControlStyle.rawValue)")
+        assert("PathControlStyle offers field/breadcrumb/both/hidden",
+               Settings.PathControlStyle.allCases.count == 4,
+               "got=\(Settings.PathControlStyle.allCases.count)")
+        let tbar = ToolbarView(frame: .zero)
+        tbar.setPathFieldVisible(false)
+        assert("ToolbarView can hide the editable path field",
+               !tbar.testPathFieldVisible, "still visible")
+        tbar.setPathFieldVisible(true)
+        assert("ToolbarView can show the editable path field",
+               tbar.testPathFieldVisible, "still hidden")
 
         // --- T46: GitBranchWorkspaces repoRoot + currentBranch ---
         let gitProj = sandbox.appendingPathComponent("git_proj")
@@ -2230,7 +2287,7 @@ final class TestRunner {
         }
         VimMode.shared.setEnabled(false)
 
-        // --- T56c: vim '/' and '?' focuses filter, Esc cancels and focuses file list ---
+        // --- T56c: vim '/' and '?' focus filter; Return accepts and Esc cancels ---
         VimMode.shared.setEnabled(true)
         pane.navigate(to: sandbox)
         pane.testReloadSync()
@@ -2253,9 +2310,18 @@ final class TestRunner {
                                              isARepeat: false, keyCode: 44)!
         let questionHandled = VimMode.shared.handle(event: questionEvent, in: pane, fileList: pane.testFileList)
         assert("vim '?' is consumed", questionHandled, "not handled")
+
+        // Return accepts the current filter, preserving it and returning focus to the list.
+        pane.testFocusSearchField(insert: "subdir")
+        let returnHandled = pane.testAcceptSearch()
+        assert("Toolbar insertNewline is handled", returnHandled, "not handled")
+        assert("Search text preserved on Return", pane.testModel.filterText == "subdir",
+               "filter changed: \(pane.testModel.filterText)")
+        assert("File list focused on Return", pane.view.window?.firstResponder === pane.testFileList.tableView,
+               "file list not focused")
         
         // Check that Esc cancels search and returns focus to the file list
-        pane.testFocusSearchField(insert: "subdir")
+        pane.testFocusSearchField()
         let escHandled = pane.testCancelSearch()
         assert("Toolbar cancelOperation is handled", escHandled, "not handled")
         assert("Search text cleared on Esc", pane.testModel.filterText.isEmpty, "filter not cleared: \(pane.testModel.filterText)")
