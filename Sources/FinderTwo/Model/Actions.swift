@@ -24,6 +24,10 @@ struct Action {
     /// Kept out of the default menus and tucked under a "Developer" submenu
     /// unless `Settings.developerMode` is on. Always reachable in the palette.
     let isDeveloper: Bool
+    /// Extra search terms for the command palette, for commands people look up
+    /// by a word that isn't in the title (e.g. "sftp"/"ssh" → Connect to
+    /// Server). Never shown in the UI; matched alongside title and category.
+    let keywords: [String]
     /// Body of the action. Receives the active BrowserWindowController.
     let perform: (BrowserWindowController) -> Void
 
@@ -33,6 +37,7 @@ struct Action {
          icon: String?,
          defaultShortcut: KeyShortcut?,
          isDeveloper: Bool = false,
+         keywords: [String] = [],
          perform: @escaping (BrowserWindowController) -> Void) {
         self.id = id
         self.title = title
@@ -40,6 +45,7 @@ struct Action {
         self.icon = icon
         self.defaultShortcut = defaultShortcut
         self.isDeveloper = isDeveloper
+        self.keywords = keywords
         self.perform = perform
     }
 
@@ -161,17 +167,21 @@ enum ActionRegistry {
               category: .file,
               icon: "folder.badge.gearshape",
               defaultShortcut: KeyShortcut("n", [.command, .option])) { $0.newSmartFolder(nil) },
+        // NB: the ⌫ (delete/backspace) key equivalent MUST be NSBackspaceCharacter
+        // (0x08), not NSDeleteCharacter (0x7F). 0x7F is FORWARD delete (⌦); the
+        // physical delete key sends 0x08, and menu key-equivalent matching is
+        // exact, so 0x7F silently never fires — ⌘⌫ did nothing at all.
         .init(id: "file.delete-immediately",
               title: "Delete Immediately…",
               category: .file,
               icon: "trash.slash",
-              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSDeleteCharacter)!)),
+              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSBackspaceCharacter)!)),
                                            [.command, .option])) { $0.deleteImmediately(nil) },
         .init(id: "file.empty-trash",
               title: "Empty Trash…",
               category: .file,
               icon: "trash",
-              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSDeleteCharacter)!)),
+              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSBackspaceCharacter)!)),
                                            [.command, .shift])) { $0.emptyTrash(nil) },
         .init(id: "file.get-info",
               title: "Get Info",
@@ -187,7 +197,7 @@ enum ActionRegistry {
               title: "Move to Trash",
               category: .file,
               icon: "trash",
-              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSDeleteCharacter)!)),
+              defaultShortcut: KeyShortcut(String(Character(UnicodeScalar(NSBackspaceCharacter)!)),
                                            [.command])) { $0.moveToTrash(nil) },
         .init(id: "file.reveal-finder",
               title: "Reveal in Finder",
@@ -481,12 +491,18 @@ enum ActionRegistry {
               title: "Connect to Server…",
               category: .navigation,
               icon: "server.rack",
-              defaultShortcut: KeyShortcut("k", [.command])) { $0.connectToServer(nil) },
+              defaultShortcut: KeyShortcut("k", [.command]),
+              keywords: ["sftp", "ssh", "remote", "server", "connect", "host", "tailscale"]) {
+                  $0.connectToServer(nil)
+              },
         .init(id: "net.mount-volume",
               title: "Mount Network Volume…",
               category: .navigation,
               icon: "externaldrive.connected.to.line.below",
-              defaultShortcut: KeyShortcut("k", [.command, .shift])) { $0.mountNetworkVolume(nil) },
+              defaultShortcut: KeyShortcut("k", [.command, .shift]),
+              keywords: ["smb", "afp", "nfs", "network", "share", "mount"]) {
+                  $0.mountNetworkVolume(nil)
+              },
 
         // -------- Workspace --------
         .init(id: "workspace.save",

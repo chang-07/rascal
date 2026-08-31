@@ -16,6 +16,19 @@ final class IconCache {
     /// when available (set elsewhere by ThumbnailService), otherwise returns
     /// the cached generic icon for the file's extension.
     func icon(for item: FileItem) -> NSImage {
+        // Remote (sftp://) items have no local file to open — resolve icons purely
+        // from the extension so we never do a failing local NSWorkspace.icon(forFile:)
+        // on a path that doesn't exist on this machine.
+        if !item.url.isFileURL {
+            if item.isDirectory { return folderIcon }
+            let ext = item.ext
+            if let cached = extCache.object(forKey: ext as NSString) { return cached }
+            let type = ext.isEmpty ? UTType.data : (UTType(filenameExtension: ext) ?? .data)
+            let img = NSWorkspace.shared.icon(for: type)
+            img.size = NSSize(width: 16, height: 16)
+            if !ext.isEmpty { extCache.setObject(img, forKey: ext as NSString) }
+            return img
+        }
         if let thumb = thumbCache.object(forKey: item.url as NSURL) {
             return thumb
         }

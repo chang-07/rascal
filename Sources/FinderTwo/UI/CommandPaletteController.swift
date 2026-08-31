@@ -14,7 +14,21 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
         let subtitle: String
         let category: String
         let icon: NSImage?
+        /// Hidden search terms — matched but never displayed, so "sftp" or
+        /// "ssh" finds "Connect to Server…". Defaulted so existing entry
+        /// builders are unaffected.
+        let keywords: String
         let perform: () -> Void
+
+        init(title: String, subtitle: String, category: String,
+             keywords: String = "", icon: NSImage?, perform: @escaping () -> Void) {
+            self.title = title
+            self.subtitle = subtitle
+            self.category = category
+            self.icon = icon
+            self.keywords = keywords
+            self.perform = perform
+        }
     }
     private var allEntries: [Entry] = []
     private var filtered: [Entry] = []
@@ -28,6 +42,7 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
                 title: a.title,
                 subtitle: shortcut.isEmpty ? a.category.rawValue : "\(a.category.rawValue) · \(shortcut)",
                 category: a.category.rawValue,
+                keywords: a.keywords.joined(separator: " "),
                 icon: nil,
                 perform: {}
             ))
@@ -47,7 +62,8 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
     static func testFilter(_ entries: [Entry], query q: String) -> [Entry] {
         if q.isEmpty { return entries }
         return entries
-            .filter { fuzzyMatchStatic($0.title, needle: q) || fuzzyMatchStatic($0.subtitle, needle: q) }
+            .filter { fuzzyMatchStatic($0.title, needle: q) || fuzzyMatchStatic($0.subtitle, needle: q)
+                      || $0.keywords.localizedCaseInsensitiveContains(q) }
             .sorted { scoreStatic($0.title, q) > scoreStatic($1.title, q) }
     }
     private static func fuzzyMatchStatic(_ s: String, needle: String) -> Bool {
@@ -161,6 +177,7 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
                 title: a.title,
                 subtitle: shortcut.isEmpty ? a.category.rawValue : "\(a.category.rawValue) · \(shortcut)",
                 category: a.category.rawValue,
+                keywords: a.keywords.joined(separator: " "),
                 icon: img,
                 perform: { [weak target] in
                     guard let t = target else { return }
@@ -255,7 +272,8 @@ final class CommandPaletteController: NSWindowController, NSTextFieldDelegate, N
         if q.isEmpty {
             filtered = allEntries
         } else {
-            filtered = allEntries.filter { fuzzyMatch($0.title, needle: q) || fuzzyMatch($0.subtitle, needle: q) }
+            filtered = allEntries.filter { fuzzyMatch($0.title, needle: q) || fuzzyMatch($0.subtitle, needle: q)
+                                           || $0.keywords.localizedCaseInsensitiveContains(q) }
                 .sorted { score($0.title, q) > score($1.title, q) }
         }
         tableView.reloadData()

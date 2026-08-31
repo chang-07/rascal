@@ -936,6 +936,12 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         let item = model.items[mi]
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains("/") else { NSSound.beep(); return }
+        if SFTPLocation.isRemote(item.url) {
+            // No FSEvents watcher on a remote location — reload explicitly.
+            if RemoteFileOps.rename(item.url, to: trimmed) != nil { model.reload() }
+            else { NSSound.beep() }
+            return
+        }
         let newURL = item.url.deletingLastPathComponent().appendingPathComponent(trimmed)
         if newURL == item.url { return }
         if FileManager.default.fileExists(atPath: newURL.path), !refersToSameItem(newURL, item.url) {
@@ -958,6 +964,16 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         guard !trimmed.isEmpty, !trimmed.contains("/") else {
             NSSound.beep()
             cell.name.stringValue = item.name
+            return
+        }
+        if SFTPLocation.isRemote(item.url) {
+            // No FSEvents watcher on a remote location — reload explicitly.
+            if RemoteFileOps.rename(item.url, to: trimmed) != nil {
+                model.reload()
+            } else {
+                NSSound.beep()
+                cell.name.stringValue = item.name
+            }
             return
         }
         let newURL = item.url.deletingLastPathComponent().appendingPathComponent(trimmed)
@@ -1400,7 +1416,11 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         wc.duplicate(nil)
     }
     @objc private func menuRename() { beginRenameSelection() }
-    @objc private func menuTrash() { FileOps.trashWithConfirmation(selectedItems().map { $0.url }) }
+    @objc private func menuTrash() {
+        // Remote items delete permanently (no Trash) and need an explicit
+        // reload, since remote locations have no FSEvents watcher.
+        if RemoteFileOps.routeDelete(selectedItems().map { $0.url }) { model.reload() }
+    }
     @objc private func menuQuickLook() { toggleQuickLook() }
     @objc private func menuMakeAlias() {
         let urls = selectedItems().map { $0.url }

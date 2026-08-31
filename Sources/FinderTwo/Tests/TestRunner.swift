@@ -1511,6 +1511,142 @@ final class TestRunner {
                lsEntries.contains { $0.name == "my folder" && $0.isDirectory },
                "got=\(lsEntries.map { $0.name })")
 
+        // --- T45d: SFTPLocation URL<->connection round-trip + FileItem.remote ---
+        let sconn = SFTPClient.Connection(user: "deploy", host: "box.example.com", port: 2222, remotePath: "~")
+        let surl = SFTPLocation.url(sconn, path: "/var/www/site")
+        assert("SFTPLocation builds a remote sftp:// URL",
+               surl.scheme == "sftp" && SFTPLocation.isRemote(surl),
+               "got=\(surl.absoluteString)")
+        if let parsed = SFTPLocation.parse(surl) {
+            assert("SFTPLocation round-trips user/host/port/path",
+                   parsed.conn.user == "deploy" && parsed.conn.host == "box.example.com"
+                   && parsed.conn.port == 2222 && parsed.path == "/var/www/site",
+                   "got=\(parsed.conn.user)@\(parsed.conn.host):\(parsed.conn.port) \(parsed.path)")
+        } else {
+            assert("SFTPLocation round-trips user/host/port/path", false, "parse returned nil")
+        }
+        let url22 = SFTPLocation.url(user: "u", host: "h", port: 22, path: "/a b/c")
+        assert("SFTPLocation defaults port 22 and round-trips a spaced path",
+               SFTPLocation.parse(url22)?.conn.port == 22 && SFTPLocation.parse(url22)?.path == "/a b/c",
+               "got=\(SFTPLocation.parse(url22).map { "\($0.conn.port) \($0.path)" } ?? "nil")")
+        assert("SFTPLocation.isRemote is false for a local file URL",
+               !SFTPLocation.isRemote(sandbox), "sandbox flagged remote")
+        let rfile = FileItem.remote(name: "notes.md", isDirectory: false, size: 42, parent: surl)
+        assert("FileItem.remote maps name/size/ext and nests the URL",
+               rfile.name == "notes.md" && rfile.size == 42 && rfile.ext == "md"
+               && !rfile.isDirectory && rfile.url.absoluteString.hasSuffix("/var/www/site/notes.md"),
+               "got=\(rfile.url.absoluteString) size=\(rfile.size) ext=\(rfile.ext)")
+        let rdir = FileItem.remote(name: ".hidden", isDirectory: true, size: -1, parent: surl)
+        assert("FileItem.remote flags dotfiles hidden, dirs as size -1",
+               rdir.isHidden && rdir.isDirectory && rdir.size == -1,
+               "hidden=\(rdir.isHidden) dir=\(rdir.isDirectory) size=\(rdir.size)")
+
+        // --- T45g: `~` is not shell-expanded by sftp, so it must not be cd'd to ---
+        assert("SFTP omits cd entirely for the home path",
+               SFTPClient.testCdLine("~").isEmpty && SFTPClient.testCdLine("").isEmpty
+               && SFTPClient.testCdLine("~/").isEmpty,
+               "got=[\(SFTPClient.testCdLine("~"))]")
+        assert("SFTP maps ~/sub to a cd relative to the home start dir",
+               SFTPClient.testCdLine("~/Documents") == "cd \"Documents\"\n",
+               "got=[\(SFTPClient.testCdLine("~/Documents"))]")
+        assert("SFTP keeps an absolute path as-is",
+               SFTPClient.testCdLine("/var/www") == "cd \"/var/www\"\n",
+               "got=[\(SFTPClient.testCdLine("/var/www"))]")
+
+        // --- T45h: LIVE SFTP end-to-end (opt in with FT_LIVE_SFTP=user@host) ---
+        if let live = ProcessInfo.processInfo.environment["FT_LIVE_SFTP"] {
+            let bits = live.split(separator: "@", maxSplits: 1).map(String.init)
+            if bits.count == 2 {
+                let conn = SFTPClient.Connection(user: bits[0], host: bits[1], port: 22, remotePath: "~")
+                let abs = SFTPClient.realpath(conn, path: "~")
+                assert("LIVE: realpath resolves the remote home to an absolute path",
+                       abs?.hasPrefix("/") == true, "got=\(abs ?? "nil")")
+                let entries = SFTPClient.list(conn, path: abs ?? "~")
+                assert("LIVE: list returns entries from the remote home",
+                       !entries.isEmpty, "got \(entries.count) entries")
+                assert("LIVE: listing includes at least one directory",
+                       entries.contains { $0.isDirectory }, "no directories parsed")
+                // Full pipeline: sftp:// URL -> DirectoryModel remote branch -> FileItems
+                let liveURL = SFTPLocation.url(conn, path: abs ?? "/")
+                let liveModel = DirectoryModel(url: liveURL)
+                // Synchronous hook: the live load hops ioQueue -> main, and a
+                // main-queue apply can't drain re-entrantly inside this nested
+                // FT_RUN_TESTS run loop (see testApplyComputeSync).
+                let liveCount = liveModel.testLoadRemoteSync()
+                assert("LIVE: DirectoryModel populates items from an sftp:// URL",
+                       liveCount > 0 && !liveModel.items.isEmpty,
+                       "items=\(liveModel.items.count) raw=\(liveModel.rawItems.count) "
+                       + "url=\(liveURL.absoluteString)")
+                assert("LIVE: hidden dotfiles are filtered out of the remote listing",
+                       liveModel.items.allSatisfy { !$0.name.hasPrefix(".") }
+                       && liveModel.rawItems.contains { $0.name.hasPrefix(".") },
+                       "raw=\(liveModel.rawItems.count) shown=\(liveModel.items.count)")
+                assert("LIVE: every remote item carries an sftp:// URL",
+                       liveModel.items.allSatisfy { $0.url.scheme == "sftp" },
+                       "non-sftp URLs present")
+                assert("LIVE: remote child URLs nest under the parent path",
+                       liveModel.items.allSatisfy { $0.url.absoluteString.contains(abs ?? "/") },
+                       "child URL not nested under parent")
+                // Real transfer through the app's own download path — this is
+                // what double-clicking a remote file does.
+                if let small = entries.first(where: { !$0.isDirectory && $0.size > 0 && $0.size < 200_000 }) {
+                    let dst = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("ft-live-download.bin")
+                    try? FileManager.default.removeItem(at: dst)
+                    let remoteFile = ((abs ?? "") as NSString).appendingPathComponent(small.name)
+                    let ok = SFTPClient.download(conn, remotePath: remoteFile, to: dst)
+                    let bytes = (try? Data(contentsOf: dst))?.count ?? 0
+                    assert("LIVE: download fetches a real remote file",
+                           ok && bytes > 0,
+                           "ok=\(ok) bytes=\(bytes) remote=\(remoteFile)")
+                    try? FileManager.default.removeItem(at: dst)
+                }
+
+                // --- Remote WRITE round-trip, confined to a scratch dir in /tmp ---
+                let probeRoot = "/tmp/rascal-live-probe"
+                _ = SFTPClient.removeDirectory(conn, path: probeRoot)     // clean slate
+                assert("LIVE: mkdir creates a remote directory",
+                       SFTPClient.makeDirectory(conn, path: probeRoot), "mkdir failed")
+                let probeURL = SFTPLocation.url(conn, path: probeRoot)
+
+                let madeURL = RemoteFileOps.newFolder(in: probeURL)
+                assert("LIVE: newFolder creates a folder on the server",
+                       madeURL != nil, "newFolder returned nil")
+                if let madeURL {
+                    let renamed = RemoteFileOps.rename(madeURL, to: "renamed-probe")
+                    assert("LIVE: rename moves a remote entry",
+                           renamed != nil
+                           && SFTPClient.exists(conn, path: probeRoot + "/renamed-probe"),
+                           "rename failed")
+                }
+
+                let localProbe = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("ft-upload-probe.txt")
+                try? Data("hello from rascal".utf8).write(to: localProbe)
+                assert("LIVE: upload copies a local file to the server",
+                       RemoteFileOps.upload([localProbe], into: probeURL)
+                       && SFTPClient.exists(conn, path: probeRoot + "/ft-upload-probe.txt"),
+                       "upload failed")
+                try? FileManager.default.removeItem(at: localProbe)
+
+                // Exercise the exact function the UI delete actions call.
+                let delFile = probeRoot + "/ft-upload-probe.txt"
+                assert("LIVE: RemoteFileOps.delete removes a remote FILE",
+                       RemoteFileOps.delete([SFTPLocation.url(conn, path: delFile)])
+                       && !SFTPClient.exists(conn, path: delFile),
+                       "file delete failed")
+                let delDir = probeRoot + "/renamed-probe"
+                assert("LIVE: RemoteFileOps.delete removes a remote FOLDER",
+                       RemoteFileOps.delete([SFTPLocation.url(conn, path: delDir)])
+                       && !SFTPClient.exists(conn, path: delDir),
+                       "folder delete failed")
+
+                assert("LIVE: recursive delete removes a non-empty remote tree",
+                       SFTPClient.removeDirectory(conn, path: probeRoot)
+                       && !SFTPClient.exists(conn, path: probeRoot),
+                       "recursive delete failed")
+            }
+        }
         // --- T45d: LayoutMetrics default / override / clamp / cache / reset ---
         LayoutMetrics.resetAll()
         assert("LayoutMetrics returns the built-in default when unset",
@@ -1976,6 +2112,61 @@ final class TestRunner {
         assert("palette filter finds tab actions",
                filteredPalette.contains { $0.title.localizedCaseInsensitiveContains("tab") },
                "got=\(filteredPalette.map(\.title))")
+        // Hidden keywords: the title says "Connect to Server…", but people look
+        // for it by protocol name.
+        for term in ["sftp", "ssh", "remote"] {
+            let hits = CommandPaletteController.testFilter(entriesAll, query: term)
+            assert("palette finds Connect to Server by “\(term)”",
+                   hits.contains { $0.title.localizedCaseInsensitiveContains("Connect to Server") },
+                   "got=\(hits.prefix(5).map(\.title))")
+        }
+        let smbHits = CommandPaletteController.testFilter(entriesAll, query: "smb")
+        assert("palette finds Mount Network Volume by “smb”",
+               smbHits.contains { $0.title.localizedCaseInsensitiveContains("Mount Network Volume") },
+               "got=\(smbHits.prefix(5).map(\.title))")
+
+        // --- T53b: ⌫ delete shortcuts use backspace (0x08), not forward-delete ---
+        // The physical delete key sends 0x08; menu key-equivalent matching is
+        // exact, so the old 0x7F (NSDeleteCharacter = ⌦) never fired on ⌘⌫.
+        let backspace = String(UnicodeScalar(NSBackspaceCharacter)!)   // 0x08
+        let forwardDelete = String(UnicodeScalar(NSDeleteCharacter)!)  // 0x7F
+        for id in ["file.trash", "file.delete-immediately", "file.empty-trash"] {
+            let key = ActionRegistry.shortcut(for: id)?.key
+            assert("\(id) uses the backspace key, not forward-delete",
+                   key == backspace && key != forwardDelete,
+                   "got key U+\(key.map { String(format: "%04X", $0.unicodeScalars.first!.value) } ?? "nil")")
+        }
+        // And it propagates through the real menu-building path (routed()).
+        func allMenuItems(_ menu: NSMenu?) -> [NSMenuItem] {
+            guard let menu else { return [] }
+            return menu.items.flatMap { [$0] + allMenuItems($0.submenu) }
+        }
+        let trashItem = allMenuItems(NSApp.mainMenu).first { $0.title == "Move to Trash" }
+        if let trashItem {
+            assert("Move to Trash menu item binds ⌘ + backspace",
+                   trashItem.keyEquivalent == backspace
+                   && trashItem.keyEquivalentModifierMask == [.command],
+                   "keyEquiv=U+\(trashItem.keyEquivalent.unicodeScalars.first.map { String(format: "%04X", $0.value) } ?? "none") mask=\(trashItem.keyEquivalentModifierMask.rawValue)")
+            // Synthesizing the real ⌘⌫ event now matches; the old 0x7F did not.
+            let hit = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                       timestamp: 0, windowNumber: 0, context: nil,
+                                       characters: backspace, charactersIgnoringModifiers: backspace,
+                                       isARepeat: false, keyCode: 51)
+            let miss = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                        timestamp: 0, windowNumber: 0, context: nil,
+                                        characters: forwardDelete, charactersIgnoringModifiers: forwardDelete,
+                                        isARepeat: false, keyCode: 51)
+            let probe = NSMenu()
+            let mirror = NSMenuItem(title: "probe", action: nil, keyEquivalent: trashItem.keyEquivalent)
+            mirror.keyEquivalentModifierMask = trashItem.keyEquivalentModifierMask
+            probe.addItem(mirror)
+            assert("⌘⌫ (backspace) matches the trash shortcut; ⌘⌦ does not",
+                   hit.map { probe.performKeyEquivalent(with: $0) } == true
+                   && miss.map { probe.performKeyEquivalent(with: $0) } == false,
+                   "hit=\(hit.map { probe.performKeyEquivalent(with: $0) } ?? false)")
+        } else {
+            assert("Move to Trash menu item exists", false, "not found in main menu")
+        }
 
         // --- T54: SearchSheet fuzzy filter is correct ---
         let fnames = ["alpha_one.txt", "alpha_two.txt", "beta.txt", "gamma.md"]
