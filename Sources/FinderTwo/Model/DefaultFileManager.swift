@@ -45,15 +45,38 @@ enum DefaultFileManager {
     }
 
     private static func apply(appURL: URL, completion: @escaping (Error?) -> Void) {
-        let group = DispatchGroup()
-        var firstError: Error?
-        for type in types {
-            group.enter()
-            NSWorkspace.shared.setDefaultApplication(at: appURL, toOpen: type) { error in
-                if let error, firstError == nil { firstError = error }
-                group.leave()
-            }
+        // One type at a time. Each setDefaultApplication can raise its own user
+        // consent prompt; firing all three concurrently makes the prompts collide
+        // and the losers fail immediately with a generic "file couldn't be
+        // opened" error (and Launch Services then caches that refusal). Chaining
+        // them lets each prompt appear and resolve in turn. Verified headed in a
+        // macOS 26 VM: concurrent → instant failure, serialized → three clean
+        // prompts.
+        applyNext(appURL: appURL, remaining: types, firstError: nil, completion: completion)
+    }
+
+    private static func applyNext(appURL: URL, remaining: [UTType], firstError: Error?,
+                                  completion: @escaping (Error?) -> Void) {
+        guard let type = remaining.first else {
+            DispatchQueue.main.async { completion(firstError) }
+            return
         }
-        group.notify(queue: .main) { completion(firstError) }
+        NSWorkspace.shared.setDefaultApplication(at: appURL, toOpen: type) { error in
+            var effectiveError = error
+            if let nsError = error as NSError?,
+                (nsError.userInfo[NSUnderlyingErrorKey] as? NSError)?.code == -50 {
+                // macOS 26's NSWorkspace API refuses folder-ish UTTypes with
+                // paramErr (-50); the legacy Launch Services call still binds
+                // them (verified headed in a macOS 26 VM — same bundle, same
+                // type: NSWorkspace fails where LSSetDefaultRoleHandler succeeds).
+                if let id = Bundle(url: appURL)?.bundleIdentifier {
+                    let status = LSSetDefaultRoleHandlerForContentType(
+                        type.identifier as CFString, .all, id as CFString)
+                    if status == noErr { effectiveError = nil }
+                }
+            }
+            applyNext(appURL: appURL, remaining: Array(remaining.dropFirst()),
+                      firstError: firstError ?? effectiveError, completion: completion)
+        }
     }
 }
