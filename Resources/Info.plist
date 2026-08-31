@@ -47,6 +47,7 @@
             <array>
                 <string>public.folder</string>
                 <string>public.directory</string>
+                <string>public.volume</string>
             </array>
         </dict>
     </array>
