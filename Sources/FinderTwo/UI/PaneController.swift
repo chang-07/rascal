@@ -51,6 +51,8 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     private var hotbarHeightConstraint: NSLayoutConstraint!
     private var pathBarHeightConstraint: NSLayoutConstraint!
     private var statusBarHeightConstraint: NSLayoutConstraint!
+    private var topPathBarConstraints: [NSLayoutConstraint] = []
+    private var bottomPathBarConstraints: [NSLayoutConstraint] = []
     /// Inset for the first row of pane content. Non-zero when the window title
     /// bar is hidden, so the toolbar clears the traffic-light strip and lines up
     /// with the (also-inset) sidebar.
@@ -260,6 +262,16 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
         pathBarHeightConstraint = pathBar.heightAnchor.constraint(equalToConstant: 26)
         statusBarHeightConstraint = statusBar.heightAnchor.constraint(equalToConstant: 22)
         topInsetConstraint = toolbar.topAnchor.constraint(equalTo: root.topAnchor)
+        topPathBarConstraints = [
+            pathBar.topAnchor.constraint(equalTo: tabStrip.bottomAnchor),
+            hotbar.topAnchor.constraint(equalTo: pathBar.bottomAnchor),
+            terminalView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+        ]
+        bottomPathBarConstraints = [
+            hotbar.topAnchor.constraint(equalTo: tabStrip.bottomAnchor),
+            terminalView.bottomAnchor.constraint(equalTo: pathBar.topAnchor),
+            pathBar.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+        ]
 
         NSLayoutConstraint.activate([
             topInsetConstraint,
@@ -272,12 +284,6 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
             tabStrip.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             tabStripHeightConstraint,
 
-            pathBar.topAnchor.constraint(equalTo: tabStrip.bottomAnchor),
-            pathBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            pathBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            pathBarHeightConstraint,
-
-            hotbar.topAnchor.constraint(equalTo: pathBar.bottomAnchor),
             hotbar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             hotbar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             hotbarHeightConstraint,
@@ -306,7 +312,6 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
 
             terminalView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             terminalView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            terminalView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             terminalHeightConstraint,
 
             emptyState.topAnchor.constraint(equalTo: fileList.view.topAnchor),
@@ -314,11 +319,17 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
             emptyState.trailingAnchor.constraint(equalTo: fileList.view.trailingAnchor),
             emptyState.bottomAnchor.constraint(equalTo: fileList.view.bottomAnchor),
 
+            pathBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            pathBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            pathBarHeightConstraint,
+
             statusBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             statusBarHeightConstraint,
         ])
+        NSLayoutConstraint.activate(Settings.pathBarPosition == .top
+                                    ? topPathBarConstraints : bottomPathBarConstraints)
 
         toolbar.onBack = { [weak self] in self?.goBack() }
         toolbar.onForward = { [weak self] in self?.goForward() }
@@ -371,11 +382,18 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     private func applyChromeVisibility() {
         let style = Settings.pathControlStyle
         let showCrumbs = (style == .breadcrumb || style == .both)
+        applyPathBarPosition()
         pathBar.isHidden = !showCrumbs
         pathBarHeightConstraint.constant = showCrumbs ? 26 : 0
         toolbar.setPathFieldVisible(style == .editableField || style == .both)
         statusBar.isHidden = !Settings.showStatusBar
         statusBarHeightConstraint.constant = Settings.showStatusBar ? 22 : 0
+    }
+
+    private func applyPathBarPosition() {
+        NSLayoutConstraint.deactivate(topPathBarConstraints + bottomPathBarConstraints)
+        NSLayoutConstraint.activate(Settings.pathBarPosition == .top
+                                    ? topPathBarConstraints : bottomPathBarConstraints)
     }
 
     /// Pin the toolbar to the top of the pane. The window's traffic lights sit at
@@ -1152,6 +1170,9 @@ final class PaneController: NSViewController, DirectoryModelDelegate, FileListDe
     var testPreviewHasQLView: Bool { previewView.testHasLiveQLView }
     var testHotbarHeight: CGFloat { hotbarHeightConstraint.constant }
     var testToolbarTopInset: CGFloat { topInsetConstraint.constant }
+    var testPathBarPosition: Settings.PathBarPosition {
+        topPathBarConstraints.allSatisfy(\.isActive) ? .top : .bottom
+    }
     func testToolbarHasFocusAPI() -> Bool {
         // Compile-time presence — calling shouldn't crash.
         toolbar.focusSearchField()
