@@ -102,6 +102,14 @@ final class PreviewDrawerView: NSView, ThemeObserving {
             infoLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             infoLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
         ])
+        // Guarantee the QuickLook host keeps a real height even when the pane is
+        // short (e.g. the bottom terminal drawer is open) — otherwise the label
+        // chain can squeeze qlHost to zero and reloadPreview()'s size guard drops
+        // the view. High (not required) priority so it yields if the window is
+        // genuinely too small.
+        let qlHostMinHeight = qlHost.heightAnchor.constraint(greaterThanOrEqualToConstant: 80)
+        qlHostMinHeight.priority = .defaultHigh
+        qlHostMinHeight.isActive = true
         subscribeToTheme(self)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -112,4 +120,8 @@ final class PreviewDrawerView: NSView, ThemeObserving {
         nameLabel.textColor = t.id == "system" ? .labelColor : t.labelPrimary
         infoLabel.textColor = t.id == "system" ? .secondaryLabelColor : t.labelSecondary
     }
+
+    // MARK: - Test hooks
+    var testQLHostSize: NSSize { qlHost.bounds.size }
+    var testHasLiveQLView: Bool { ql != nil }
 }
