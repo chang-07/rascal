@@ -73,11 +73,19 @@ final class GalleryViewController: NSViewController, ThemeObserving {
     /// hang. Gallery is for browsing media; the first few hundred is plenty.
     private static let maxStripItems = 400
 
-    func reload(_ items: [FileItem]) {
+    func reload(_ items: [FileItem], preserving preferredSelection: [URL]? = nil) {
+        let selectedPaths = Set((preferredSelection ?? focused.map { [$0.url] } ?? [])
+            .map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
         truncatedCount = max(0, items.count - Self.maxStripItems)
         self.items = items.count > Self.maxStripItems ? Array(items.prefix(Self.maxStripItems)) : items
         rebuildStrip()
-        focus(self.items.first)
+        if let item = self.items.first(where: {
+            selectedPaths.contains($0.url.standardizedFileURL.resolvingSymlinksInPath().path)
+        }) {
+            focus(item)
+        } else {
+            focus(selectedPaths.isEmpty ? self.items.first : nil)
+        }
     }
 
     private func rebuildStrip() {
