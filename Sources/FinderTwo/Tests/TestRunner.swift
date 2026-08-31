@@ -3592,6 +3592,10 @@ final class TestRunner {
             wcXp.moveToOtherPane(nil)
             let moved = waitUntil(3) { fm.fileExists(atPath: xR.appendingPathComponent("doc.txt").path) && !fm.fileExists(atPath: xfile.path) }
             assert("F6 move-to-other-pane lands in the +1 pane (move)", moved, "not moved to R")
+            // The queue records undo from the worker just AFTER the moved file
+            // becomes observable — wait for the log too, or slow machines (VMs,
+            // loaded CI hosts) can check canUndo inside that gap and flake.
+            _ = waitUntil(3) { FileActionLog.shared.canUndo }
             assert("cross-pane move records undo", FileActionLog.shared.canUndo, "no undo")
             wcXp.fileUndo(nil); wait(0.3)
             assert("undo of a cross-pane move restores the source pane's file",
