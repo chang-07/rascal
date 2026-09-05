@@ -133,7 +133,7 @@ declare -a EXPECT_SUB=(
     "File|Tools|Browse Archive…"
     "File|Tools|Sync Folder…"
     "File|Tools|Uninstall App…"
-    "View|Panes|Add Pane"
+    "View|Panes|Open in New Pane"
     "View|Panes|Close Pane"
     "View|Panes|Focus Next Pane"
     "View|Panes|Focus Previous Pane"
