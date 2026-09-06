@@ -56,6 +56,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Headless UI snapshot: FT_HEADLESS_TESTING=1 FT_SNAPSHOT=<outdir>
+        // [FT_SNAPSHOT_PATH=<folder>] [FT_SNAPSHOT_THEMES=a,b]. See Snapshot.swift.
+        if let snapDir = ProcessInfo.processInfo.environment["FT_SNAPSHOT"] {
+            DispatchQueue.main.async { Snapshot.runStandalone(outDir: snapDir, appDelegate: self) }
+            return
+        }
         // Headless disk-usage probe — prints the scanner's total for a path so it
         // can be diffed against `du -sh`. FT_DU=<dir>.
         if let duPath = ProcessInfo.processInfo.environment["FT_DU"] {
