@@ -278,10 +278,9 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     /// asynchronously-loaded Tags section or cause flicker. No providers leaves
     /// `fileProviderLocations` empty, so the section simply omits them.
     private func refreshFileProviderDomains() {
-        // The headless suite builds dozens of windows; each sidebar firing a
-        // FileProvider XPC request would storm the (unreachable, on an unsigned
-        // binary) provider daemon. Skip the automatic enumeration under test —
-        // TestRunner exercises FileProviderDomains.enumerate() directly instead.
+        // The headless suite builds dozens of windows; skip the per-sidebar
+        // rescan churn under test — TestRunner exercises
+        // FileProviderDomains.enumerate() directly instead.
         if ProcessInfo.processInfo.environment["FT_HEADLESS_TESTING"] == "1" { return }
         FileProviderDomains.enumerate { [weak self] locations in
             guard let self else { return }
