@@ -1,12 +1,61 @@
 import AppKit
 
+/// Tracks whether a drag is currently hovering the sidebar. NSOutlineView
+/// otherwise spring-expands disclosure rows while items or sections are being
+/// reordered across Favorites, Locations, and Folders.
+final class SidebarOutlineView: NSOutlineView {
+    private(set) var hasActiveDrag = false
+    var onDragFinished: (() -> Void)?
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        hasActiveDrag = true
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        hasActiveDrag = true
+        return super.draggingUpdated(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        super.draggingExited(sender)
+        finishDrag()
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { finishDrag() }
+        return super.performDragOperation(sender)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        finishDrag()
+        // This optional destination callback has no NSOutlineView
+        // implementation to forward to.
+    }
+
+    private func finishDrag() {
+        hasActiveDrag = false
+        onDragFinished?()
+    }
+}
+
 final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, ThemeObserving, NSMenuDelegate {
+
+    private static let favoritePasteboardType = NSPasteboard.PasteboardType(
+        "dev.chang.FinderTwo.sidebar-favorite")
+    private static let itemPasteboardType = NSPasteboard.PasteboardType(
+        "dev.chang.FinderTwo.sidebar-item")
+    private static let sectionPasteboardType = NSPasteboard.PasteboardType(
+        "dev.chang.FinderTwo.sidebar-section")
+    /// Keep hierarchical rows stationary while AppKit draws drop targets.
+    private static let stableDragFeedbackStyle = NSTableView.DraggingDestinationFeedbackStyle.regular
 
     var onSelect: ((URL) -> Void)?
     var onOpenInNewTab: ((URL) -> Void)?
+    var onOpenInNewPane: ((URL) -> Void)?
     var onOpenInNewWindow: ((URL) -> Void)?
 
-    let outline = NSOutlineView()
+    let outline = SidebarOutlineView()
     private let scrollView = NSScrollView()
 
     private final class Section {
@@ -96,8 +145,8 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     }
 
     private var sections: [Section] = []
-    /// Tags load asynchronously (Spotlight); cached here so section assembly stays
-    /// driven by `canonicalRank`, never by completion-handler timing.
+    /// Tags load asynchronously (Spotlight); cached here so section assembly is
+    /// independent of completion-handler timing.
     private var tagsSection: Section?
 
     /// Fixed display order for sidebar sections. The visible array is always
@@ -114,27 +163,66 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         }
     }
 
-    /// Assemble `sections` in canonical order from the synchronous sections plus
-    /// the (optional) cached async Tags section. Idempotent and order-stable; the
-    /// Folders section is kept even though its `items` are empty (it carries the
-    /// expandable `treeRoots`).
+    /// Assemble visible sections using persisted user order. Folders stays even
+    /// when its item array is empty because its rows live in `treeRoots`.
     private func applySections(base: [Section]) {
         var all = base
         if let tags = tagsSection { all.append(tags) }
-        sections = all
-            .filter { !$0.items.isEmpty || $0.title == SidebarController.foldersSectionTitle }
-            .sorted { SidebarController.canonicalRank(of: $0.title)
-                    < SidebarController.canonicalRank(of: $1.title) }
+        all = all.filter { !$0.items.isEmpty || $0.title == SidebarController.foldersSectionTitle }
+        let order = SidebarLayout.orderedSectionTitles(available: all.map(\.title))
+        let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+        sections = all.sorted {
+            (rank[$0.title] ?? SidebarController.canonicalRank(of: $0.title))
+                < (rank[$1.title] ?? SidebarController.canonicalRank(of: $1.title))
+        }
     }
     /// Top-level roots of the folder tree (Home + mounted volumes). Kept around
     /// so their lazily-built children survive `reloadData` across bookmark/theme
     /// changes (rebuilding them would collapse the user's expanded folders).
     private var treeRoots: [TreeNode] = []
     private var selectedURL: URL?
+    private var isRestoringSectionExpansion = false
+
+    private var favoritesSection: Section? { sections.first { $0.title == "Favorites" } }
+    private var locationsSection: Section? { sections.first { $0.title == "Locations" } }
+    private var foldersSection: Section? { sections.first { $0.title == SidebarController.foldersSectionTitle } }
+    private var favoriteURLs: [URL] { favoritesSection?.items.map(\.url) ?? [] }
+    private var locationURLs: [URL] { locationsSection?.items.map(\.url) ?? [] }
+    private var folderRootURLs: [URL] { foldersSection?.treeRoots?.map(\.url) ?? [] }
+    private func containsFavorite(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return favoriteURLs.contains { $0.standardizedFileURL.path == path }
+    }
+    private func isFavorite(_ entry: Entry) -> Bool {
+        favoritesSection?.items.contains(where: { $0 === entry }) == true
+    }
+
+    /// Rebuilding section objects must retain each disclosure state. Expanding
+    /// every section after a Favorites change made collapsed sections spring
+    /// open whenever a favorite was added or reordered.
+    private func reloadPreservingSectionExpansion(_ update: () -> Void) {
+        let previousExpansion = Dictionary(uniqueKeysWithValues: sections.map {
+            ($0.title, outline.isItemExpanded($0))
+        })
+        update()
+        outline.reloadData()
+        isRestoringSectionExpansion = true
+        defer { isRestoringSectionExpansion = false }
+        for section in sections {
+            if previousExpansion[section.title] ?? true {
+                outline.expandItem(section)
+            } else {
+                outline.collapseItem(section)
+            }
+        }
+    }
 
     var testEntryTitles: [String] {
         sections.flatMap { $0.items.map { $0.title } }
     }
+    var testSectionTitles: [String] { sections.map(\.title) }
+    var testLocationURLs: [URL] { locationURLs }
+    var testFolderRootURLs: [URL] { folderRootURLs }
 
     // MARK: Folder-tree test hooks (off-screen)
 
@@ -144,6 +232,35 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     /// Whether the live sidebar exposes a "Folders" section.
     var testHasFoldersSection: Bool {
         sections.contains { $0.title == SidebarController.foldersSectionTitle }
+    }
+
+    func testSetSection(_ title: String, expanded: Bool) {
+        guard let section = sections.first(where: { $0.title == title }) else { return }
+        if expanded { outline.expandItem(section) }
+        else { outline.collapseItem(section) }
+    }
+    func testIsSectionExpanded(_ title: String) -> Bool {
+        guard let section = sections.first(where: { $0.title == title }) else { return false }
+        return outline.isItemExpanded(section)
+    }
+    func testReloadBookmarks() { bookmarksChanged() }
+    func testCanDragFirstEntry(in sectionTitle: String) -> Bool {
+        guard let entry = sections.first(where: { $0.title == sectionTitle })?.items.first else {
+            return false
+        }
+        return outlineView(outline, pasteboardWriterForItem: entry) != nil
+    }
+    func testCanDragSection(_ title: String) -> Bool {
+        guard let section = sections.first(where: { $0.title == title }) else { return false }
+        return outlineView(outline, pasteboardWriterForItem: section) != nil
+    }
+    func testCanDragFirstFolderRoot() -> Bool {
+        guard let root = foldersSection?.treeRoots?.first else { return false }
+        return outlineView(outline, pasteboardWriterForItem: root) != nil
+    }
+    var testDragFeedbackIsRegular: Bool {
+        SidebarController.stableDragFeedbackStyle == .regular
+            && outline.draggingDestinationFeedbackStyle == SidebarController.stableDragFeedbackStyle
     }
 
     /// Build a detached tree node rooted at `url` (used by tests to point the
@@ -242,6 +359,15 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         outline.focusRingType = .none   // no blue focus outline around the sidebar
         outline.intercellSpacing = NSSize(width: 0, height: 3)
         outline.rowHeight = 28
+        outline.registerForDraggedTypes([.fileURL, SidebarController.favoritePasteboardType,
+                                         SidebarController.itemPasteboardType,
+                                         SidebarController.sectionPasteboardType])
+        outline.setDraggingSourceOperationMask([.copy, .move], forLocal: true)
+        outline.setDraggingSourceOperationMask(.copy, forLocal: false)
+        outline.draggingDestinationFeedbackStyle = SidebarController.stableDragFeedbackStyle
+        outline.onDragFinished = { [weak self] in
+            self?.outline.draggingDestinationFeedbackStyle = SidebarController.stableDragFeedbackStyle
+        }
 
         outline.menu = NSMenu()
         outline.menu?.delegate = self
@@ -254,15 +380,15 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                                                name: SidebarBookmarks.didChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(bookmarksChanged),
                                                name: SmartFolders.didChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(bookmarksChanged),
+                                               name: SidebarLayout.didChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged),
                                                name: Settings.didChange, object: nil)
         lastShowHiddenDefault = Settings.showHiddenByDefault
     }
 
     @objc private func bookmarksChanged() {
-        buildSections()
-        outline.reloadData()
-        for s in sections { outline.expandItem(s) }
+        reloadPreservingSectionExpansion { buildSections() }
     }
 
     /// Tracks the global show-hidden default so we only rescan the tree when it
@@ -275,9 +401,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         lastShowHiddenDefault = now
         // The set of visible subfolders changed: drop every cached subtree so the
         // next expansion rescans with the new hidden-files rule.
-        invalidateAllTreeChildren(treeRoots)
-        outline.reloadData()
-        for s in sections { outline.expandItem(s) }
+        reloadPreservingSectionExpansion { invalidateAllTreeChildren(treeRoots) }
     }
 
     private func invalidateAllTreeChildren(_ nodes: [TreeNode]) {
@@ -296,30 +420,70 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         let row = outline.clickedRow
         guard row >= 0 else { return }
         let item = outline.item(atRow: row)
-        // Folder-tree nodes get open-in-tab/window plus an Add to Sidebar shortcut.
+        if let section = item as? Section, section.title == "Favorites" {
+            if let current = selectedURL,
+               !SidebarController.isRecentsURL(current),
+               !SidebarController.isSmartFolderURL(current),
+               !SidebarController.isTagURL(current) {
+                let add = NSMenuItem(title: "Add Current Folder to Favorites",
+                                     action: #selector(ctxAddCurrentFavorite(_:)), keyEquivalent: "")
+                add.target = self; add.representedObject = current; menu.addItem(add)
+            }
+            let reset = NSMenuItem(title: "Restore Default Favorites",
+                                   action: #selector(ctxResetFavorites(_:)), keyEquivalent: "")
+            reset.target = self; menu.addItem(reset)
+            return
+        }
+        // Folder-tree nodes get open-in-tab/pane/window plus a Favorites shortcut.
         if let node = item as? TreeNode {
             let openTab = NSMenuItem(title: "Open in New Tab", action: #selector(ctxOpenNewTab(_:)), keyEquivalent: "")
+            let openPane = NSMenuItem(title: "Open in New Pane", action: #selector(ctxOpenNewPane(_:)), keyEquivalent: "")
             let openWin = NSMenuItem(title: "Open in New Window", action: #selector(ctxOpenNewWindow(_:)), keyEquivalent: "")
-            for it in [openTab, openWin] { it.target = self; it.representedObject = node.url; menu.addItem(it) }
+            for it in [openTab, openPane, openWin] { it.target = self; it.representedObject = node.url; menu.addItem(it) }
             menu.addItem(.separator())
-            if SidebarBookmarks.contains(node.url) {
-                let rm = NSMenuItem(title: "Remove from Sidebar", action: #selector(ctxRemoveBookmark(_:)), keyEquivalent: "")
+            if containsFavorite(node.url) {
+                let rm = NSMenuItem(title: "Remove from Favorites", action: #selector(ctxRemoveBookmark(_:)), keyEquivalent: "")
                 rm.target = self; rm.representedObject = node.url; menu.addItem(rm)
             } else {
-                let add = NSMenuItem(title: "Add to Sidebar", action: #selector(ctxAddBookmark(_:)), keyEquivalent: "")
+                let add = NSMenuItem(title: "Add to Favorites", action: #selector(ctxAddBookmark(_:)), keyEquivalent: "")
                 add.target = self; add.representedObject = node.url; menu.addItem(add)
+            }
+            if SidebarLayout.isCustomFolderRoot(node.url),
+               foldersSection?.treeRoots?.contains(where: { $0 === node }) == true {
+                let remove = NSMenuItem(title: "Remove from Folders",
+                                        action: #selector(ctxRemoveFolderRoot(_:)), keyEquivalent: "")
+                remove.target = self; remove.representedObject = node.url; menu.addItem(remove)
             }
             return
         }
         guard let entry = item as? Entry, !SidebarController.isTagURL(entry.url) else { return }
         let openTab = NSMenuItem(title: "Open in New Tab", action: #selector(ctxOpenNewTab(_:)), keyEquivalent: "")
+        let openPane = NSMenuItem(title: "Open in New Pane", action: #selector(ctxOpenNewPane(_:)), keyEquivalent: "")
         let openWin = NSMenuItem(title: "Open in New Window", action: #selector(ctxOpenNewWindow(_:)), keyEquivalent: "")
-        for it in [openTab, openWin] { it.target = self; it.representedObject = entry.url; menu.addItem(it) }
+        for it in [openTab, openPane, openWin] { it.target = self; it.representedObject = entry.url; menu.addItem(it) }
+        if isFavorite(entry) {
+            menu.addItem(.separator())
+            let rename = NSMenuItem(title: "Rename Favorite…", action: #selector(ctxRenameFavorite(_:)), keyEquivalent: "")
+            rename.target = self; rename.representedObject = entry.url; menu.addItem(rename)
+            if !SidebarController.isRecentsURL(entry.url) {
+                let reveal = NSMenuItem(title: "Show in Enclosing Folder", action: #selector(ctxRevealFavorite(_:)), keyEquivalent: "")
+                reveal.target = self; reveal.representedObject = entry.url; menu.addItem(reveal)
+            }
+            let rm = NSMenuItem(title: "Remove from Favorites", action: #selector(ctxRemoveBookmark(_:)), keyEquivalent: "")
+            rm.target = self; rm.representedObject = entry.url; menu.addItem(rm)
+            return
+        }
         if SidebarController.isSmartFolderURL(entry.url) {
             menu.addItem(.separator())
             let del = NSMenuItem(title: "Delete Smart Folder", action: #selector(ctxDeleteSmartFolder(_:)), keyEquivalent: "")
             del.target = self; del.representedObject = entry.url; menu.addItem(del)
             return
+        }
+        if SidebarLayout.isCustomLocation(entry.url) {
+            menu.addItem(.separator())
+            let remove = NSMenuItem(title: "Remove from Locations",
+                                    action: #selector(ctxRemoveLocation(_:)), keyEquivalent: "")
+            remove.target = self; remove.representedObject = entry.url; menu.addItem(remove)
         }
         if let rv = try? entry.url.resourceValues(forKeys: [.volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsRootFileSystemKey]),
            (rv.volumeIsEjectable == true || rv.volumeIsRemovable == true), rv.volumeIsRootFileSystem != true {
@@ -327,16 +491,55 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             let eject = NSMenuItem(title: "Eject", action: #selector(ctxEject(_:)), keyEquivalent: "")
             eject.target = self; eject.representedObject = entry.url; menu.addItem(eject)
         }
-        if SidebarBookmarks.contains(entry.url) {
+        if !SidebarController.isRecentsURL(entry.url) {
             menu.addItem(.separator())
-            let rm = NSMenuItem(title: "Remove from Sidebar", action: #selector(ctxRemoveBookmark(_:)), keyEquivalent: "")
-            rm.target = self; rm.representedObject = entry.url; menu.addItem(rm)
+            let inFavorites = containsFavorite(entry.url)
+            let item = NSMenuItem(title: inFavorites ? "Remove from Favorites" : "Add to Favorites",
+                                  action: inFavorites ? #selector(ctxRemoveBookmark(_:)) : #selector(ctxAddBookmark(_:)),
+                                  keyEquivalent: "")
+            item.target = self; item.representedObject = entry.url; menu.addItem(item)
         }
     }
     @objc private func ctxOpenNewTab(_ s: NSMenuItem) { if let u = s.representedObject as? URL { onOpenInNewTab?(u) } }
+    @objc private func ctxOpenNewPane(_ s: NSMenuItem) { if let u = s.representedObject as? URL { onOpenInNewPane?(u) } }
     @objc private func ctxOpenNewWindow(_ s: NSMenuItem) { if let u = s.representedObject as? URL { onOpenInNewWindow?(u) } }
     @objc private func ctxRemoveBookmark(_ s: NSMenuItem) { if let u = s.representedObject as? URL { SidebarBookmarks.remove(u) } }
     @objc private func ctxAddBookmark(_ s: NSMenuItem) { if let u = s.representedObject as? URL { SidebarBookmarks.add(u) } }
+    @objc private func ctxAddCurrentFavorite(_ s: NSMenuItem) {
+        if let u = s.representedObject as? URL { SidebarBookmarks.add(u) }
+    }
+    @objc private func ctxRemoveLocation(_ s: NSMenuItem) {
+        if let u = s.representedObject as? URL { SidebarLayout.removeLocation(u) }
+    }
+    @objc private func ctxRemoveFolderRoot(_ s: NSMenuItem) {
+        if let u = s.representedObject as? URL { SidebarLayout.removeFolderRoot(u) }
+    }
+    @objc private func ctxResetFavorites(_ s: NSMenuItem) { SidebarBookmarks.resetCustomization() }
+    @objc private func ctxRevealFavorite(_ s: NSMenuItem) {
+        if let u = s.representedObject as? URL { FileOps.revealInFinder([u]) }
+    }
+    @objc private func ctxRenameFavorite(_ s: NSMenuItem) {
+        guard let url = s.representedObject as? URL else { return }
+        let existing = favoritesSection?.items.first { $0.url == url }?.title
+            ?? url.lastPathComponent
+        let field = NSTextField(string: existing)
+        field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
+        let alert = NSAlert()
+        alert.messageText = "Rename Favorite"
+        alert.informativeText = "Changes the sidebar label only. The folder name stays unchanged."
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn else { return }
+            SidebarBookmarks.setCustomTitle(field.stringValue, for: url)
+        }
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(alert.runModal())
+        }
+    }
     @objc private func ctxDeleteSmartFolder(_ s: NSMenuItem) {
         if let u = s.representedObject as? URL, let id = SidebarController.smartFolderId(from: u) {
             SmartFolders.remove(id: id)
@@ -440,10 +643,8 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         return icon
     }
 
-    /// (Re)build the folder-tree roots: Home, then each browsable mounted
-    /// volume. Only the *roots* are created here; their subfolders load lazily on
-    /// expansion. Existing roots are reused so already-expanded subtrees aren't
-    /// thrown away on a rebuild (e.g. when bookmarks or the theme change).
+    /// (Re)build folder-tree roots from Home, mounted volumes, and user-pinned
+    /// folders. Only roots are created here; their children remain lazy.
     private func buildTreeRoots() {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
@@ -457,7 +658,8 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                             isDirectory: true)
         }
 
-        var roots: [TreeNode] = [root(url: home, title: NSUserName())]
+        var defaultURLs: [URL] = [home]
+        var titles = [home.standardizedFileURL.path: NSUserName()]
         let volKeys: [URLResourceKey] = [.volumeNameKey, .volumeIsBrowsableKey]
         if let volumes = fm.mountedVolumeURLs(includingResourceValuesForKeys: volKeys,
                                               options: [.skipHiddenVolumes]) {
@@ -466,10 +668,19 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                       rv.volumeIsBrowsable == true else { continue }
                 let name = v.path == "/" ? (rv.volumeName ?? "Macintosh HD")
                                          : (rv.volumeName ?? v.lastPathComponent)
-                roots.append(root(url: v, title: name))
+                if !defaultURLs.contains(where: { $0.standardizedFileURL.path == v.standardizedFileURL.path }) {
+                    defaultURLs.append(v)
+                }
+                titles[v.standardizedFileURL.path] = name
             }
         }
-        treeRoots = roots
+        for url in SidebarLayout.customFolderRoots() where fm.fileExists(atPath: url.path) {
+            titles[url.standardizedFileURL.path] = url.lastPathComponent
+        }
+        treeRoots = SidebarLayout.orderedFolderRoots(defaults: defaultURLs).compactMap { url in
+            guard fm.fileExists(atPath: url.path) else { return nil }
+            return root(url: url, title: titles[url.standardizedFileURL.path] ?? url.lastPathComponent)
+        }
     }
 
     private func buildSections() {
@@ -488,10 +699,10 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             return Entry(title: title, url: url, icon: icon)
         }
 
-        var favs: [Entry] = []
+        var defaultFavs: [Entry] = []
         let clock = NSImage(systemSymbolName: "clock", accessibilityDescription: nil) ?? NSImage()
         clock.size = NSSize(width: 16, height: 16)
-        favs.append(Entry(title: "Recents", url: SidebarController.recentsURL, icon: clock))
+        defaultFavs.append(Entry(title: "Recents", url: SidebarController.recentsURL, icon: clock))
         for (title, sub) in [
             ("Applications", "/Applications"),
             ("Desktop", home.appendingPathComponent("Desktop").path),
@@ -503,10 +714,11 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             (NSUserName(), home.path),
         ] {
             if let e = makeEntry(title, sub, fallback: NSImage.folderName) {
-                favs.append(e)
+                defaultFavs.append(e)
             }
         }
-        // User-added bookmarks live at the bottom of Favorites.
+        var favoritesByPath = Dictionary(uniqueKeysWithValues:
+            defaultFavs.map { ($0.url.standardizedFileURL.path, $0) })
         for url in SidebarBookmarks.all() where fm.fileExists(atPath: url.path) {
             let icon: NSImage
             if !PermissionsManager.hasFullDiskAccess && PermissionsManager.isProtectedPath(url.path) {
@@ -516,10 +728,17 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             }
             icon.size = NSSize(width: 16, height: 16)
             let name = url.path == "/" ? "Macintosh HD" : url.lastPathComponent
-            favs.append(Entry(title: name, url: url, icon: icon))
+            favoritesByPath[url.standardizedFileURL.path] = Entry(title: name, url: url, icon: icon)
+        }
+        // Built-ins and user-added folders share one editable order. A custom
+        // title changes the sidebar label only; it never renames the folder.
+        let favs = SidebarBookmarks.ordered(defaults: defaultFavs.map(\.url)).compactMap { url -> Entry? in
+            guard let base = favoritesByPath[url.standardizedFileURL.path] else { return nil }
+            let title = SidebarBookmarks.customTitle(for: url) ?? base.title
+            return Entry(title: title, url: url, icon: base.icon)
         }
 
-        var locations: [Entry] = []
+        var defaultLocations: [Entry] = []
         let volKeys: [URLResourceKey] = [
             .volumeNameKey, .volumeIsLocalKey, .volumeIsBrowsableKey,
             .volumeIsRootFileSystemKey, .volumeIsRemovableKey, .volumeIsEjectableKey,
@@ -542,8 +761,18 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                     icon = NSWorkspace.shared.icon(forFile: v.path)
                 }
                 icon.size = NSSize(width: 16, height: 16)
-                locations.append(Entry(title: name, url: v, icon: icon))
+                defaultLocations.append(Entry(title: name, url: v, icon: icon))
             }
+        }
+        var locationsByPath = Dictionary(uniqueKeysWithValues:
+            defaultLocations.map { ($0.url.standardizedFileURL.path, $0) })
+        for url in SidebarLayout.customLocations() where fm.fileExists(atPath: url.path) {
+            if let entry = makeEntry(url.lastPathComponent, url.path, fallback: NSImage.folderName) {
+                locationsByPath[url.standardizedFileURL.path] = entry
+            }
+        }
+        let locations = SidebarLayout.orderedLocations(defaults: defaultLocations.map(\.url)).compactMap {
+            locationsByPath[$0.standardizedFileURL.path]
         }
         // Saved searches (smart folders) — synthetic `/smart/<id>` entries.
         let gear = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil) ?? NSImage()
@@ -581,11 +810,11 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             // ordered list. Its slot is fixed by canonicalRank, so it's correct no
             // matter whether this Spotlight load or the folder-tree build finished
             // first — and a later rebuild keeps Tags rather than flickering it out.
-            self.tagsSection = tagItems.isEmpty ? nil : Section(title: "Tags", items: tagItems)
-            let base = self.sections.filter { $0.title != "Tags" }
-            self.applySections(base: base)
-            self.outline.reloadData()
-            for s in self.sections { self.outline.expandItem(s) }
+            self.reloadPreservingSectionExpansion {
+                self.tagsSection = tagItems.isEmpty ? nil : Section(title: "Tags", items: tagItems)
+                let base = self.sections.filter { $0.title != "Tags" }
+                self.applySections(base: base)
+            }
         }
     }
 
@@ -605,6 +834,188 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     static func smartFolderId(from url: URL) -> String? {
         guard url.path.hasPrefix("/smart/") else { return nil }
         return String(url.path.dropFirst("/smart/".count))
+    }
+
+    // MARK: Sidebar drag and drop
+
+    private enum FolderDropDestination {
+        case favorites(Int)
+        case locations(Int)
+        case folders(Int)
+
+        var sectionTitle: String {
+            switch self {
+            case .favorites: return "Favorites"
+            case .locations: return "Locations"
+            case .folders: return SidebarController.foldersSectionTitle
+            }
+        }
+    }
+
+    func outlineView(_ outlineView: NSOutlineView,
+                     pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
+        let pasteboardItem = NSPasteboardItem()
+        if let section = item as? Section {
+            pasteboardItem.setString(section.title, forType: SidebarController.sectionPasteboardType)
+            return pasteboardItem
+        }
+
+        let url: URL
+        let sectionTitle: String
+        if let entry = item as? Entry,
+           let parent = sections.first(where: { section in
+               ["Favorites", "Locations"].contains(section.title)
+                   && section.items.contains(where: { $0 === entry })
+           }) {
+            url = entry.url
+            sectionTitle = parent.title
+        } else if let node = item as? TreeNode,
+                  let parent = foldersSection,
+                  parent.treeRoots?.contains(where: { $0 === node }) == true {
+            url = node.url
+            sectionTitle = parent.title
+        } else {
+            return nil
+        }
+
+        pasteboardItem.setString(url.absoluteString, forType: .fileURL)
+        pasteboardItem.setPropertyList(["section": sectionTitle, "path": url.path],
+                                       forType: SidebarController.itemPasteboardType)
+        if sectionTitle == "Favorites" {
+            pasteboardItem.setString(url.path, forType: SidebarController.favoritePasteboardType)
+        }
+        return pasteboardItem
+    }
+
+    private func flatDropIndex(section: Section?, item: Any?, childIndex: Int) -> Int? {
+        guard let section else { return nil }
+        if let proposedSection = item as? Section, proposedSection === section {
+            return childIndex < 0 ? section.items.count : min(childIndex, section.items.count)
+        }
+        if let entry = item as? Entry, section.items.contains(where: { $0 === entry }),
+           let index = section.items.firstIndex(where: { $0 === entry }) {
+            return index + 1
+        }
+        return nil
+    }
+
+    private func folderRootDropIndex(item: Any?, childIndex: Int) -> Int? {
+        guard let section = foldersSection, let roots = section.treeRoots else { return nil }
+        if let proposedSection = item as? Section, proposedSection === section {
+            return childIndex < 0 ? roots.count : min(childIndex, roots.count)
+        }
+        if let node = item as? TreeNode, roots.contains(where: { $0 === node }),
+           let index = roots.firstIndex(where: { $0 === node }) {
+            return index + 1
+        }
+        return nil
+    }
+
+    private func folderDropDestination(item: Any?, childIndex: Int) -> FolderDropDestination? {
+        if let index = flatDropIndex(section: favoritesSection, item: item, childIndex: childIndex) {
+            return .favorites(index)
+        }
+        if let index = flatDropIndex(section: locationsSection, item: item, childIndex: childIndex) {
+            return .locations(index)
+        }
+        if let index = folderRootDropIndex(item: item, childIndex: childIndex) {
+            return .folders(index)
+        }
+        return nil
+    }
+
+    private func sectionDropIndex(item: Any?, childIndex: Int) -> Int? {
+        if item == nil {
+            return childIndex < 0 ? sections.count : min(childIndex, sections.count)
+        }
+        if let section = item as? Section,
+           let index = sections.firstIndex(where: { $0 === section }) {
+            return index + 1
+        }
+        return nil
+    }
+
+    private func draggedItemSourceSection(from info: NSDraggingInfo) -> String? {
+        let payload = info.draggingPasteboard.propertyList(
+            forType: SidebarController.itemPasteboardType) as? [String: String]
+        return payload?["section"]
+    }
+
+    private func droppedURLs(from info: NSDraggingInfo) -> [URL] {
+        if let payload = info.draggingPasteboard.propertyList(
+            forType: SidebarController.itemPasteboardType) as? [String: String],
+           let path = payload["path"] {
+            return [URL(fileURLWithPath: path)]
+        }
+        if let path = info.draggingPasteboard.string(forType: SidebarController.favoritePasteboardType) {
+            return [URL(fileURLWithPath: path)]
+        }
+        let urls = info.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return urls.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo,
+                     proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
+        if info.draggingPasteboard.string(forType: SidebarController.sectionPasteboardType) != nil,
+           let destination = sectionDropIndex(item: item, childIndex: index) {
+            // Gap feedback physically animates outline rows out of the way. When
+            // a drag retargets across group boundaries AppKit can leave those
+            // group cells hidden after mouse-up (the disappearing headers seen
+            // in the sidebar). Regular feedback keeps rows stable and still
+            // draws an insertion marker between them.
+            outlineView.draggingDestinationFeedbackStyle = SidebarController.stableDragFeedbackStyle
+            outlineView.setDropItem(nil, dropChildIndex: destination)
+            return .move
+        }
+
+        guard let destination = folderDropDestination(item: item, childIndex: index),
+              !droppedURLs(from: info).isEmpty else {
+            outlineView.draggingDestinationFeedbackStyle = SidebarController.stableDragFeedbackStyle
+            return []
+        }
+        outlineView.draggingDestinationFeedbackStyle = SidebarController.stableDragFeedbackStyle
+        switch destination {
+        case .favorites(let index): outlineView.setDropItem(favoritesSection, dropChildIndex: index)
+        case .locations(let index): outlineView.setDropItem(locationsSection, dropChildIndex: index)
+        case .folders(let index): outlineView.setDropItem(foldersSection, dropChildIndex: index)
+        }
+        return draggedItemSourceSection(from: info) == destination.sectionTitle ? .move : .copy
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo,
+                     item: Any?, childIndex index: Int) -> Bool {
+        defer {
+            outlineView.draggingDestinationFeedbackStyle = SidebarController.stableDragFeedbackStyle
+        }
+
+        if let sectionTitle = info.draggingPasteboard.string(
+            forType: SidebarController.sectionPasteboardType),
+           let destination = sectionDropIndex(item: item, childIndex: index) {
+            let visibleTitles = sections.map(\.title)
+            DispatchQueue.main.async {
+                SidebarLayout.moveSection(sectionTitle, toVisibleIndex: destination,
+                                          among: visibleTitles)
+            }
+            return true
+        }
+
+        guard let destination = folderDropDestination(item: item, childIndex: index) else { return false }
+        let urls = droppedURLs(from: info)
+        guard !urls.isEmpty else { return false }
+        let favorites = favoriteURLs
+        let locations = locationURLs
+        let roots = folderRootURLs
+        DispatchQueue.main.async {
+            switch destination {
+            case .favorites(let index): SidebarBookmarks.insert(urls, at: index, among: favorites)
+            case .locations(let index): SidebarLayout.insertLocations(urls, at: index, among: locations)
+            case .folders(let index): SidebarLayout.insertFolderRoots(urls, at: index, among: roots)
+            }
+        }
+        return true
     }
 
     // MARK: NSOutlineViewDataSource autosave
@@ -669,6 +1080,12 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         // no subfolders, NSOutlineView removes the triangle on its own.
         if let node = item as? TreeNode { return node.isDirectory }
         return false
+    }
+    func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
+        // Disclosure triangles remain user-controlled. Drop indexes are resolved
+        // without spring-opening sections, and expanding folder-tree nodes during
+        // a drag could trigger expensive directory scans.
+        isRestoringSectionExpansion || !outline.hasActiveDrag
     }
     func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
         item is Section

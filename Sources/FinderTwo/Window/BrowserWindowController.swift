@@ -55,6 +55,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     let sidebarVC: SidebarController
     private let panesContainer: PanesContainerController
     private var vimKeyMonitor: Any?
+    private var windowJoinMouseUpMonitor: Any?
+    private var isDraggingWindow = false
+    private weak var windowJoinTarget: BrowserWindowController?
+    private let windowJoinOverlay = WindowJoinDropOverlay()
     /// Off-main branch lookups for the window subtitle (reads .git/HEAD).
     private static let gitInfoQueue = DispatchQueue(label: "FinderTwo.windowGitInfo", qos: .utility)
     /// Anchor for cascading additional windows. AppKit's `cascadeTopLeft` mutates
@@ -118,6 +122,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         splitVC.addSplitViewItem(mainItem)
 
         window.contentViewController = splitVC
+        installWindowJoinOverlay(in: window)
         // Initial size is set explicitly below; splitVC.preferredContentSize is
         // pinned to .zero (NonResizingSplitViewController) so neither the initial
         // contentViewController assignment nor later column navigation can
@@ -174,6 +179,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         sidebarVC.onOpenInNewTab = { [weak self] url in
             self?.panesContainer.activePane?.newTab(at: url)
         }
+        sidebarVC.onOpenInNewPane = { [weak self] url in
+            self?.panesContainer.addExtraPane(at: url)
+        }
         sidebarVC.onOpenInNewWindow = { url in
             (NSApp.delegate as? AppDelegate)?.openNewBrowserWindow(at: url)
         }
@@ -202,6 +210,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         }
 
         installVimKeyMonitor()
+        installWindowJoinMonitor()
         applyTitleBarVisibility()
         NotificationCenter.default.addObserver(self, selector: #selector(chromeSettingsChanged),
                                                name: Settings.didChange, object: nil)
@@ -233,6 +242,100 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
         guard appliedSidebarWidth != width else { return }
         appliedSidebarWidth = width
         splitVC.splitView.setPosition(width, ofDividerAt: 0)
+    }
+
+    // MARK: Window joining
+
+    /// Drag a Rascal title bar over the centre of another Rascal window and
+    /// release. The destination receives every source pane and its tabs; the
+    /// source closes only after the complete merge succeeds.
+    func windowWillMove(_ notification: Notification) {
+        isDraggingWindow = true
+        updateWindowJoinTarget()
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard isDraggingWindow else { return }
+        updateWindowJoinTarget()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        isDraggingWindow = false
+        clearWindowJoinTarget()
+    }
+
+    private func installWindowJoinMonitor() {
+        windowJoinMouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            self?.completeWindowJoinDrop()
+            return event
+        }
+    }
+
+    private func installWindowJoinOverlay(in window: NSWindow) {
+        guard let contentView = window.contentView else { return }
+        windowJoinOverlay.translatesAutoresizingMaskIntoConstraints = false
+        windowJoinOverlay.isHidden = true
+        contentView.addSubview(windowJoinOverlay)
+        NSLayoutConstraint.activate([
+            windowJoinOverlay.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            windowJoinOverlay.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            windowJoinOverlay.topAnchor.constraint(equalTo: contentView.topAnchor),
+            windowJoinOverlay.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
+    }
+
+    private func updateWindowJoinTarget() {
+        let pointer = NSEvent.mouseLocation
+        let candidates: [BrowserWindowController] = NSApp.orderedWindows.compactMap { window in
+            guard let controller = window.windowController as? BrowserWindowController else {
+                return nil
+            }
+            return controller
+        }
+        let target = candidates.first { candidate in
+            guard candidate !== self,
+                  candidate.canAcceptPanes(from: self),
+                  candidate.window != nil else { return false }
+            return candidate.joinDropFrame.contains(pointer)
+        }
+        setWindowJoinTarget(target)
+    }
+
+    private func setWindowJoinTarget(_ target: BrowserWindowController?) {
+        guard windowJoinTarget !== target else { return }
+        windowJoinTarget?.windowJoinOverlay.isHidden = true
+        windowJoinTarget = target
+        target?.windowJoinOverlay.isHidden = false
+    }
+
+    private func clearWindowJoinTarget() { setWindowJoinTarget(nil) }
+
+    private func completeWindowJoinDrop() {
+        guard isDraggingWindow else { return }
+        isDraggingWindow = false
+        defer { clearWindowJoinTarget() }
+        guard let target = windowJoinTarget, target.absorbPanes(from: self) else { return }
+        target.window?.makeKeyAndOrderFront(nil)
+        window?.close()
+    }
+
+    /// Visible, deliberately central drop area. Keeping it away from edges
+    /// prevents an ordinary side-by-side arrangement from becoming a merge.
+    private var joinDropFrame: NSRect {
+        guard let frame = window?.frame else { return .zero }
+        return frame.insetBy(dx: min(100, frame.width * 0.18),
+                             dy: min(80, frame.height * 0.18))
+    }
+
+    private func canAcceptPanes(from source: BrowserWindowController) -> Bool {
+        source !== self && source.panesContainer.testPaneCount <= PanesContainerController.maxPanes - panesContainer.testPaneCount
+    }
+
+    @discardableResult
+    private func absorbPanes(from source: BrowserWindowController) -> Bool {
+        guard source !== self, panesContainer.appendPanes(from: source.sessionSnapshot()) else { return false }
+        window?.invalidateRestorableState()
+        return true
     }
 
     /// Show/hide the window title bar. Hidden = full-size content under a
@@ -336,7 +439,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     }
 
     deinit {
+        clearWindowJoinTarget()
         GitBranchWorkspaces.shared.unregister(self)
+        if let m = windowJoinMouseUpMonitor { NSEvent.removeMonitor(m) }
         if let m = vimKeyMonitor { NSEvent.removeMonitor(m) }
         NotificationCenter.default.removeObserver(self)
     }
@@ -569,6 +674,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     @objc func addToDropStack(_ sender: Any?) {
         let sel = activePane?.selectedURLs() ?? []
         if DropStack.add(sel) > 0 { DropStackController.shared.present() } else { NSSound.beep() }
+    }
+    @objc func addToFavorites(_ sender: Any?) {
+        guard let pane = activePane else { return }
+        let folders = pane.selectedURLs().filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+        for url in folders.isEmpty ? [pane.currentURL] : folders {
+            SidebarBookmarks.add(url)
+        }
     }
 
     /// The frontmost browser window's active folder — used by the Drop Stack
@@ -889,7 +1003,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Theme
     var testPaneCount: Int { panesContainer.testPaneCount }
     func testToggleExtraPane() { panesContainer.toggleExtraPane() }
     func testAddPane() { panesContainer.addExtraPane() }
+    func testAddPane(at url: URL) { panesContainer.addExtraPane(at: url) }
     func testCloseActivePane() { panesContainer.closeActivePane() }
+    @discardableResult func testJoinWindow(into target: BrowserWindowController) -> Bool {
+        guard target.absorbPanes(from: self) else { return false }
+        window?.close()
+        return true
+    }
 
     // MARK: State persistence
 
@@ -917,6 +1037,37 @@ final class OffscreenSafeWindow: NSWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect   // never clamp onto a display
     }
+}
+
+/// Temporary destination affordance while another Rascal window is being
+/// dragged over this one. It never receives input: AppKit keeps the drag with
+/// the source title bar until mouse-up.
+private final class WindowJoinDropOverlay: NSView {
+    private let label = NSTextField(labelWithString: "Release to join panes")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.borderWidth = 3
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+        label.font = .systemFont(ofSize: 18, weight: .semibold)
+        label.textColor = .labelColor
+        label.alignment = .center
+        label.drawsBackground = true
+        label.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.9)
+        label.wantsLayer = true
+        label.layer?.cornerRadius = 7
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.widthAnchor.constraint(greaterThanOrEqualToConstant: 210),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
 }
 
 /// Target for the "Recent Directories" pop-up menu items. Menu items need a

@@ -178,11 +178,11 @@ final class VimMode {
             return true
         case "j":
             for _ in 0..<repeatCount { pane.vimMove(by: 1) }
-            applyVisualExtend(fileList: fileList)
+            applyVisualExtend(in: pane, fileList: fileList)
             return true
         case "k":
             for _ in 0..<repeatCount { pane.vimMove(by: -1) }
-            applyVisualExtend(fileList: fileList)
+            applyVisualExtend(in: pane, fileList: fileList)
             return true
         case "l":
             pane.openSelection()
@@ -233,12 +233,13 @@ final class VimMode {
         pane.selectTab(at: next)
     }
 
-    private func applyVisualExtend(fileList: FileListController) {
+    private func applyVisualExtend(in pane: PaneController, fileList: FileListController) {
         guard mode == .visual, let anchor = visualAnchor, anchor >= 0 else { return }
         let now = fileList.tableView.selectedRow
         guard now >= 0 else { return }
         let lo = min(anchor, now)
         let hi = max(anchor, now)
         fileList.tableView.selectRowIndexes(IndexSet(integersIn: lo...hi), byExtendingSelection: false)
+        pane.syncSelectionFromList()
     }
 }

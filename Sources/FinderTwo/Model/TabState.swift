@@ -6,6 +6,7 @@ final class TabState {
     var backStack: [URL] = []
     var forwardStack: [URL] = []
     let model: DirectoryModel
+    let selection = SelectionModel()
 
     init(url: URL) {
         self.currentURL = url

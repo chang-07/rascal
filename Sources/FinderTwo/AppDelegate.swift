@@ -392,6 +392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                               title: "Open",
                               key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
                               mods: [.command]))
+        goMenu.addItem(routed("pane.add", title: "Open in New Pane"))
         goMenu.addItem(NSMenuItem.separator())
         goMenu.addItem(routed("nav.goto", title: "Go to Folder…"))
         goMenu.addItem(routed("nav.home", title: "Home"))

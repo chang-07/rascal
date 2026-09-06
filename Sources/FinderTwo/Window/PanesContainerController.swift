@@ -29,6 +29,30 @@ final class PanesContainerController: NSSplitViewController {
         pane.restoreFromSnapshot(snap)
     }
 
+    /// Appends every pane saved by another browser window. Joining is all or
+    /// nothing: a source with more panes than the available columns stays in
+    /// its own window rather than silently dropping a pane or its tabs.
+    func appendPanes(from snapshot: [String: Any]) -> Bool {
+        guard let sourcePanes = snapshot["panes"] as? [[String: Any]],
+              !sourcePanes.isEmpty,
+              sourcePanes.count <= Self.maxPanes - panes.count else { return false }
+
+        // A pane always has at least one directory tab. Refuse the join if a
+        // saved source pane can no longer be restored, preserving the source
+        // window instead of making an inaccessible pane disappear.
+        let canRestoreEveryPane = sourcePanes.allSatisfy { snap in
+            guard let urls = snap["urls"] as? [String], !urls.isEmpty else { return false }
+            return urls.allSatisfy { FileManager.default.fileExists(atPath: $0) }
+        }
+        guard canRestoreEveryPane else { return false }
+
+        let firstJoinedPaneIndex = panes.count
+        for snap in sourcePanes { addPaneForRestore(snap: snap) }
+        activeIndex = firstJoinedPaneIndex
+        updateAfterActiveChange()
+        return true
+    }
+
     private let initialURL: URL
     init(initialURL: URL) {
         self.initialURL = initialURL
@@ -77,7 +101,13 @@ final class PanesContainerController: NSSplitViewController {
     /// pane, so the extra columns persist and restore automatically.
     func addExtraPane() {
         guard canAddPane, let active = activePane else { return }
-        addPane(at: active.currentURL, activate: true)
+        addExtraPane(at: active.currentURL)
+    }
+
+    /// Open a specific folder in a new pane (used by sidebar context menus).
+    func addExtraPane(at url: URL) {
+        guard canAddPane else { return }
+        addPane(at: url, activate: true)
     }
 
     /// Close the active pane (down to a minimum of one).

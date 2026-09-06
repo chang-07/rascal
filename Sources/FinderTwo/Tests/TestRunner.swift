@@ -167,6 +167,18 @@ final class TestRunner {
         assert("extra pane closes",
                wc.testPaneCount == panesBefore,
                "panes=\(wc.testPaneCount)")
+        let contextTitles = pane.testFileList.contextMenu().items.map(\.title)
+        assert("Open in New Pane is directly below Open in the file context menu",
+               contextTitles.prefix(2) == ["Open", "Open in New Pane"],
+               "items=\(contextTitles.prefix(4))")
+        assert("pane action is named Open in New Pane",
+               ActionRegistry.action(id: "pane.add")?.title == "Open in New Pane",
+               "title=\(ActionRegistry.action(id: "pane.add")?.title ?? "nil")")
+        wc.testAddPane(at: subURL)
+        assert("sidebar-style Open in New Pane uses requested folder",
+               wc.testPaneCount == panesBefore + 1 && wc.testActivePane?.currentURL == subURL,
+               "panes=\(wc.testPaneCount) url=\(wc.testActivePane?.currentURL.path ?? "nil")")
+        wc.testCloseActivePane()
 
         // --- T10b: keyboard pane focus switching ---
         wc.testToggleExtraPane()   // open a second pane
@@ -711,10 +723,12 @@ final class TestRunner {
         }
         pane.navigate(to: sandbox); pane.testReloadSync()
 
-        // --- T32: Hotbar default config has 10 items ---
+        // --- T32: Hotbar default config includes all core quick actions ---
         let hotbarIds = HotbarView.defaultIds()
-        assert("hotbar default has 10 buttons",
-               hotbarIds.count == 10, "count=\(hotbarIds.count)")
+        assert("hotbar default has 11 buttons",
+               hotbarIds.count == 11, "count=\(hotbarIds.count)")
+        assert("hotbar defaults include Add to Favorites",
+               hotbarIds.contains("file.add-favorite"), "missing")
         for id in hotbarIds {
             assert("hotbar id resolves: \(id)",
                    ActionRegistry.action(id: id) != nil,
@@ -1225,7 +1239,21 @@ final class TestRunner {
         assert("sidebar bookmark de-duplicates",
                SidebarBookmarks.all().filter { $0.path == bmURL.path }.count == 1,
                "duplicated")
+        let bmURL2 = sandbox.appendingPathComponent("bookmarkme-too")
+        try? FileManager.default.createDirectory(at: bmURL2, withIntermediateDirectories: true)
+        SidebarBookmarks.remove(bmURL2)
+        SidebarBookmarks.add(bmURL2)
+        let favoritesBeforeMove = SidebarBookmarks.ordered(defaults: [])
+        SidebarBookmarks.insert([bmURL2], at: 0, among: favoritesBeforeMove)
+        assert("sidebar favorite drag order persists",
+               SidebarBookmarks.ordered(defaults: []).first?.path == bmURL2.path,
+               "got=\(SidebarBookmarks.ordered(defaults: []).map(\.lastPathComponent))")
+        SidebarBookmarks.setCustomTitle("Pinned Test", for: bmURL2)
+        assert("sidebar favorite custom label persists",
+               SidebarBookmarks.customTitle(for: bmURL2) == "Pinned Test", "missing")
+        SidebarBookmarks.setCustomTitle(nil, for: bmURL2)
         SidebarBookmarks.remove(bmURL)
+        SidebarBookmarks.remove(bmURL2)
         assert("sidebar bookmark removed", !SidebarBookmarks.contains(bmURL), "still present")
 
         // --- T42f2: smart folders (saved searches) ---
@@ -2313,8 +2341,10 @@ final class TestRunner {
             .testEntryTitles ?? []
         assert("sidebar contains Documents",
                entries.contains("Documents"), "entries=\(entries)")
-        assert("sidebar contains Macintosh HD",
-               entries.contains("Macintosh HD"), "entries=\(entries)")
+        let startupVolume = URL(fileURLWithPath: "/")
+        assert("sidebar contains the startup volume",
+               wc.sidebarVC.testLocationURLs.contains { samePath($0, startupVolume) },
+               "locations=\(wc.sidebarVC.testLocationURLs.map(\.path))")
 
         // --- T58b: Settings round-trips + appearance overrides ---
         let origDensity = Settings.density
@@ -2567,6 +2597,49 @@ final class TestRunner {
         assert("folder tree roots include the home folder",
                liveSidebar.testTreeRootTitles.contains(NSUserName()),
                "roots=\(liveSidebar.testTreeRootTitles)")
+        liveSidebar.testSetSection("Locations", expanded: false)
+        liveSidebar.testReloadBookmarks()
+        assert("favorite reload preserves collapsed sidebar sections",
+               !liveSidebar.testIsSectionExpanded("Locations"),
+               "Locations expanded after Favorites reload")
+        assert("sidebar categories and supported folder rows are draggable",
+               liveSidebar.testCanDragSection("Favorites")
+                   && liveSidebar.testCanDragFirstEntry(in: "Favorites")
+                   && liveSidebar.testCanDragFirstEntry(in: "Locations")
+                   && liveSidebar.testCanDragFirstFolderRoot(),
+               "section/folder drag-source boundary failed")
+        assert("sidebar drag feedback keeps group rows stable",
+               liveSidebar.testDragFeedbackIsRegular,
+               "sidebar is using gap feedback")
+
+        let originalSectionOrder = liveSidebar.testSectionTitles
+        if let firstSection = originalSectionOrder.first {
+            SidebarLayout.moveSection(firstSection, toVisibleIndex: originalSectionOrder.count,
+                                      among: originalSectionOrder)
+            assert("sidebar category order persists",
+                   liveSidebar.testSectionTitles.last == firstSection,
+                   "order=\(liveSidebar.testSectionTitles)")
+            for (index, title) in originalSectionOrder.enumerated() {
+                SidebarLayout.moveSection(title, toVisibleIndex: index,
+                                          among: liveSidebar.testSectionTitles)
+            }
+        }
+
+        SidebarLayout.removeLocation(treeRoot)
+        SidebarLayout.insertLocations([treeRoot], at: liveSidebar.testLocationURLs.count,
+                                      among: liveSidebar.testLocationURLs)
+        assert("folder can be pinned into Locations",
+               liveSidebar.testLocationURLs.contains { samePath($0, treeRoot) },
+               "locations=\(liveSidebar.testLocationURLs.map(\.path))")
+        SidebarLayout.removeLocation(treeRoot)
+
+        SidebarLayout.removeFolderRoot(treeRoot)
+        SidebarLayout.insertFolderRoots([treeRoot], at: liveSidebar.testFolderRootURLs.count,
+                                        among: liveSidebar.testFolderRootURLs)
+        assert("folder can be pinned as a Folders root",
+               liveSidebar.testFolderRootURLs.contains { samePath($0, treeRoot) },
+               "roots=\(liveSidebar.testFolderRootURLs.map(\.path))")
+        SidebarLayout.removeFolderRoot(treeRoot)
     }
 
     /// Drive the new-window path repeatedly and assert each call produces a
@@ -2604,6 +2677,43 @@ final class TestRunner {
         assert("each new window has its own pane",
                panes.count == n && distinctPanes.count == n,
                "panes=\(panes.count) distinct=\(distinctPanes.count)")
+
+        // A title-bar drop uses the same merge operation below. Preserve the
+        // donor's tabs/panes and close its source window only after it fits.
+        let receiver = recent[0]
+        let donor = recent[1]
+        let invalidDonor = recent[2]
+        let missingTab = sandbox.appendingPathComponent("join-missing-tab")
+        try? FileManager.default.createDirectory(at: missingTab, withIntermediateDirectories: true)
+        invalidDonor.testActivePane?.newTab(at: missingTab)
+        try? FileManager.default.removeItem(at: missingTab)
+        let receiverPanesBeforeInvalidJoin = receiver.testPaneCount
+        let didJoinWithMissingTab = invalidDonor.testJoinWindow(into: receiver)
+        assert("joining refuses rather than dropping a missing tab",
+               !didJoinWithMissingTab && receiver.testPaneCount == receiverPanesBeforeInvalidJoin,
+               "joined=\(didJoinWithMissingTab) receiver=\(receiver.testPaneCount)")
+
+        donor.testActivePane?.newTab(at: sandbox)
+        donor.testAddPane()
+        let receiverPanesBeforeJoin = receiver.testPaneCount
+        let donorPanesBeforeJoin = donor.testPaneCount
+        let didJoin = donor.testJoinWindow(into: receiver)
+        wait(0.05)
+        assert("joining a window appends every donor pane",
+               didJoin && receiver.testPaneCount == receiverPanesBeforeJoin + donorPanesBeforeJoin,
+               "joined=\(didJoin) receiver=\(receiver.testPaneCount) donor=\(donorPanesBeforeJoin)")
+        assert("joining a window preserves donor tabs",
+               receiver.testAllPanes.suffix(donorPanesBeforeJoin).contains { $0.testTabCount == 2 },
+               "tabs=\(receiver.testAllPanes.suffix(donorPanesBeforeJoin).map(\.testTabCount))")
+
+        // Joining never evicts an existing pane to make room for another one.
+        receiver.testAddPane()   // receiver now has the four-pane maximum
+        let overflowSource = invalidDonor
+        let panesBeforeOverflowJoin = receiver.testPaneCount
+        let didOverflowJoin = overflowSource.testJoinWindow(into: receiver)
+        assert("joining beyond four panes refuses without changing destination",
+               !didOverflowJoin && receiver.testPaneCount == panesBeforeOverflowJoin,
+               "joined=\(didOverflowJoin) receiver=\(receiver.testPaneCount)")
 
         // Clean up the windows this test opened.
         for w in NSApp.windows { w.close() }
@@ -3136,6 +3246,24 @@ final class TestRunner {
             }
         }
         wc5.window?.close()
+
+        // --- GI-3b: each tab restores only its own selection ---
+        let tabA = mkdir("s3b/A"); let tabB = mkdir("s3b/B")
+        mkfile(tabA, "only-a.txt"); mkfile(tabB, "only-b.txt")
+        let wc3b = BrowserWindowController(rootURL: tabA); _ = wc3b.window
+        if let p = wc3b.testActivePane {
+            p.setViewMode(.list); p.testReloadSync()
+            if let item = p.testCurrentItems.first(where: { $0.name == "only-a.txt" }) { p.testSelectItem(item) }
+            p.newTab(at: tabB); p.testReloadSync()
+            if let item = p.testCurrentItems.first(where: { $0.name == "only-b.txt" }) { p.testSelectItem(item) }
+            p.selectTab(at: 0)
+            assert("switching back restores tab A selection", p.selectedURLs().map(\.lastPathComponent) == ["only-a.txt"],
+                   "sel=\(p.selectedURLs().map { $0.lastPathComponent })")
+            p.selectTab(at: 1)
+            assert("switching forward restores tab B selection", p.selectedURLs().map(\.lastPathComponent) == ["only-b.txt"],
+                   "sel=\(p.selectedURLs().map { $0.lastPathComponent })")
+        }
+        wc3b.window?.close()
 
         // --- GI-4 (S8): per-folder view memory across navigate-away-and-back ---
         let a8 = mkdir("s8/A"); mkfile(a8, "a.txt")
