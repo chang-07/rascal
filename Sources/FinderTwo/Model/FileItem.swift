@@ -76,6 +76,31 @@ struct FileItem: Hashable {
             kindDescription: kind
         )
     }
+
+    /// Build an item for a remote (SFTP) entry — no local filesystem access.
+    /// Modified/created default to `distantPast` (SFTP `ls` mtime isn't parsed
+    /// yet); size is already -1 for directories. `parent` is the enclosing
+    /// `sftp://…` URL, so the child URL round-trips back through `SFTPLocation`.
+    static func remote(name: String, isDirectory: Bool, size: Int64, parent: URL) -> FileItem {
+        let childURL = parent.appendingPathComponent(name, isDirectory: isDirectory)
+        let ext = (name as NSString).pathExtension.lowercased()
+        let type = ext.isEmpty ? nil : UTType(filenameExtension: ext)
+        let kind = isDirectory ? "Folder"
+            : (type?.localizedDescription ?? (ext.isEmpty ? "File" : ext.uppercased() + " file"))
+        return FileItem(
+            url: childURL,
+            name: name,
+            isDirectory: isDirectory,
+            isSymlink: false,
+            isHidden: name.hasPrefix("."),
+            size: isDirectory ? -1 : size,
+            modified: .distantPast,
+            created: .distantPast,
+            ext: ext,
+            contentType: type,
+            kindDescription: kind
+        )
+    }
 }
 
 enum SortKey: String, CaseIterable {

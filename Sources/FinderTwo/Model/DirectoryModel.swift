@@ -108,6 +108,18 @@ final class DirectoryModel {
             }
             return
         }
+        if SFTPLocation.isRemote(url) {
+            // Remote (SFTP) location: no local FS watcher; list off-main via the
+            // system sftp client and flow the entries through the normal FileItem
+            // pipeline, so the list view, sorting, filtering, and tabs all work
+            // unchanged. reload() is remote-aware.
+            watcher?.stop()
+            watcher = nil
+            rawItems = []
+            recompute(forceSync: true)   // clear the previous folder immediately
+            reload()
+            return
+        }
         // A slow or wedged network mount would freeze the main thread if we
         // scanned it synchronously. Local volumes load sync (instant, no
         // flicker); network volumes load async so navigation never beachballs —
@@ -128,6 +140,13 @@ final class DirectoryModel {
     /// for the initial load and explicit navigations so the user sees content
     /// before the run loop returns.
     func reload(sync: Bool = false) {
+        // Remote (sftp://) URLs are never scanned by FastDirScan — that would try
+        // to read a local path of the same name. Route to the SFTP loader (also
+        // covers init-time and session-restore of a remote pane).
+        if SFTPLocation.isRemote(url) {
+            loadRemote()
+            return
+        }
         if sync {
             doLoad(generation: bumpGeneration(), targetURL: url, applyOnMain: false)
             return
@@ -184,6 +203,30 @@ final class DirectoryModel {
             DispatchQueue.main.async(execute: apply)
         } else {
             apply()
+        }
+    }
+
+    /// Load a remote (SFTP) directory off-main and publish its entries through
+    /// the normal FileItem pipeline. Uses the same generation + URL guards as
+    /// doLoad so a superseded navigation is dropped. Always async — a remote
+    /// round-trip must never block the main thread.
+    private func loadRemote() {
+        guard let (conn, path) = SFTPLocation.parse(url) else { return }
+        let gen = bumpGeneration()
+        let targetURL = url
+        DirectoryModel.ioQueue.async { [weak self] in
+            let entries = SFTPClient.list(conn, path: path)
+            let items = entries.map {
+                FileItem.remote(name: $0.name, isDirectory: $0.isDirectory,
+                                size: $0.size, parent: targetURL)
+            }
+            DispatchQueue.main.async {
+                guard let self, gen == self.loadGeneration, targetURL == self.url else { return }
+                self.rawItems = items
+                self.gitStates = [:]        // git integration doesn't apply to remotes
+                self.gitRepoInfo = nil
+                self.recompute(forceSync: true)
+            }
         }
     }
 
@@ -257,6 +300,24 @@ final class DirectoryModel {
         recomputeGeneration &+= 1
         delegate?.directoryModelDidUpdate(self)
         return items.count
+    }
+
+    /// Test hook: load a remote (SFTP) directory synchronously on the calling
+    /// thread and return the resulting item count. The live path hops
+    /// ioQueue → main, and a main-queue apply cannot drain re-entrantly inside
+    /// the FT_RUN_TESTS nested run loop (same constraint `testApplyComputeSync`
+    /// exists for). This exercises the real pipeline — URL parse, sftp listing,
+    /// FileItem mapping, filter/sort — minus that one dispatch hop.
+    @discardableResult
+    func testLoadRemoteSync() -> Int {
+        guard let (conn, path) = SFTPLocation.parse(url) else { return 0 }
+        let entries = SFTPClient.list(conn, path: path)
+        let target = url
+        rawItems = entries.map {
+            FileItem.remote(name: $0.name, isDirectory: $0.isDirectory,
+                            size: $0.size, parent: target)
+        }
+        return testApplyComputeSync()
     }
 
     private func recompute(forceSync: Bool = false) {
@@ -340,6 +401,8 @@ final class DirectoryModel {
 
     private func startWatcher() {
         watcher?.stop()
+        // Remote locations have no local FS to watch (FSEvents is path-based).
+        guard !SFTPLocation.isRemote(url) else { watcher = nil; return }
         watcher = DirectoryWatcher(url: url) { [weak self] in
             DispatchQueue.main.async {
                 self?.reload(sync: false)

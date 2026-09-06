@@ -147,7 +147,9 @@ final class VimMode {
                 return true
             case "dd":
                 let urls = pane.selectedURLs()
-                if !urls.isEmpty { FileOps.trashWithConfirmation(urls) }
+                // Remote items delete permanently (no Trash) and need an
+                // explicit reload — remote locations have no FSEvents watcher.
+                if !urls.isEmpty, RemoteFileOps.routeDelete(urls) { pane.reload() }
                 mode = .normal; visualAnchor = nil   // exit visual; don't leave a stale anchor
                 return true
             default:
