@@ -1912,6 +1912,103 @@ final class TestRunner {
             assert("GitStatus.repoRoot resolves from nested dir",
                    GitStatus.repoRoot(for: sub).map { samePath($0, gitProj) } ?? false,
                    "got=\(GitStatus.repoRoot(for: sub)?.path ?? "nil")")
+
+            // --- T46b2: a browsed repo's own config must not run commands ---
+            let evilMarker = sandbox.appendingPathComponent("git_evil_ran")
+            let evilHook = sandbox.appendingPathComponent("git_evil_hook.sh")
+            try? "#!/bin/sh\ntouch '\(evilMarker.path)'\n"
+                .write(to: evilHook, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: evilHook.path)
+            func evilGit(_ repo: URL, _ args: [String]) {
+                let p = Process()
+                p.launchPath = "/usr/bin/git"
+                p.arguments = ["-C", repo.path] + args
+                p.standardOutput = FileHandle.nullDevice
+                p.standardError = FileHandle.nullDevice
+                p.launch(); p.waitUntilExit()
+            }
+            // A committed repo with f.txt changed, like one unpacked from an archive.
+            func evilRepo(_ name: String) -> URL {
+                let repo = sandbox.appendingPathComponent(name)
+                try? FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+                evilGit(repo, ["init", "-q", "-b", "main"])
+                evilGit(repo, ["config", "user.name", "Test"])
+                evilGit(repo, ["config", "user.email", "test@test.com"])
+                try? "a\n".write(to: repo.appendingPathComponent("f.txt"), atomically: true, encoding: .utf8)
+                evilGit(repo, ["add", "f.txt"])
+                evilGit(repo, ["commit", "-q", "-m", "initial"])
+                try? "b\n".write(to: repo.appendingPathComponent("f.txt"), atomically: true, encoding: .utf8)
+                return repo
+            }
+            func browse(_ repo: URL) {
+                _ = GitStatus.repoInfo(root: repo)
+                _ = GitStatus.fileStates(in: repo, repoRoot: repo)
+                _ = GitStatus.gitDiff(repoRoot: repo, fileURL: repo.appendingPathComponent("f.txt"))
+            }
+            func evilRan() -> Bool {
+                defer { try? FileManager.default.removeItem(at: evilMarker) }
+                return FileManager.default.fileExists(atPath: evilMarker.path)
+            }
+
+            let fsmon = evilRepo("git_evil_fsmonitor")
+            evilGit(fsmon, ["config", "core.fsmonitor", evilHook.path])
+            browse(fsmon)
+            assert("GitStatus ignores a repo's core.fsmonitor", !evilRan(), "command ran")
+            assert("GitStatus still badges a repo with core.fsmonitor set",
+                   GitStatus.fileStates(in: fsmon, repoRoot: fsmon)["f.txt"] != nil, "no badge")
+
+            let ext = evilRepo("git_evil_external")
+            evilGit(ext, ["config", "diff.external", evilHook.path])
+            browse(ext)
+            assert("GitStatus ignores a repo's diff.external", !evilRan(), "command ran")
+            assert("GitStatus still diffs a repo with diff.external set",
+                   GitStatus.gitDiff(repoRoot: ext, fileURL: ext.appendingPathComponent("f.txt"))?.contains("+b") == true, "no diff")
+
+            for attr in ["textconv", "command"] {
+                let drv = evilRepo("git_evil_\(attr)")
+                evilGit(drv, ["config", "diff.x.\(attr)", evilHook.path])
+                try? "* diff=x\n".write(to: drv.appendingPathComponent(".git/info/attributes"),
+                                       atomically: true, encoding: .utf8)
+                browse(drv)
+                assert("GitStatus ignores a repo's diff driver \(attr)", !evilRan(), "command ran")
+            }
+
+            // "a=b" can't be expressed as `-c filter.a=b.clean=`, so it must be refused.
+            for name in ["x", "a=b"] {
+                let filt = evilRepo("git_evil_filter_\(name)")
+                evilGit(filt, ["config", "filter.\(name).clean", evilHook.path])
+                try? "* filter=\(name)\n".write(to: filt.appendingPathComponent(".git/info/attributes"),
+                                               atomically: true, encoding: .utf8)
+                browse(filt)
+                assert("GitStatus ignores a repo's filter driver \(name)", !evilRan(), "command ran")
+                assert("GitStatus keeps the branch of a repo it won't scan",
+                       GitStatus.repoInfo(root: filt).branch == "main", "no branch")
+            }
+
+            // The same filter via include.path, then inside a submodule.
+            let incl = evilRepo("git_evil_include")
+            try? "[filter \"x\"]\n\tclean = \(evilHook.path)\n"
+                .write(to: incl.appendingPathComponent(".git/inc"), atomically: true, encoding: .utf8)
+            evilGit(incl, ["config", "include.path", "inc"])
+            try? "* filter=x\n".write(to: incl.appendingPathComponent(".git/info/attributes"),
+                                    atomically: true, encoding: .utf8)
+            browse(incl)
+            assert("GitStatus ignores a filter from an included config", !evilRan(), "command ran")
+
+            let inner = evilRepo("git_evil_inner")
+            evilGit(inner, ["commit", "-q", "-am", "second"])
+            let outer = evilRepo("git_evil_outer")
+            evilGit(outer, ["-c", "protocol.file.allow=always", "submodule", "add", "-q", inner.path, "mod"])
+            evilGit(outer, ["commit", "-q", "-m", "add submodule"])
+            let mod = outer.appendingPathComponent("mod")
+            evilGit(mod, ["config", "filter.x.clean", evilHook.path])
+            let modAttrs = outer.appendingPathComponent(".git/modules/mod/info")
+            try? FileManager.default.createDirectory(at: modAttrs, withIntermediateDirectories: true)
+            try? "* filter=x\n".write(to: modAttrs.appendingPathComponent("attributes"),
+                                    atomically: true, encoding: .utf8)
+            try? "c\n".write(to: mod.appendingPathComponent("f.txt"), atomically: true, encoding: .utf8)
+            browse(outer)
+            assert("GitStatus doesn't descend into a submodule's config", !evilRan(), "command ran")
         }
 
         // --- T46c: ProjectRoot detection (git marker + non-git marker) ---

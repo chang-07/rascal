@@ -1,8 +1,9 @@
 import Foundation
 
 /// Lightweight git porcelain reader. Shells out to the system `git` so there's
-/// no dependency and it respects the user's git config. Everything here is
-/// synchronous and meant to be called from a background queue.
+/// no dependency and it respects the user's global git config. A browsed repo's
+/// own config is untrusted: see `run`. Everything here is synchronous and meant
+/// to be called from a background queue.
 enum GitStatus {
 
     /// Per-file working-tree state, mapped to a display glyph + color intent.
@@ -71,9 +72,9 @@ enum GitStatus {
 
     /// Branch + ahead/behind for a repo, parsed from `git status -b --porcelain`.
     static func repoInfo(root: URL) -> RepoInfo {
-        guard let header = run(["-C", root.path, "status", "-b", "--porcelain=v1"], in: root)?
+        guard let header = run(["-C", root.path, "status", "-b", "--porcelain=v1", "--ignore-submodules=dirty"], in: root)?
             .split(separator: "\n").first.map(String.init) else {
-            return RepoInfo(root: root, branch: nil, ahead: 0, behind: 0)
+            return RepoInfo(root: root, branch: GitBranchWorkspaces.currentBranch(in: root), ahead: 0, behind: 0)
         }
         // Header looks like: "## main...origin/main [ahead 2, behind 1]"
         // or "## main" (no upstream) or "## HEAD (no branch)".
@@ -113,7 +114,8 @@ enum GitStatus {
         // cost tracks the folder size, not the whole (possibly huge) repo. git
         // still reports paths relative to the repo root, so the prefix-strip and
         // folder-aggregation below are unaffected.
-        var args = ["-C", root.path, "status", "--porcelain=v1", "-z", "--untracked-files=normal"]
+        var args = ["-C", root.path, "status", "--porcelain=v1", "-z", "--untracked-files=normal",
+                    "--ignore-submodules=dirty"]
         if !rel.isEmpty {
             args.append("--")
             args.append(String(rel.dropLast()))   // drop the trailing slash for the pathspec
@@ -150,13 +152,13 @@ enum GitStatus {
 
         // Fetch numstat for modified files in this directory.
         var numstat: [String: (added: Int, deleted: Int)] = [:]
-        var diffArgs = ["-C", root.path, "diff", "HEAD", "--numstat", "--no-renames"]
+        var diffArgs = ["-C", root.path, "diff", "HEAD", "--numstat", "--no-renames"] + safeDiffOptions
         if !rel.isEmpty {
             diffArgs.append("--")
             diffArgs.append(String(rel.dropLast()))
         }
         let diffOut = run(diffArgs, in: root) ?? {
-            var fallbackArgs = ["-C", root.path, "diff", "--numstat", "--no-renames"]
+            var fallbackArgs = ["-C", root.path, "diff", "--numstat", "--no-renames"] + safeDiffOptions
             if !rel.isEmpty {
                 fallbackArgs.append("--")
                 fallbackArgs.append(String(rel.dropLast()))
@@ -211,7 +213,7 @@ enum GitStatus {
     }
 
     static func gitDiff(repoRoot: URL, fileURL: URL) -> String? {
-        run(["-C", repoRoot.path, "diff", "HEAD", "--", fileURL.path], in: repoRoot)
+        run(["-C", repoRoot.path, "diff", "HEAD"] + safeDiffOptions + ["--", fileURL.path], in: repoRoot)
     }
 
     // MARK: - helpers
@@ -227,7 +229,44 @@ enum GitStatus {
         return Int(digits)
     }
 
+    /// Config overrides for every repo command. Unlike a cloned repo, an
+    /// unpacked archive brings its own `.git/config`, and merely browsing the
+    /// folder must not run the commands it names.
+    private static let safeConfigOverrides = [
+        "-c", "core.fsmonitor=false",
+        "-c", "core.hooksPath=/dev/null",
+        "-c", "core.sshCommand=false",
+    ]
+
+    /// `diff.external` and `diff.<driver>.command` / `.textconv` run commands too.
+    private static let safeDiffOptions = ["--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty"]
+
+    /// Runs git against a repo that may be hostile. `--ignore-submodules=dirty`
+    /// on the callers keeps git out of submodules, whose config isn't checked here.
     private static func run(_ args: [String], in dir: URL) -> String? {
+        guard !definesFilterDriver(in: dir) else { return nil }
+        return exec(safeConfigOverrides + args, in: dir)
+    }
+
+    /// True if the repo's own config defines a clean/smudge filter, or can't be
+    /// read. Filter names are arbitrary so they can't be overridden with `-c`,
+    /// and blanking one would misreport its files as modified, so such a repo
+    /// gets no git status at all. Filters from the user's global config (e.g.
+    /// git-lfs) are trusted. Listing config runs nothing from it.
+    private static func definesFilterDriver(in dir: URL) -> Bool {
+        guard let out = exec(["-C", dir.path, "config", "--list", "--name-only", "--show-scope", "-z"], in: dir)
+        else { return true }
+        // Fields alternate: scope, key.
+        let fields = out.split(separator: "\0", omittingEmptySubsequences: false)
+        return stride(from: 0, to: fields.count - 1, by: 2).contains { i in
+            let key = fields[i + 1]
+            return (fields[i] == "local" || fields[i] == "worktree")
+                && key.hasPrefix("filter.")
+                && [".clean", ".smudge", ".process"].contains { key.hasSuffix($0) }
+        }
+    }
+
+    private static func exec(_ args: [String], in dir: URL) -> String? {
         guard let git = gitPath else { return nil }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: git)
@@ -240,6 +279,10 @@ enum GitStatus {
         var env = ProcessInfo.processInfo.environment
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_OPTIONAL_LOCKS"] = "0"
+        // A partial clone would otherwise fetch missing blobs over the transport
+        // its config names. Older git ignores the first; the second always holds.
+        env["GIT_NO_LAZY_FETCH"] = "1"
+        env["GIT_ALLOW_PROTOCOL"] = "none"
         p.environment = env
         do { try p.run() } catch { return nil }
         let data = out.fileHandleForReading.readDataToEndOfFile()
